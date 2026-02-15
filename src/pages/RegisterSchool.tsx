@@ -46,54 +46,31 @@ const RegisterSchool = () => {
 
     setLoading(true);
 
-    // Check slug availability
-    const { data: existing } = await supabase
-      .from("schools")
-      .select("id")
-      .eq("slug", slug)
-      .maybeSingle();
+    try {
+      const response = await supabase.functions.invoke("register-school", {
+        body: { schoolName, slug, address, phone, schoolEmail, email, password, fullName },
+      });
 
-    if (existing) {
-      toast.error("This school link is already taken. Please choose a different one.");
+      if (response.error) {
+        toast.error(response.error.message || "Registration failed");
+        setLoading(false);
+        return;
+      }
+
+      const data = response.data;
+      if (data?.error) {
+        toast.error(data.error);
+        setLoading(false);
+        return;
+      }
+
+      setCreatedSlug(slug);
+      setStep("done");
+    } catch (err) {
+      toast.error("Something went wrong. Please try again.");
+    } finally {
       setLoading(false);
-      return;
     }
-
-    // Sign up the school owner
-    const { data: authData, error: authError } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: { full_name: fullName },
-        emailRedirectTo: window.location.origin,
-      },
-    });
-
-    if (authError || !authData.user) {
-      toast.error(authError?.message || "Failed to create account");
-      setLoading(false);
-      return;
-    }
-
-    // Create the school
-    const { error: schoolError } = await supabase.from("schools").insert({
-      owner_id: authData.user.id,
-      name: schoolName,
-      slug,
-      address: address || null,
-      phone: phone || null,
-      email: schoolEmail || null,
-    });
-
-    if (schoolError) {
-      toast.error("Failed to create school: " + schoolError.message);
-      setLoading(false);
-      return;
-    }
-
-    setCreatedSlug(slug);
-    setStep("done");
-    setLoading(false);
   };
 
   if (step === "done") {
