@@ -3,11 +3,13 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-import { AuthProvider } from "@/lib/authContext";
-import LoginPage from "./pages/LoginPage";
-import StudentDashboard from "./pages/StudentDashboard";
-import AdminDashboard from "./pages/AdminDashboard";
-import ReceiptPage from "./pages/ReceiptPage";
+import { SchoolProvider } from "@/lib/schoolContext";
+import LandingPage from "./pages/LandingPage";
+import RegisterSchool from "./pages/RegisterSchool";
+import OwnerLogin from "./pages/OwnerLogin";
+import SchoolPortal from "./pages/SchoolPortal";
+import SchoolStudentDashboard from "./pages/SchoolStudentDashboard";
+import SchoolAdminDashboard from "./pages/SchoolAdminDashboard";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -15,19 +17,25 @@ const queryClient = new QueryClient();
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
-      <AuthProvider>
+      <SchoolProvider>
         <Toaster />
         <Sonner />
         <BrowserRouter>
           <Routes>
-            <Route path="/" element={<LoginPage />} />
-            <Route path="/student" element={<StudentDashboard />} />
-            <Route path="/admin" element={<AdminDashboard />} />
-            <Route path="/receipt/:paymentId" element={<ReceiptPage />} />
+            {/* Main site - for school owners only */}
+            <Route path="/" element={<LandingPage />} />
+            <Route path="/register" element={<RegisterSchool />} />
+            <Route path="/login" element={<OwnerLogin />} />
+
+            {/* School portals - for students and school admins */}
+            <Route path="/school/:slug" element={<SchoolPortal />} />
+            <Route path="/school/:slug/student" element={<SchoolStudentDashboard />} />
+            <Route path="/school/:slug/admin" element={<SchoolAdminDashboard />} />
+
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
-      </AuthProvider>
+      </SchoolProvider>
     </TooltipProvider>
   </QueryClientProvider>
 );
