@@ -64,8 +64,16 @@ const RegisterSchool = () => {
         return;
       }
 
-      setCreatedSlug(slug);
-      setStep("done");
+      // Auto-login the newly registered user
+      const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+      if (signInError) {
+        toast.error("Registration succeeded but auto-login failed. Please sign in manually.");
+        navigate("/login");
+        return;
+      }
+
+      toast.success("School registered successfully!");
+      navigate(`/school/${slug}/admin`);
     } catch (err) {
       toast.error("Something went wrong. Please try again.");
     } finally {

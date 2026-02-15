@@ -46,11 +46,11 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Create user with admin client (bypasses rate limiting)
+    // Create user with admin client (bypasses rate limiting), auto-confirm email
     const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
       email,
       password,
-      email_confirm: false,
+      email_confirm: true,
       user_metadata: { full_name: fullName },
     });
 
@@ -100,12 +100,6 @@ Deno.serve(async (req) => {
         user_id: authData.user.id,
       });
     }
-
-    // Generate confirmation email
-    await supabaseAdmin.auth.admin.generateLink({
-      type: "signup",
-      email,
-    });
 
     return new Response(JSON.stringify({ success: true, slug }), {
       status: 200,
