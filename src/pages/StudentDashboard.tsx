@@ -268,7 +268,10 @@ const StudentDashboard = () => {
                             value={feeAmounts[fee.id] || ""}
                             min={1}
                             max={owing}
-                            onChange={(e) => setFeeAmounts((prev) => ({ ...prev, [fee.id]: e.target.value }))}
+                            onChange={(e) => {
+                              const val = Math.min(Math.max(Number(e.target.value), 0), owing);
+                              setFeeAmounts((prev) => ({ ...prev, [fee.id]: String(val || '') }));
+                            }}
                           />
                           <span className="text-xs text-muted-foreground whitespace-nowrap">/ {formatNaira(owing)}</span>
                         </div>
