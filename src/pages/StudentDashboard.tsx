@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/authContext";
 import { feeStructure, payments as allPayments, formatNaira } from "@/lib/mockData";
@@ -7,6 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { GraduationCap, LogOut, Wallet, CreditCard, History, Receipt } from "lucide-react";
 import { toast } from "sonner";
@@ -16,19 +17,44 @@ const StudentDashboard = () => {
   const navigate = useNavigate();
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [processingOpen, setProcessingOpen] = useState(false);
-  const [customAmount, setCustomAmount] = useState("");
   const [lastPayment, setLastPayment] = useState<{ amount: number; reference: string } | null>(null);
+  const [selectedFees, setSelectedFees] = useState<Record<string, boolean>>({});
+  const [feeAmounts, setFeeAmounts] = useState<Record<string, string>>({});
 
-  if (!user) {
-    navigate("/");
-    return null;
-  }
-
-  const fees = feeStructure[user.id] || [];
+  const fees = user ? (feeStructure[user.id] || []) : [];
   const totalFees = fees.reduce((s, f) => s + f.amount, 0);
   const totalPaid = fees.reduce((s, f) => s + f.paid, 0);
   const balance = totalFees - totalPaid;
-  const studentPayments = allPayments.filter((p) => p.studentId === user.id);
+  const studentPayments = user ? allPayments.filter((p) => p.studentId === user.id) : [];
+
+  const unpaidFees = fees.filter((f) => f.status !== "paid");
+
+  const toggleFee = (feeId: string) => {
+    setSelectedFees((prev) => {
+      const next = { ...prev, [feeId]: !prev[feeId] };
+      if (!next[feeId]) {
+        setFeeAmounts((a) => { const copy = { ...a }; delete copy[feeId]; return copy; });
+      } else {
+        const fee = fees.find((f) => f.id === feeId);
+        if (fee) setFeeAmounts((a) => ({ ...a, [feeId]: String(fee.amount - fee.paid) }));
+      }
+      return next;
+    });
+  };
+
+  const paymentTotal = useMemo(() => {
+    return unpaidFees.reduce((sum, fee) => {
+      if (!selectedFees[fee.id]) return sum;
+      const val = Number(feeAmounts[fee.id] || 0);
+      return sum + Math.min(Math.max(val, 0), fee.amount - fee.paid);
+    }, 0);
+  }, [selectedFees, feeAmounts, unpaidFees]);
+
+  const openPaymentModal = () => {
+    setSelectedFees({});
+    setFeeAmounts({});
+    setPaymentOpen(true);
+  };
 
   const statusColor = (status: string) => {
     if (status === "paid") return "bg-primary/15 text-primary border-primary/30";
@@ -46,6 +72,11 @@ const StudentDashboard = () => {
       toast.success("Payment successful!");
     }, 2000);
   };
+
+  if (!user) {
+    navigate("/");
+    return null;
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -158,7 +189,7 @@ const StudentDashboard = () => {
                 <p className="font-semibold">Outstanding Balance: {formatNaira(balance)}</p>
                 <p className="text-sm text-muted-foreground">Pay in full or enter a custom amount</p>
               </div>
-              <Button onClick={() => setPaymentOpen(true)} className="gap-2">
+              <Button onClick={openPaymentModal} className="gap-2">
                 <CreditCard className="w-4 h-4" /> Make Payment
               </Button>
             </CardContent>
@@ -201,22 +232,64 @@ const StudentDashboard = () => {
 
       {/* Payment Modal */}
       <Dialog open={paymentOpen} onOpenChange={setPaymentOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Make Payment via Paystack</DialogTitle>
-            <DialogDescription>Balance: {formatNaira(balance)}</DialogDescription>
+            <DialogTitle>Select Fees to Pay</DialogTitle>
+            <DialogDescription>Tick the fees you want to pay. You can adjust amounts for partial payments.</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            <Button className="w-full" onClick={() => handlePay(balance)}>Pay Full Balance — {formatNaira(balance)}</Button>
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center"><span className="w-full border-t" /></div>
-              <div className="relative flex justify-center text-xs uppercase"><span className="bg-background px-2 text-muted-foreground">or pay custom amount</span></div>
-            </div>
-            <div className="flex gap-2">
-              <Input type="number" placeholder="Enter amount" value={customAmount} onChange={(e) => setCustomAmount(e.target.value)} />
-              <Button variant="outline" disabled={!customAmount || Number(customAmount) <= 0 || Number(customAmount) > balance} onClick={() => handlePay(Number(customAmount))}>Pay</Button>
-            </div>
+          <div className="space-y-3 max-h-[50vh] overflow-y-auto">
+            {unpaidFees.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">All fees are paid!</p>
+            ) : (
+              unpaidFees.map((fee) => {
+                const owing = fee.amount - fee.paid;
+                const isSelected = !!selectedFees[fee.id];
+                return (
+                  <div key={fee.id} className={`flex items-start gap-3 p-3 rounded-lg border transition-colors ${isSelected ? "border-primary/40 bg-primary/5" : "border-border"}`}>
+                    <Checkbox
+                      checked={isSelected}
+                      onCheckedChange={() => toggleFee(fee.id)}
+                      className="mt-0.5"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-medium">{fee.name}</span>
+                        <Badge variant="outline" className={statusColor(fee.status)} >{fee.status}</Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Total: {formatNaira(fee.amount)} &bull; Paid: {formatNaira(fee.paid)} &bull; Owing: {formatNaira(owing)}
+                      </p>
+                      {isSelected && (
+                        <div className="mt-2 flex items-center gap-2">
+                          <span className="text-xs text-muted-foreground whitespace-nowrap">Pay:</span>
+                          <Input
+                            type="number"
+                            className="h-8 text-sm"
+                            value={feeAmounts[fee.id] || ""}
+                            min={1}
+                            max={owing}
+                            onChange={(e) => setFeeAmounts((prev) => ({ ...prev, [fee.id]: e.target.value }))}
+                          />
+                          <span className="text-xs text-muted-foreground whitespace-nowrap">/ {formatNaira(owing)}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
+            )}
           </div>
+          {unpaidFees.length > 0 && (
+            <div className="border-t pt-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="font-semibold">Total to Pay:</span>
+                <span className="text-xl font-bold text-primary">{formatNaira(paymentTotal)}</span>
+              </div>
+              <Button className="w-full gap-2" disabled={paymentTotal <= 0} onClick={() => handlePay(paymentTotal)}>
+                <CreditCard className="w-4 h-4" /> Pay {formatNaira(paymentTotal)} via Paystack
+              </Button>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 
