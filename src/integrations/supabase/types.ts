@@ -203,7 +203,9 @@ export type Database = {
         Row: {
           class: string
           created_at: string
+          failed_login_attempts: number
           id: string
+          locked_until: string | null
           name: string
           pin: string
           school_id: string
@@ -215,7 +217,9 @@ export type Database = {
         Insert: {
           class: string
           created_at?: string
+          failed_login_attempts?: number
           id?: string
+          locked_until?: string | null
           name: string
           pin: string
           school_id: string
@@ -227,7 +231,9 @@ export type Database = {
         Update: {
           class?: string
           created_at?: string
+          failed_login_attempts?: number
           id?: string
+          locked_until?: string | null
           name?: string
           pin?: string
           school_id?: string
@@ -252,6 +258,18 @@ export type Database = {
     }
     Functions: {
       is_school_member: { Args: { school_id_param: string }; Returns: boolean }
+      verify_student_pin: {
+        Args: { p_pin: string; p_school_id: string; p_student_id: string }
+        Returns: {
+          class: string
+          id: string
+          name: string
+          school_id: string
+          session: string
+          student_id: string
+          term: string
+        }[]
+      }
     }
     Enums: {
       [_ in never]: never
