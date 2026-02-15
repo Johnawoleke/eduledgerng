@@ -14,11 +14,20 @@ serve(async (req) => {
 
   try {
     const { school_slug, student_id, pin, fee_payments } = await req.json();
-    // fee_payments: Array<{ fee_item_id: string, amount: number }>
 
     if (!school_slug || !student_id || !pin || !fee_payments?.length) {
       return new Response(
         JSON.stringify({ error: "Missing required fields" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Basic input validation
+    if (typeof student_id !== "string" || student_id.length > 30 ||
+        typeof pin !== "string" || pin.length > 10 ||
+        typeof school_slug !== "string" || school_slug.length > 100) {
+      return new Response(
+        JSON.stringify({ error: "Invalid input" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -28,7 +37,7 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    // Verify student
+    // Verify school
     const { data: school } = await supabaseAdmin
       .from("schools")
       .select("id")
@@ -42,20 +51,22 @@ serve(async (req) => {
       );
     }
 
-    const { data: student } = await supabaseAdmin
-      .from("students")
-      .select("id, name, class")
-      .eq("school_id", school.id)
-      .eq("student_id", student_id)
-      .eq("pin", pin)
-      .maybeSingle();
+    // Verify student PIN using secure database function (hashed comparison + rate limiting)
+    const { data: students, error: verifyError } = await supabaseAdmin
+      .rpc("verify_student_pin", {
+        p_school_id: school.id,
+        p_student_id: student_id,
+        p_pin: pin,
+      });
 
-    if (!student) {
+    if (verifyError || !students || students.length === 0) {
       return new Response(
         JSON.stringify({ error: "Invalid credentials" }),
         { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
+
+    const student = students[0];
 
     const reference = `PSK-${Date.now().toString(36).toUpperCase()}`;
     let totalAmount = 0;

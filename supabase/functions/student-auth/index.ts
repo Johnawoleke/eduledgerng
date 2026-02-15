@@ -22,6 +22,16 @@ serve(async (req) => {
       );
     }
 
+    // Basic input validation
+    if (typeof student_id !== "string" || student_id.length > 30 ||
+        typeof pin !== "string" || pin.length > 10 ||
+        typeof school_slug !== "string" || school_slug.length > 100) {
+      return new Response(
+        JSON.stringify({ error: "Invalid input" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     const supabaseAdmin = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
@@ -41,21 +51,22 @@ serve(async (req) => {
       );
     }
 
-    // Find student
-    const { data: student, error: studentError } = await supabaseAdmin
-      .from("students")
-      .select("id, student_id, name, class, term, session, school_id")
-      .eq("school_id", school.id)
-      .eq("student_id", student_id)
-      .eq("pin", pin)
-      .maybeSingle();
+    // Verify student PIN using secure database function (hashed comparison + rate limiting)
+    const { data: students, error: verifyError } = await supabaseAdmin
+      .rpc("verify_student_pin", {
+        p_school_id: school.id,
+        p_student_id: student_id,
+        p_pin: pin,
+      });
 
-    if (studentError || !student) {
+    if (verifyError || !students || students.length === 0) {
       return new Response(
         JSON.stringify({ error: "Invalid Student ID or PIN" }),
         { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
+
+    const student = students[0];
 
     // Get fee items
     const { data: feeItems } = await supabaseAdmin
