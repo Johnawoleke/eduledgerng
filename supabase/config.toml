@@ -1,1 +1,4 @@
 project_id = "eymbfxjnmvrhdxaorwcq"
+
+[functions.register-school]
+verify_jwt = false
