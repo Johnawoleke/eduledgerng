@@ -47,7 +47,7 @@ const LoginPage = () => {
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary mb-4">
             <GraduationCap className="w-8 h-8 text-primary-foreground" />
           </div>
-          <h1 className="text-3xl font-bold text-foreground">EduLedger<span className="text-primary">NG</span></h1>
+          <h1 className="text-3xl font-bold text-foreground">EduLedger<span className="text-primary font-bold">NG</span></h1>
           <p className="text-muted-foreground mt-1">School Fee Management System</p>
         </div>
 

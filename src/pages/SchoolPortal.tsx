@@ -160,7 +160,7 @@ const SchoolPortal = () => {
             <GraduationCap className="w-8 h-8 text-primary-foreground" />
           </div>
           <h1 className="text-2xl font-bold text-foreground">{schoolName}</h1>
-          <p className="text-muted-foreground mt-1">Powered by EduLedger<span className="text-primary">NG</span></p>
+          <p className="text-muted-foreground mt-1">Powered by EduLedger<span className="text-primary font-bold">NG</span></p>
         </div>
 
         <Card className="shadow-lg border-primary/10">

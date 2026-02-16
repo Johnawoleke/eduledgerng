@@ -61,10 +61,17 @@ export const generateReceiptPdf = (data: ReceiptData) => {
   // Logo text
   doc.setFont("helvetica", "bold");
   doc.setFontSize(20);
+  // Measure "EduLedger" width to position "NG" right next to it
   doc.setTextColor(...dark);
-  doc.text("EduLedger", pageW / 2 - 12, y, { align: "center" });
+  const eduText = "EduLedger";
+  const ngText = "NG";
+  const eduW = doc.getTextWidth(eduText);
+  const ngW = doc.getTextWidth(ngText);
+  const totalW = eduW + ngW;
+  const startX = (pageW - totalW) / 2;
+  doc.text(eduText, startX, y);
   doc.setTextColor(...green);
-  doc.text("NG", pageW / 2 + 18, y, { align: "center" });
+  doc.text(ngText, startX + eduW, y);
   y += 7;
 
   doc.setFontSize(10);

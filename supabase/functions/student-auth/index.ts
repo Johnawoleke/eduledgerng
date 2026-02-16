@@ -68,11 +68,59 @@ serve(async (req) => {
 
     const student = students[0];
 
-    // Get fee items
-    const { data: feeItems } = await supabaseAdmin
+    // Get fee items for this student
+    let { data: feeItems } = await supabaseAdmin
       .from("fee_items")
       .select("*")
       .eq("student_id", student.id);
+
+    // Auto-provision fees from classmates if student has none
+    if (!feeItems || feeItems.length === 0) {
+      // Find a classmate in the same school+class who has fee_items
+      const { data: classmates } = await supabaseAdmin
+        .from("students")
+        .select("id")
+        .eq("school_id", student.school_id)
+        .eq("class", student.class)
+        .neq("id", student.id)
+        .limit(50);
+
+      if (classmates && classmates.length > 0) {
+        // Get fee_items from the first classmate who has them
+        let templateFees: any[] = [];
+        for (const classmate of classmates) {
+          const { data: classFees } = await supabaseAdmin
+            .from("fee_items")
+            .select("name, amount, school_id")
+            .eq("student_id", classmate.id)
+            .eq("school_id", student.school_id);
+          if (classFees && classFees.length > 0) {
+            templateFees = classFees;
+            break;
+          }
+        }
+
+        if (templateFees.length > 0) {
+          const inserts = templateFees.map((f: any) => ({
+            school_id: student.school_id,
+            student_id: student.id,
+            name: f.name,
+            amount: Number(f.amount),
+            paid: 0,
+            status: "unpaid",
+          }));
+
+          await supabaseAdmin.from("fee_items").insert(inserts);
+
+          // Re-fetch the newly created fee items
+          const { data: newFees } = await supabaseAdmin
+            .from("fee_items")
+            .select("*")
+            .eq("student_id", student.id);
+          feeItems = newFees;
+        }
+      }
+    }
 
     // Get payments
     const { data: payments } = await supabaseAdmin
