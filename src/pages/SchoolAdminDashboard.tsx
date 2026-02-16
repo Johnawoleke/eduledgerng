@@ -9,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { GraduationCap, LogOut, Users, Wallet, TrendingUp, Search, Plus, UserPlus, Copy, Link as LinkIcon, KeyRound, Trash2 } from "lucide-react";
+import { GraduationCap, LogOut, Users, Wallet, TrendingUp, Search, Plus, UserPlus, Copy, Link as LinkIcon, KeyRound, Trash2, ChevronLeft } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -61,6 +61,11 @@ const SchoolAdminDashboard = () => {
   const [payments, setPayments] = useState<any[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
+  const [studentsClassFilter, setStudentsClassFilter] = useState("JSS1");
+  const [paymentsClassFilter, setPaymentsClassFilter] = useState("ALL");
+  const [selectedStudent, setSelectedStudent] = useState<StudentRow | null>(null);
+  const [studentFees, setStudentFees] = useState<any[]>([]);
+  const [loadingFees, setLoadingFees] = useState(false);
 
   // Add student dialog
   const [addStudentOpen, setAddStudentOpen] = useState(false);
@@ -241,6 +246,18 @@ const SchoolAdminDashboard = () => {
     navigate(`/school/${slug}`);
   };
 
+  const handleViewStudent = async (student: StudentRow) => {
+    setSelectedStudent(student);
+    setLoadingFees(true);
+    const { data } = await supabase
+      .from("fee_items")
+      .select("*")
+      .eq("student_id", student.id)
+      .eq("school_id", school.id);
+    setStudentFees(data || []);
+    setLoadingFees(false);
+  };
+
   const portalUrl = `${window.location.origin}/school/${slug}`;
 
   const copyPortalLink = () => {
@@ -261,16 +278,33 @@ const SchoolAdminDashboard = () => {
   const totalFees = students.reduce((s, st) => s + st.totalFees, 0);
   const outstanding = totalFees - students.reduce((s, st) => s + st.totalPaid, 0);
 
-  const filteredStudents = students.filter((s) =>
-    s.name.toLowerCase().includes(search.toLowerCase()) ||
-    s.student_id.toLowerCase().includes(search.toLowerCase())
-  );
+  const filteredStudents = students.filter((s) => {
+    const matchClass = s.class === studentsClassFilter;
+    const matchSearch = !search || s.name.toLowerCase().includes(search.toLowerCase()) || s.student_id.toLowerCase().includes(search.toLowerCase());
+    return matchClass && matchSearch;
+  });
 
   const filteredPayments = payments.filter((p) => {
-    const studentName = (p.students as any)?.name || "";
-    return studentName.toLowerCase().includes(search.toLowerCase()) ||
+    const studentData = p.students as any;
+    const matchClass = paymentsClassFilter === "ALL" || studentData?.class === paymentsClassFilter;
+    const matchSearch = !search ||
+      (studentData?.name || "").toLowerCase().includes(search.toLowerCase()) ||
       p.reference.toLowerCase().includes(search.toLowerCase());
+    return matchClass && matchSearch;
   });
+
+  const formatDateTime = (dateStr: string) => {
+    const d = new Date(dateStr);
+    const now = new Date();
+    const isToday = d.toDateString() === now.toDateString();
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const isYesterday = d.toDateString() === yesterday.toDateString();
+    const time = d.toLocaleTimeString("en-NG", { hour: "numeric", minute: "2-digit", hour12: true });
+    if (isToday) return `Today ${time}`;
+    if (isYesterday) return `Yesterday ${time}`;
+    return d.toLocaleDateString("en-NG", { day: "numeric", month: "short" }) + ` ${time}`;
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -366,90 +400,152 @@ const SchoolAdminDashboard = () => {
           </TabsList>
 
           <TabsContent value="students">
-            <Card>
-              <CardContent className="pt-6 overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Student ID</TableHead>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Class</TableHead>
-                      <TableHead>Default PIN</TableHead>
-                      <TableHead className="text-right">Total Fees</TableHead>
-                      <TableHead className="text-right">Paid</TableHead>
-                      <TableHead className="text-right">Balance</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead></TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredStudents.map((s) => {
-                      const bal = s.totalFees - s.totalPaid;
-                      const status = bal === 0 && s.totalFees > 0 ? "paid" : s.totalPaid > 0 ? "partial" : "unpaid";
-                      return (
-                        <TableRow key={s.id}>
-                          <TableCell className="font-mono text-xs">{s.student_id}</TableCell>
-                          <TableCell className="font-medium">{s.name}</TableCell>
-                          <TableCell><Badge variant="outline">{s.class}</Badge></TableCell>
-                          <TableCell>
-                            {s.must_change_pin && s.default_pin ? (
-                              <code className="bg-muted px-2 py-0.5 rounded text-xs font-bold">{s.default_pin}</code>
-                            ) : (
-                              <span className="text-xs text-muted-foreground">Changed</span>
-                            )}
-                          </TableCell>
-                          <TableCell className="text-right">{formatNaira(s.totalFees)}</TableCell>
-                          <TableCell className="text-right">{formatNaira(s.totalPaid)}</TableCell>
-                          <TableCell className="text-right font-medium">{formatNaira(bal)}</TableCell>
-                          <TableCell>
-                            <Badge variant="outline" className={status === "paid" ? "bg-primary/15 text-primary" : status === "partial" ? "bg-accent/15 text-accent-foreground" : "bg-destructive/10 text-destructive"}>
-                              {status}
+            {selectedStudent ? (
+              <Card>
+                <CardHeader className="pb-3">
+                  <div className="flex items-center gap-3">
+                    <Button variant="ghost" size="icon" onClick={() => setSelectedStudent(null)}>
+                      <ChevronLeft className="w-5 h-5" />
+                    </Button>
+                    <div>
+                      <CardTitle className="text-lg">{selectedStudent.name}</CardTitle>
+                      <p className="text-sm text-muted-foreground">{selectedStudent.student_id} · {selectedStudent.class}</p>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  {loadingFees ? (
+                    <div className="flex justify-center py-8">
+                      <div className="w-6 h-6 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+                    </div>
+                  ) : studentFees.length === 0 ? (
+                    <p className="text-center text-muted-foreground py-8">No fees assigned yet.</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {studentFees.map((fee) => {
+                        const feeStatus = Number(fee.paid) >= Number(fee.amount) ? "Cleared" : Number(fee.paid) > 0 ? "Partial" : "Unpaid";
+                        return (
+                          <div key={fee.id} className="flex items-center justify-between p-3 rounded-lg border">
+                            <div>
+                              <p className="font-medium">{fee.name}</p>
+                              <p className="text-sm text-muted-foreground">{formatNaira(Number(fee.amount))}</p>
+                            </div>
+                            <Badge variant="outline" className={feeStatus === "Cleared" ? "bg-primary/15 text-primary" : feeStatus === "Partial" ? "bg-accent/15 text-accent-foreground" : "bg-destructive/10 text-destructive"}>
+                              {feeStatus}
+                              {feeStatus === "Partial" && ` — ${formatNaira(Number(fee.paid))} paid`}
                             </Badge>
-                          </TableCell>
-                          <TableCell>
-                            <Button variant="ghost" size="sm" title="Reset PIN" onClick={() => handleResetPin(s.id, s.name)}>
-                              <KeyRound className="w-4 h-4" />
-                            </Button>
-                          </TableCell>
+                          </div>
+                        );
+                      })}
+                      <div className="flex justify-between pt-3 border-t font-medium">
+                        <span>Total</span>
+                        <span>{formatNaira(studentFees.reduce((a, f) => a + Number(f.amount), 0))}</span>
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            ) : (
+              <>
+                <div className="flex gap-2 mb-4 flex-wrap">
+                  {NIGERIAN_CLASSES.map((c) => (
+                    <Button
+                      key={c}
+                      variant={studentsClassFilter === c ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setStudentsClassFilter(c)}
+                    >
+                      {c}
+                    </Button>
+                  ))}
+                </div>
+                <Card>
+                  <CardContent className="pt-6 overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Name</TableHead>
+                          <TableHead>Student ID</TableHead>
+                          <TableHead className="text-right">Paid</TableHead>
+                          <TableHead>Status</TableHead>
                         </TableRow>
-                      );
-                    })}
-                    {filteredStudents.length === 0 && (
-                      <TableRow>
-                        <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
-                          No students found. Add your first student above.
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
+                      </TableHeader>
+                      <TableBody>
+                        {filteredStudents.map((s) => {
+                          const status = s.totalFees > 0 && s.totalPaid >= s.totalFees ? "Cleared" : s.totalPaid > 0 ? "Partial" : "Unpaid";
+                          return (
+                            <TableRow key={s.id} className="cursor-pointer" onClick={() => handleViewStudent(s)}>
+                              <TableCell className="font-medium">{s.name}</TableCell>
+                              <TableCell className="font-mono text-xs">{s.student_id}</TableCell>
+                              <TableCell className="text-right">{formatNaira(s.totalPaid)}</TableCell>
+                              <TableCell>
+                                <Badge variant="outline" className={status === "Cleared" ? "bg-primary/15 text-primary" : status === "Partial" ? "bg-accent/15 text-accent-foreground" : "bg-destructive/10 text-destructive"}>
+                                  {status}
+                                </Badge>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                        {filteredStudents.length === 0 && (
+                          <TableRow>
+                            <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
+                              No students in {studentsClassFilter}.
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
+                  </CardContent>
+                </Card>
+              </>
+            )}
           </TabsContent>
 
           <TabsContent value="payments">
+            <div className="flex gap-2 mb-4 flex-wrap">
+              <Button
+                variant={paymentsClassFilter === "ALL" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setPaymentsClassFilter("ALL")}
+              >
+                All
+              </Button>
+              {NIGERIAN_CLASSES.map((c) => (
+                <Button
+                  key={c}
+                  variant={paymentsClassFilter === c ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setPaymentsClassFilter(c)}
+                >
+                  {c}
+                </Button>
+              ))}
+            </div>
             <Card>
               <CardContent className="pt-6">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Date</TableHead>
                       <TableHead>Student</TableHead>
-                      <TableHead>Reference</TableHead>
-                      <TableHead>Items</TableHead>
+                      <TableHead>Class</TableHead>
+                      <TableHead>Fee</TableHead>
                       <TableHead className="text-right">Amount</TableHead>
+                      <TableHead>Date</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredPayments.map((p) => (
-                      <TableRow key={p.id}>
-                        <TableCell>{new Date(p.date).toLocaleDateString("en-NG")}</TableCell>
-                        <TableCell className="font-medium">{(p.students as any)?.name || "—"}</TableCell>
-                        <TableCell className="font-mono text-xs">{p.reference}</TableCell>
-                        <TableCell className="text-xs">{p.items?.join(", ")}</TableCell>
-                        <TableCell className="text-right font-medium">{formatNaira(Number(p.amount))}</TableCell>
-                      </TableRow>
-                    ))}
+                    {filteredPayments.map((p) => {
+                      const studentData = p.students as any;
+                      return (
+                        <TableRow key={p.id}>
+                          <TableCell className="font-medium">{studentData?.name || "—"}</TableCell>
+                          <TableCell><Badge variant="outline">{studentData?.class || "—"}</Badge></TableCell>
+                          <TableCell className="text-xs">{p.items?.join(", ") || "—"}</TableCell>
+                          <TableCell className="text-right font-medium">{formatNaira(Number(p.amount))}</TableCell>
+                          <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{formatDateTime(p.date)}</TableCell>
+                        </TableRow>
+                      );
+                    })}
                     {filteredPayments.length === 0 && (
                       <TableRow>
                         <TableCell colSpan={5} className="text-center text-muted-foreground py-8">No payments yet.</TableCell>
