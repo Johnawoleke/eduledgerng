@@ -67,8 +67,10 @@ const SchoolStudentDashboard = () => {
   };
 
   const handlePay = async () => {
-    setPaymentOpen(false);
-    setProcessingOpen(true);
+    if (!window.PaystackPop) {
+      toast.error("Payment gateway not loaded. Please refresh.");
+      return;
+    }
 
     const feePayments = unpaidFees
       .filter((f) => selectedFees[f.id])
@@ -78,44 +80,76 @@ const SchoolStudentDashboard = () => {
       }))
       .filter((fp) => fp.amount > 0);
 
-    try {
-      const res = await supabase.functions.invoke("student-payment", {
-        body: {
-          school_slug: slug,
-          student_id: studentCredentials?.student_id,
-          pin: studentCredentials?.pin,
-          fee_payments: feePayments,
-        },
-      });
+    if (feePayments.length === 0 || paymentTotal <= 0) return;
 
-      if (res.error || res.data?.error) {
-        toast.error(res.data?.error || "Payment failed");
-        setProcessingOpen(false);
-        return;
-      }
+    setPaymentOpen(false);
 
-      // Refresh student data
-      const refreshRes = await supabase.functions.invoke("student-auth", {
-        body: {
-          school_slug: slug,
-          student_id: studentCredentials?.student_id,
-          pin: studentCredentials?.pin,
-        },
-      });
+    const paystackKey = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || "pk_test_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx";
+    const reference = `PSK-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
 
-      if (refreshRes.data && !refreshRes.data.error) {
-        setStudentData(refreshRes.data.feeItems, refreshRes.data.payments);
-      }
+    const handler = window.PaystackPop.setup({
+      key: paystackKey,
+      email: `${student!.student_id}@${slug}.eduledger.ng`,
+      amount: paymentTotal * 100, // kobo
+      currency: "NGN",
+      ref: reference,
+      metadata: {
+        student_id: student!.student_id,
+        student_name: student!.name,
+        school_slug: slug,
+        custom_fields: [
+          { display_name: "Student", variable_name: "student", value: student!.name },
+          { display_name: "School", variable_name: "school", value: school?.name || slug },
+        ],
+      },
+      callback: async (response) => {
+        // Paystack payment successful — verify on backend
+        setProcessingOpen(true);
+        try {
+          const res = await supabase.functions.invoke("verify-payment", {
+            body: {
+              reference: response.reference,
+              school_slug: slug,
+              student_id: studentCredentials?.student_id,
+              pin: studentCredentials?.pin,
+              fee_payments: feePayments,
+            },
+          });
 
-      setProcessingOpen(false);
-      toast.success("Payment successful!");
-      // Use the payment ID returned directly from the payment response
-      const newPaymentId = res.data?.payment?.id;
-      navigate(`/school/${slug}/receipt/${newPaymentId || "latest"}`);
-    } catch {
-      toast.error("Payment failed");
-      setProcessingOpen(false);
-    }
+          if (res.error || res.data?.error) {
+            toast.error(res.data?.error || "Payment verification failed");
+            setProcessingOpen(false);
+            return;
+          }
+
+          // Refresh student data
+          const refreshRes = await supabase.functions.invoke("student-auth", {
+            body: {
+              school_slug: slug,
+              student_id: studentCredentials?.student_id,
+              pin: studentCredentials?.pin,
+            },
+          });
+
+          if (refreshRes.data && !refreshRes.data.error) {
+            setStudentData(refreshRes.data.feeItems, refreshRes.data.payments);
+          }
+
+          setProcessingOpen(false);
+          toast.success("Payment verified successfully!");
+          const newPaymentId = res.data?.payment?.id;
+          navigate(`/school/${slug}/receipt/${newPaymentId || "latest"}`);
+        } catch {
+          toast.error("Payment verification failed");
+          setProcessingOpen(false);
+        }
+      },
+      onClose: () => {
+        toast.info("Payment cancelled");
+      },
+    });
+
+    handler.openIframe();
   };
 
   if (!student) {
