@@ -8,6 +8,7 @@ interface StudentData {
   term: string;
   session: string;
   school_id: string;
+  must_change_pin?: boolean;
 }
 
 interface SchoolData {

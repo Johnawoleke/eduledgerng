@@ -8,12 +8,28 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { GraduationCap, LogOut, Users, Wallet, TrendingUp, Search, Plus, UserPlus } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { GraduationCap, LogOut, Users, Wallet, TrendingUp, Search, Plus, UserPlus, Copy, Link as LinkIcon, KeyRound, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 
 const formatNaira = (amount: number) =>
   new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN", minimumFractionDigits: 0 }).format(amount);
+
+const NIGERIAN_CLASSES = ["JSS1", "JSS2", "JSS3", "SSS1", "SSS2", "SSS3"];
+
+const DEFAULT_FEE_TEMPLATES = [
+  "Tuition Fee",
+  "PTA Levy",
+  "Exam Fee",
+  "Sports Levy",
+  "Computer Fee",
+  "Library Fee",
+  "Laboratory Fee",
+  "Books and Materials",
+  "Uniform Fee",
+  "Development Levy",
+];
 
 interface StudentRow {
   id: string;
@@ -22,9 +38,13 @@ interface StudentRow {
   class: string;
   term: string;
   session: string;
+  default_pin: string | null;
+  must_change_pin: boolean;
   totalFees: number;
   totalPaid: number;
 }
+
+const generatePin = () => String(Math.floor(1000 + Math.random() * 9000));
 
 const SchoolAdminDashboard = () => {
   const { slug } = useParams<{ slug: string }>();
@@ -37,17 +57,18 @@ const SchoolAdminDashboard = () => {
 
   // Add student dialog
   const [addStudentOpen, setAddStudentOpen] = useState(false);
-  const [newStudentId, setNewStudentId] = useState("");
-  const [newStudentName, setNewStudentName] = useState("");
+  const [newSurname, setNewSurname] = useState("");
+  const [newFirstName, setNewFirstName] = useState("");
+  const [newMiddleName, setNewMiddleName] = useState("");
   const [newStudentClass, setNewStudentClass] = useState("");
-  const [newStudentPin, setNewStudentPin] = useState("");
   const [addingStudent, setAddingStudent] = useState(false);
 
   // Add fee dialog
   const [addFeeOpen, setAddFeeOpen] = useState(false);
   const [feeStudentId, setFeeStudentId] = useState("");
-  const [feeName, setFeeName] = useState("");
-  const [feeAmount, setFeeAmount] = useState("");
+  const [feeEntries, setFeeEntries] = useState<{ name: string; amount: string }[]>(
+    DEFAULT_FEE_TEMPLATES.map((name) => ({ name, amount: "" }))
+  );
   const [addingFee, setAddingFee] = useState(false);
 
   const loadData = async () => {
@@ -70,10 +91,9 @@ const SchoolAdminDashboard = () => {
 
     setSchool(schoolData);
 
-    // Load students with fee totals
     const { data: studentsData } = await supabase
       .from("students")
-      .select("id, student_id, name, class, term, session")
+      .select("id, student_id, name, class, term, session, default_pin, must_change_pin")
       .eq("school_id", schoolData.id);
 
     const { data: feeData } = await supabase
@@ -87,14 +107,17 @@ const SchoolAdminDashboard = () => {
       .eq("school_id", schoolData.id)
       .order("date", { ascending: false });
 
-    const studentRows: StudentRow[] = (studentsData || []).map((s) => {
-      const fees = (feeData || []).filter((f) => f.student_id === s.id);
+    const studentRows: StudentRow[] = (studentsData || []).map((s: any) => {
+      const fees = (feeData || []).filter((f: any) => f.student_id === s.id);
       return {
         ...s,
-        totalFees: fees.reduce((a, f) => a + Number(f.amount), 0),
-        totalPaid: fees.reduce((a, f) => a + Number(f.paid), 0),
+        totalFees: fees.reduce((a: number, f: any) => a + Number(f.amount), 0),
+        totalPaid: fees.reduce((a: number, f: any) => a + Number(f.paid), 0),
       };
     });
+
+    // Sort alphabetically by surname (name format: Surname FirstName MiddleName)
+    studentRows.sort((a, b) => a.name.localeCompare(b.name));
 
     setStudents(studentRows);
     setPayments(paymentsData || []);
@@ -105,59 +128,98 @@ const SchoolAdminDashboard = () => {
     loadData();
   }, [slug]);
 
+  const generateStudentId = async (studentClass: string) => {
+    const code = school?.school_code || slug?.substring(0, 4).toUpperCase() || "SCH";
+    // Count existing students in this class
+    const classStudents = students.filter((s) => s.class === studentClass);
+    const nextNum = classStudents.length + 1;
+    const paddedNum = String(nextNum).padStart(3, "0");
+    return `${code}/${studentClass}/${paddedNum}`;
+  };
+
   const handleAddStudent = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newStudentId || !newStudentName || !newStudentClass || !newStudentPin) {
-      toast.error("All fields are required");
+    if (!newSurname.trim() || !newFirstName.trim() || !newStudentClass) {
+      toast.error("Surname, First Name, and Class are required");
       return;
     }
     setAddingStudent(true);
 
+    const fullName = [newSurname.trim(), newFirstName.trim(), newMiddleName.trim()].filter(Boolean).join(" ");
+    const studentId = await generateStudentId(newStudentClass);
+    const pin = generatePin();
+
     const { error } = await supabase.from("students").insert({
       school_id: school.id,
-      student_id: newStudentId,
-      name: newStudentName,
+      student_id: studentId,
+      name: fullName,
       class: newStudentClass,
-      pin: newStudentPin,
+      pin,
+      default_pin: pin,
+      must_change_pin: true,
     });
 
     if (error) {
       toast.error(error.message);
     } else {
-      toast.success("Student added!");
+      toast.success(`Student added! ID: ${studentId}, PIN: ${pin}`);
       setAddStudentOpen(false);
-      setNewStudentId("");
-      setNewStudentName("");
+      setNewSurname("");
+      setNewFirstName("");
+      setNewMiddleName("");
       setNewStudentClass("");
-      setNewStudentPin("");
       loadData();
     }
     setAddingStudent(false);
   };
 
+  const handleResetPin = async (studentDbId: string, studentName: string) => {
+    const newPin = generatePin();
+    const { error } = await supabase.from("students").update({
+      pin: newPin,
+      default_pin: newPin,
+      must_change_pin: true,
+    }).eq("id", studentDbId);
+
+    if (error) {
+      toast.error("Failed to reset PIN");
+    } else {
+      toast.success(`PIN reset for ${studentName}. New PIN: ${newPin}`);
+      loadData();
+    }
+  };
+
   const handleAddFee = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!feeStudentId || !feeName || !feeAmount) {
-      toast.error("All fields are required");
+    if (!feeStudentId) {
+      toast.error("Please select a student");
       return;
     }
+
+    const validFees = feeEntries.filter((f) => f.name.trim() && Number(f.amount) > 0);
+    if (validFees.length === 0) {
+      toast.error("Add at least one fee with an amount");
+      return;
+    }
+
     setAddingFee(true);
 
-    const { error } = await supabase.from("fee_items").insert({
+    const inserts = validFees.map((f) => ({
       school_id: school.id,
       student_id: feeStudentId,
-      name: feeName,
-      amount: Number(feeAmount),
-    });
+      name: f.name.trim(),
+      amount: Number(f.amount),
+    }));
+
+    const { error } = await supabase.from("fee_items").insert(inserts);
 
     if (error) {
       toast.error(error.message);
     } else {
-      toast.success("Fee added!");
+      toast.success(`${validFees.length} fee(s) added!`);
       setAddFeeOpen(false);
       setFeeStudentId("");
-      setFeeName("");
-      setFeeAmount("");
+      setFeeEntries(DEFAULT_FEE_TEMPLATES.map((name) => ({ name, amount: "" })));
       loadData();
     }
     setAddingFee(false);
@@ -166,6 +228,13 @@ const SchoolAdminDashboard = () => {
   const handleLogout = async () => {
     await supabase.auth.signOut();
     navigate(`/school/${slug}`);
+  };
+
+  const portalUrl = `${window.location.origin}/school/${slug}`;
+
+  const copyPortalLink = () => {
+    navigator.clipboard.writeText(portalUrl);
+    toast.success("Portal link copied!");
   };
 
   if (loading) {
@@ -210,6 +279,25 @@ const SchoolAdminDashboard = () => {
       </header>
 
       <main className="container mx-auto px-4 py-6 space-y-6">
+        {/* Portal Link */}
+        <Card className="border-primary/20 bg-primary/5">
+          <CardContent className="pt-6">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-2 min-w-0">
+                <LinkIcon className="w-5 h-5 text-primary shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-muted-foreground">Your School Portal Link</p>
+                  <p className="text-sm text-primary font-mono break-all">{portalUrl}</p>
+                </div>
+              </div>
+              <Button variant="outline" size="sm" onClick={copyPortalLink} className="gap-2 shrink-0">
+                <Copy className="w-4 h-4" /> Copy Link
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Stats */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <Card>
             <CardContent className="pt-6">
@@ -246,6 +334,7 @@ const SchoolAdminDashboard = () => {
           </Card>
         </div>
 
+        {/* Filters & Actions */}
         <div className="flex flex-col sm:flex-row gap-3">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -267,17 +356,19 @@ const SchoolAdminDashboard = () => {
 
           <TabsContent value="students">
             <Card>
-              <CardContent className="pt-6">
+              <CardContent className="pt-6 overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Student ID</TableHead>
                       <TableHead>Name</TableHead>
                       <TableHead>Class</TableHead>
+                      <TableHead>Default PIN</TableHead>
                       <TableHead className="text-right">Total Fees</TableHead>
                       <TableHead className="text-right">Paid</TableHead>
                       <TableHead className="text-right">Balance</TableHead>
                       <TableHead>Status</TableHead>
+                      <TableHead></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -289,6 +380,13 @@ const SchoolAdminDashboard = () => {
                           <TableCell className="font-mono text-xs">{s.student_id}</TableCell>
                           <TableCell className="font-medium">{s.name}</TableCell>
                           <TableCell><Badge variant="outline">{s.class}</Badge></TableCell>
+                          <TableCell>
+                            {s.must_change_pin && s.default_pin ? (
+                              <code className="bg-muted px-2 py-0.5 rounded text-xs font-bold">{s.default_pin}</code>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">Changed</span>
+                            )}
+                          </TableCell>
                           <TableCell className="text-right">{formatNaira(s.totalFees)}</TableCell>
                           <TableCell className="text-right">{formatNaira(s.totalPaid)}</TableCell>
                           <TableCell className="text-right font-medium">{formatNaira(bal)}</TableCell>
@@ -297,12 +395,17 @@ const SchoolAdminDashboard = () => {
                               {status}
                             </Badge>
                           </TableCell>
+                          <TableCell>
+                            <Button variant="ghost" size="sm" title="Reset PIN" onClick={() => handleResetPin(s.id, s.name)}>
+                              <KeyRound className="w-4 h-4" />
+                            </Button>
+                          </TableCell>
                         </TableRow>
                       );
                     })}
                     {filteredStudents.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                        <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
                           No students found. Add your first student above.
                         </TableCell>
                       </TableRow>
@@ -354,26 +457,31 @@ const SchoolAdminDashboard = () => {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Add Student</DialogTitle>
-            <DialogDescription>Create a new student account for your school.</DialogDescription>
+            <DialogDescription>A unique Student ID and PIN will be generated automatically.</DialogDescription>
           </DialogHeader>
           <form onSubmit={handleAddStudent} className="space-y-4">
             <div className="space-y-2">
-              <Label>Student ID</Label>
-              <Input placeholder="e.g. EDU/2024/001" value={newStudentId} onChange={(e) => setNewStudentId(e.target.value)} maxLength={30} required />
-            </div>
-            <div className="space-y-2">
-              <Label>Full Name</Label>
-              <Input placeholder="Student name" value={newStudentName} onChange={(e) => setNewStudentName(e.target.value)} maxLength={100} required />
+              <Label>Surname *</Label>
+              <Input placeholder="e.g. Okafor" value={newSurname} onChange={(e) => setNewSurname(e.target.value)} maxLength={50} required />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
-                <Label>Class</Label>
-                <Input placeholder="e.g. SSS2" value={newStudentClass} onChange={(e) => setNewStudentClass(e.target.value)} maxLength={20} required />
+                <Label>First Name *</Label>
+                <Input placeholder="e.g. Chinedu" value={newFirstName} onChange={(e) => setNewFirstName(e.target.value)} maxLength={50} required />
               </div>
               <div className="space-y-2">
-                <Label>PIN</Label>
-                <Input type="password" placeholder="Login PIN" value={newStudentPin} onChange={(e) => setNewStudentPin(e.target.value)} maxLength={10} required />
+                <Label>Middle Name</Label>
+                <Input placeholder="e.g. Emmanuel" value={newMiddleName} onChange={(e) => setNewMiddleName(e.target.value)} maxLength={50} />
               </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Class *</Label>
+              <Select value={newStudentClass} onValueChange={setNewStudentClass}>
+                <SelectTrigger><SelectValue placeholder="Select class" /></SelectTrigger>
+                <SelectContent>
+                  {NIGERIAN_CLASSES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                </SelectContent>
+              </Select>
             </div>
             <DialogFooter>
               <Button type="submit" disabled={addingStudent}>
@@ -386,37 +494,73 @@ const SchoolAdminDashboard = () => {
 
       {/* Add Fee Dialog */}
       <Dialog open={addFeeOpen} onOpenChange={setAddFeeOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Add Fee</DialogTitle>
-            <DialogDescription>Add a fee item for a student.</DialogDescription>
+            <DialogTitle>Add Fees</DialogTitle>
+            <DialogDescription>Fill in amounts for applicable fees. Remove any that don't apply.</DialogDescription>
           </DialogHeader>
           <form onSubmit={handleAddFee} className="space-y-4">
             <div className="space-y-2">
               <Label>Student</Label>
-              <select
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                value={feeStudentId}
-                onChange={(e) => setFeeStudentId(e.target.value)}
-                required
-              >
-                <option value="">Select a student</option>
-                {students.map((s) => (
-                  <option key={s.id} value={s.id}>{s.name} ({s.student_id})</option>
-                ))}
-              </select>
+              <Select value={feeStudentId} onValueChange={setFeeStudentId}>
+                <SelectTrigger><SelectValue placeholder="Select a student" /></SelectTrigger>
+                <SelectContent>
+                  {students.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>{s.name} ({s.student_id})</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-            <div className="space-y-2">
-              <Label>Fee Name</Label>
-              <Input placeholder="e.g. Tuition Fee" value={feeName} onChange={(e) => setFeeName(e.target.value)} maxLength={100} required />
+            <div className="space-y-2 max-h-[40vh] overflow-y-auto">
+              {feeEntries.map((entry, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <Input
+                    placeholder="Fee name"
+                    value={entry.name}
+                    onChange={(e) => {
+                      const updated = [...feeEntries];
+                      updated[i] = { ...updated[i], name: e.target.value };
+                      setFeeEntries(updated);
+                    }}
+                    className="flex-1"
+                    maxLength={100}
+                  />
+                  <Input
+                    type="number"
+                    placeholder="₦ Amount"
+                    value={entry.amount}
+                    onChange={(e) => {
+                      const updated = [...feeEntries];
+                      updated[i] = { ...updated[i], amount: e.target.value };
+                      setFeeEntries(updated);
+                    }}
+                    className="w-32"
+                    min={0}
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="shrink-0"
+                    onClick={() => setFeeEntries(feeEntries.filter((_, idx) => idx !== i))}
+                  >
+                    <Trash2 className="w-4 h-4 text-destructive" />
+                  </Button>
+                </div>
+              ))}
             </div>
-            <div className="space-y-2">
-              <Label>Amount (₦)</Label>
-              <Input type="number" placeholder="Amount" value={feeAmount} onChange={(e) => setFeeAmount(e.target.value)} min={1} required />
-            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setFeeEntries([...feeEntries, { name: "", amount: "" }])}
+              className="gap-1"
+            >
+              <Plus className="w-3 h-3" /> Add More
+            </Button>
             <DialogFooter>
               <Button type="submit" disabled={addingFee}>
-                {addingFee ? "Adding..." : "Add Fee"}
+                {addingFee ? "Adding..." : "Add Fees"}
               </Button>
             </DialogFooter>
           </form>

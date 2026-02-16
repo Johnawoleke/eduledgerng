@@ -21,6 +21,7 @@ const RegisterSchool = () => {
   const [address, setAddress] = useState("");
   const [phone, setPhone] = useState("");
   const [schoolEmail, setSchoolEmail] = useState("");
+  const [schoolCode, setSchoolCode] = useState("");
   const [slug, setSlug] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -31,6 +32,10 @@ const RegisterSchool = () => {
   const handleSchoolNameChange = (val: string) => {
     setSchoolName(val);
     setSlug(slugify(val));
+    // Generate school code from initials
+    const words = val.trim().split(/\s+/);
+    const code = words.map(w => w[0]?.toUpperCase() || "").join("").substring(0, 4);
+    setSchoolCode(code);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -48,7 +53,7 @@ const RegisterSchool = () => {
 
     try {
       const response = await supabase.functions.invoke("register-school", {
-        body: { schoolName, slug, address, phone, schoolEmail, email, password, fullName },
+        body: { schoolName, slug, address, phone, schoolEmail, email, password, fullName, schoolCode },
       });
 
       if (response.error) {
@@ -175,6 +180,19 @@ const RegisterSchool = () => {
                   </div>
                   <p className="text-xs text-muted-foreground">
                     This is the link students will use to access your portal
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label>School Code (for Student IDs) *</Label>
+                  <Input
+                    placeholder="e.g. FA, BHA"
+                    value={schoolCode}
+                    onChange={(e) => setSchoolCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").substring(0, 5))}
+                    maxLength={5}
+                    required
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Used to generate student IDs like {schoolCode || "FA"}/JSS1/001
                   </p>
                 </div>
                 <div className="space-y-2">
