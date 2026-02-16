@@ -66,90 +66,51 @@ const SchoolStudentDashboard = () => {
     return "bg-destructive/10 text-destructive border-destructive/30";
   };
 
-  const handlePay = async () => {
-    if (!window.PaystackPop) {
-      toast.error("Payment gateway not loaded. Please refresh.");
-      return;
-    }
+  // === PAYSTACK TEMPORARILY DISABLED ===
+  // The full Paystack payment flow (popup + verify-payment edge function) is
+  // preserved below in a commented block. Uncomment handlePayPaystack and
+  // change the button onClick back to handlePayPaystack to re-enable.
+  //
+  // const handlePayPaystack = async () => {
+  //   if (!window.PaystackPop) { toast.error("Payment gateway not loaded."); return; }
+  //   const feePayments = unpaidFees.filter((f) => selectedFees[f.id]).map((f) => ({
+  //     fee_item_id: f.id,
+  //     amount: Math.min(Number(feeAmounts[f.id] || 0), Number(f.amount) - Number(f.paid)),
+  //   })).filter((fp) => fp.amount > 0);
+  //   if (feePayments.length === 0 || paymentTotal <= 0) return;
+  //   setPaymentOpen(false);
+  //   const paystackKey = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY;
+  //   const reference = `PSK-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+  //   const handler = window.PaystackPop.setup({
+  //     key: paystackKey, email: `${student!.student_id}@${slug}.eduledger.ng`,
+  //     amount: paymentTotal * 100, currency: "NGN", ref: reference,
+  //     metadata: { student_id: student!.student_id, student_name: student!.name, school_slug: slug,
+  //       custom_fields: [{ display_name: "Student", variable_name: "student", value: student!.name },
+  //         { display_name: "School", variable_name: "school", value: school?.name || slug }] },
+  //     callback: async (response) => {
+  //       setProcessingOpen(true);
+  //       try {
+  //         const res = await supabase.functions.invoke("verify-payment", {
+  //           body: { reference: response.reference, school_slug: slug,
+  //             student_id: studentCredentials?.student_id, pin: studentCredentials?.pin, fee_payments: feePayments } });
+  //         if (res.error || res.data?.error) { toast.error(res.data?.error || "Verification failed"); setProcessingOpen(false); return; }
+  //         const refreshRes = await supabase.functions.invoke("student-auth", {
+  //           body: { school_slug: slug, student_id: studentCredentials?.student_id, pin: studentCredentials?.pin } });
+  //         if (refreshRes.data && !refreshRes.data.error) setStudentData(refreshRes.data.feeItems, refreshRes.data.payments);
+  //         setProcessingOpen(false);
+  //         toast.success("Payment verified!");
+  //         navigate(`/school/${slug}/receipt/${res.data?.payment?.id || "latest"}`);
+  //       } catch { toast.error("Verification failed"); setProcessingOpen(false); }
+  //     },
+  //     onClose: () => { toast.info("Payment cancelled"); },
+  //   });
+  //   handler.openIframe();
+  // };
+  // === END PAYSTACK DISABLED ===
 
-    const feePayments = unpaidFees
-      .filter((f) => selectedFees[f.id])
-      .map((f) => ({
-        fee_item_id: f.id,
-        amount: Math.min(Number(feeAmounts[f.id] || 0), Number(f.amount) - Number(f.paid)),
-      }))
-      .filter((fp) => fp.amount > 0);
-
-    if (feePayments.length === 0 || paymentTotal <= 0) return;
-
+  const handlePay = () => {
+    toast.info("Online payments coming soon. Please pay at the school office.");
     setPaymentOpen(false);
-
-    const paystackKey = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY;
-    const reference = `PSK-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
-
-    const handler = window.PaystackPop.setup({
-      key: paystackKey,
-      email: `${student!.student_id}@${slug}.eduledger.ng`,
-      amount: paymentTotal * 100, // kobo
-      currency: "NGN",
-      ref: reference,
-      metadata: {
-        student_id: student!.student_id,
-        student_name: student!.name,
-        school_slug: slug,
-        custom_fields: [
-          { display_name: "Student", variable_name: "student", value: student!.name },
-          { display_name: "School", variable_name: "school", value: school?.name || slug },
-        ],
-      },
-      callback: async (response) => {
-        // Paystack payment successful — verify on backend
-        setProcessingOpen(true);
-        try {
-          const res = await supabase.functions.invoke("verify-payment", {
-            body: {
-              reference: response.reference,
-              school_slug: slug,
-              student_id: studentCredentials?.student_id,
-              pin: studentCredentials?.pin,
-              fee_payments: feePayments,
-            },
-          });
-
-          if (res.error || res.data?.error) {
-            toast.error(res.data?.error || "Payment verification failed");
-            setProcessingOpen(false);
-            return;
-          }
-
-          // Refresh student data
-          const refreshRes = await supabase.functions.invoke("student-auth", {
-            body: {
-              school_slug: slug,
-              student_id: studentCredentials?.student_id,
-              pin: studentCredentials?.pin,
-            },
-          });
-
-          if (refreshRes.data && !refreshRes.data.error) {
-            setStudentData(refreshRes.data.feeItems, refreshRes.data.payments);
-          }
-
-          setProcessingOpen(false);
-          toast.success("Payment verified successfully!");
-          const newPaymentId = res.data?.payment?.id;
-          navigate(`/school/${slug}/receipt/${newPaymentId || "latest"}`);
-        } catch {
-          toast.error("Payment verification failed");
-          setProcessingOpen(false);
-        }
-      },
-      onClose: () => {
-        toast.info("Payment cancelled");
-      },
-    });
-
-    handler.openIframe();
   };
 
   if (!student) {
@@ -369,7 +330,7 @@ const SchoolStudentDashboard = () => {
                 <span className="text-xl font-bold text-primary">{formatNaira(paymentTotal)}</span>
               </div>
               <Button className="w-full gap-2" disabled={paymentTotal <= 0} onClick={handlePay}>
-                <CreditCard className="w-4 h-4" /> Pay {formatNaira(paymentTotal)} via Paystack
+                <CreditCard className="w-4 h-4" /> Pay {formatNaira(paymentTotal)}
               </Button>
             </div>
           )}
