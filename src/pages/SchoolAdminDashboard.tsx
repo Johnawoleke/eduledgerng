@@ -44,7 +44,14 @@ interface StudentRow {
   totalPaid: number;
 }
 
-const generatePin = () => String(Math.floor(1000 + Math.random() * 9000));
+const generateStudentCode = (surname: string, firstName: string, middleName: string) => {
+  const initials = [surname, firstName, middleName]
+    .filter(Boolean)
+    .map((n) => n.charAt(0).toUpperCase())
+    .join("");
+  const num = String(Math.floor(1000 + Math.random() * 9000));
+  return `${initials}-${num}`;
+};
 
 const SchoolAdminDashboard = () => {
   const { slug } = useParams<{ slug: string }>();
@@ -128,14 +135,7 @@ const SchoolAdminDashboard = () => {
     loadData();
   }, [slug]);
 
-  const generateStudentId = async (studentClass: string) => {
-    const code = school?.school_code || slug?.substring(0, 4).toUpperCase() || "SCH";
-    // Count existing students in this class
-    const classStudents = students.filter((s) => s.class === studentClass);
-    const nextNum = classStudents.length + 1;
-    const paddedNum = String(nextNum).padStart(3, "0");
-    return `${code}/${studentClass}/${paddedNum}`;
-  };
+  // Student ID generation removed - now using initials-based IDs
 
   const handleAddStudent = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -146,23 +146,22 @@ const SchoolAdminDashboard = () => {
     setAddingStudent(true);
 
     const fullName = [newSurname.trim(), newFirstName.trim(), newMiddleName.trim()].filter(Boolean).join(" ");
-    const studentId = await generateStudentId(newStudentClass);
-    const pin = generatePin();
+    const studentId = generateStudentCode(newSurname.trim(), newFirstName.trim(), newMiddleName.trim());
 
     const { error } = await supabase.from("students").insert({
       school_id: school.id,
       student_id: studentId,
       name: fullName,
       class: newStudentClass,
-      pin,
-      default_pin: pin,
+      pin: "password",
+      default_pin: "password",
       must_change_pin: true,
     });
 
     if (error) {
       toast.error(error.message);
     } else {
-      toast.success(`Student added! ID: ${studentId}, PIN: ${pin}`);
+      toast.success(`Student added! ID: ${studentId}, Default Password: password`);
       setAddStudentOpen(false);
       setNewSurname("");
       setNewFirstName("");
@@ -174,17 +173,16 @@ const SchoolAdminDashboard = () => {
   };
 
   const handleResetPin = async (studentDbId: string, studentName: string) => {
-    const newPin = generatePin();
     const { error } = await supabase.from("students").update({
-      pin: newPin,
-      default_pin: newPin,
+      pin: "password",
+      default_pin: "password",
       must_change_pin: true,
     }).eq("id", studentDbId);
 
     if (error) {
-      toast.error("Failed to reset PIN");
+      toast.error("Failed to reset password");
     } else {
-      toast.success(`PIN reset for ${studentName}. New PIN: ${newPin}`);
+      toast.success(`Password reset for ${studentName}. Default: password`);
       loadData();
     }
   };
