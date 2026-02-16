@@ -84,7 +84,7 @@ const SchoolStudentDashboard = () => {
 
     setPaymentOpen(false);
 
-    const paystackKey = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || "pk_test_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx";
+    const paystackKey = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY;
     const reference = `PSK-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
 
     const handler = window.PaystackPop.setup({
