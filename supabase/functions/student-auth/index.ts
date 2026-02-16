@@ -22,7 +22,6 @@ serve(async (req) => {
       );
     }
 
-    // Basic input validation
     if (typeof student_id !== "string" || student_id.length > 30 ||
         typeof pin !== "string" || pin.length > 10 ||
         typeof school_slug !== "string" || school_slug.length > 100) {
@@ -51,7 +50,7 @@ serve(async (req) => {
       );
     }
 
-    // Verify student PIN using secure database function (hashed comparison + rate limiting)
+    // Verify student PIN
     const { data: students, error: verifyError } = await supabaseAdmin
       .rpc("verify_student_pin", {
         p_school_id: school.id,
@@ -68,72 +67,52 @@ serve(async (req) => {
 
     const student = students[0];
 
-    // Get fee items for this student
-    let { data: feeItems } = await supabaseAdmin
-      .from("fee_items")
+    // Get class-level fees for this student's class (matching exact class OR "ALL")
+    const { data: classFees } = await supabaseAdmin
+      .from("class_fees")
       .select("*")
-      .eq("student_id", student.id);
+      .eq("school_id", school.id)
+      .in("class_target", [student.class, "ALL"]);
 
-    // Auto-provision fees from classmates if student has none
-    if (!feeItems || feeItems.length === 0) {
-      // Find a classmate in the same school+class who has fee_items
-      const { data: classmates } = await supabaseAdmin
-        .from("students")
-        .select("id")
-        .eq("school_id", student.school_id)
-        .eq("class", student.class)
-        .neq("id", student.id)
-        .limit(50);
-
-      if (classmates && classmates.length > 0) {
-        // Get fee_items from the first classmate who has them
-        let templateFees: any[] = [];
-        for (const classmate of classmates) {
-          const { data: classFees } = await supabaseAdmin
-            .from("fee_items")
-            .select("name, amount, school_id")
-            .eq("student_id", classmate.id)
-            .eq("school_id", student.school_id);
-          if (classFees && classFees.length > 0) {
-            templateFees = classFees;
-            break;
-          }
-        }
-
-        if (templateFees.length > 0) {
-          const inserts = templateFees.map((f: any) => ({
-            school_id: student.school_id,
-            student_id: student.id,
-            name: f.name,
-            amount: Number(f.amount),
-            paid: 0,
-            status: "unpaid",
-          }));
-
-          await supabaseAdmin.from("fee_items").insert(inserts);
-
-          // Re-fetch the newly created fee items
-          const { data: newFees } = await supabaseAdmin
-            .from("fee_items")
-            .select("*")
-            .eq("student_id", student.id);
-          feeItems = newFees;
-        }
-      }
-    }
-
-    // Get payments
+    // Get payments for this student
     const { data: payments } = await supabaseAdmin
       .from("payments")
       .select("*")
       .eq("student_id", student.id)
       .order("date", { ascending: false });
 
+    // Build fee items with paid amounts calculated from payments
+    const feeItems = (classFees || []).map((cf: any) => {
+      // Sum paid amounts from payment items matching this fee name
+      let totalPaid = 0;
+      (payments || []).forEach((p: any) => {
+        (p.items || []).forEach((item: string) => {
+          const pipeIdx = item.lastIndexOf("|");
+          if (pipeIdx > 0) {
+            const itemName = item.substring(0, pipeIdx);
+            const itemAmount = Number(item.substring(pipeIdx + 1));
+            if (itemName === cf.name && !isNaN(itemAmount)) {
+              totalPaid += itemAmount;
+            }
+          }
+        });
+      });
+
+      const paid = Math.min(totalPaid, Number(cf.amount));
+      return {
+        id: cf.id,
+        name: cf.name,
+        amount: Number(cf.amount),
+        paid,
+        status: paid >= Number(cf.amount) ? "paid" : paid > 0 ? "partial" : "unpaid",
+      };
+    });
+
     return new Response(
       JSON.stringify({
         student,
         school,
-        feeItems: feeItems || [],
+        feeItems,
         payments: payments || [],
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }

@@ -14,6 +14,47 @@ export type Database = {
   }
   public: {
     Tables: {
+      class_fees: {
+        Row: {
+          amount: number
+          class_target: string
+          created_at: string
+          id: string
+          name: string
+          school_id: string
+          session: string
+          term: string
+        }
+        Insert: {
+          amount?: number
+          class_target: string
+          created_at?: string
+          id?: string
+          name: string
+          school_id: string
+          session?: string
+          term?: string
+        }
+        Update: {
+          amount?: number
+          class_target?: string
+          created_at?: string
+          id?: string
+          name?: string
+          school_id?: string
+          session?: string
+          term?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "class_fees_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "schools"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       fee_items: {
         Row: {
           amount: number

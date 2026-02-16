@@ -45,6 +45,14 @@ interface StudentRow {
   totalPaid: number;
 }
 
+interface ClassFee {
+  id: string;
+  school_id: string;
+  class_target: string;
+  name: string;
+  amount: number;
+}
+
 const generateStudentCode = (surname: string, firstName: string, middleName: string) => {
   const initials = [surname, firstName, middleName]
     .filter(Boolean)
@@ -59,6 +67,7 @@ const SchoolAdminDashboard = () => {
   const navigate = useNavigate();
   const [school, setSchool] = useState<any>(null);
   const [students, setStudents] = useState<StudentRow[]>([]);
+  const [classFees, setClassFees] = useState<ClassFee[]>([]);
   const [payments, setPayments] = useState<any[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -83,6 +92,31 @@ const SchoolAdminDashboard = () => {
     DEFAULT_FEE_TEMPLATES.map((name) => ({ name, amount: "" }))
   );
   const [addingFee, setAddingFee] = useState(false);
+
+  // Helper: get class fees applicable to a student class
+  const getFeesForClass = (studentClass: string) => {
+    return classFees.filter((f) => f.class_target === studentClass || f.class_target === "ALL");
+  };
+
+  // Helper: calculate paid amount for a fee from payments
+  const getPaidForFee = (studentId: string, feeName: string, feeAmount: number) => {
+    let totalPaid = 0;
+    payments
+      .filter((p) => p.student_id === studentId)
+      .forEach((p) => {
+        (p.items || []).forEach((item: string) => {
+          const pipeIdx = item.lastIndexOf("|");
+          if (pipeIdx > 0) {
+            const itemName = item.substring(0, pipeIdx);
+            const itemAmount = Number(item.substring(pipeIdx + 1));
+            if (itemName === feeName && !isNaN(itemAmount)) {
+              totalPaid += itemAmount;
+            }
+          }
+        });
+      });
+    return Math.min(totalPaid, feeAmount);
+  };
 
   const loadData = async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -109,9 +143,10 @@ const SchoolAdminDashboard = () => {
       .select("id, student_id, name, class, term, session, default_pin, must_change_pin")
       .eq("school_id", schoolData.id);
 
-    const { data: feeData } = await supabase
-      .from("fee_items")
-      .select("student_id, amount, paid")
+    // Fetch class-level fees
+    const { data: classFeesData } = await supabase
+      .from("class_fees")
+      .select("*")
       .eq("school_id", schoolData.id);
 
     const { data: paymentsData } = await supabase
@@ -120,28 +155,40 @@ const SchoolAdminDashboard = () => {
       .eq("school_id", schoolData.id)
       .order("date", { ascending: false });
 
+    const allClassFees = (classFeesData || []) as ClassFee[];
+    setClassFees(allClassFees);
+    setPayments(paymentsData || []);
+
+    // Calculate totals per student from class fees + payments
     const studentRows: StudentRow[] = (studentsData || []).map((s: any) => {
-      const fees = (feeData || []).filter((f: any) => f.student_id === s.id);
+      const applicableFees = allClassFees.filter(
+        (f) => f.class_target === s.class || f.class_target === "ALL"
+      );
+      const totalFees = applicableFees.reduce((a, f) => a + Number(f.amount), 0);
+
+      let totalPaid = 0;
+      (paymentsData || [])
+        .filter((p: any) => p.student_id === s.id)
+        .forEach((p: any) => {
+          totalPaid += Number(p.amount);
+        });
+
       return {
         ...s,
-        totalFees: fees.reduce((a: number, f: any) => a + Number(f.amount), 0),
-        totalPaid: fees.reduce((a: number, f: any) => a + Number(f.paid), 0),
+        totalFees,
+        totalPaid: Math.min(totalPaid, totalFees),
       };
     });
 
-    // Sort alphabetically by surname (name format: Surname FirstName MiddleName)
     studentRows.sort((a, b) => a.name.localeCompare(b.name));
 
     setStudents(studentRows);
-    setPayments(paymentsData || []);
     setLoading(false);
   };
 
   useEffect(() => {
     loadData();
   }, [slug]);
-
-  // Student ID generation removed - now using initials-based IDs
 
   const handleAddStudent = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -154,7 +201,7 @@ const SchoolAdminDashboard = () => {
     const fullName = [newSurname.trim(), newFirstName.trim(), newMiddleName.trim()].filter(Boolean).join(" ");
     const studentId = generateStudentCode(newSurname.trim(), newFirstName.trim(), newMiddleName.trim());
 
-    const { data: newStudent, error } = await supabase.from("students").insert({
+    const { error } = await supabase.from("students").insert({
       school_id: school.id,
       student_id: studentId,
       name: fullName,
@@ -162,29 +209,12 @@ const SchoolAdminDashboard = () => {
       pin: "password",
       default_pin: "password",
       must_change_pin: true,
-    }).select("id").single();
+    });
 
     if (error) {
       toast.error(error.message);
     } else {
-      // Auto-provision fees from classmates
-      const classmate = students.find((s) => s.class === newStudentClass && s.totalFees > 0);
-      if (classmate && newStudent) {
-        const { data: classFees } = await supabase
-          .from("fee_items")
-          .select("name, amount")
-          .eq("student_id", classmate.id)
-          .eq("school_id", school.id);
-        if (classFees && classFees.length > 0) {
-          const inserts = classFees.map((f: any) => ({
-            school_id: school.id,
-            student_id: newStudent.id,
-            name: f.name,
-            amount: Number(f.amount),
-          }));
-          await supabase.from("fee_items").insert(inserts);
-        }
-      }
+      // No fee provisioning needed - fees come from class_fees automatically
       toast.success(`Student added! ID: ${studentId}, Default Password: password`);
       setAddStudentOpen(false);
       setNewSurname("");
@@ -226,32 +256,20 @@ const SchoolAdminDashboard = () => {
 
     setAddingFee(true);
 
-    // Get students matching the selected class
-    const targetStudents = feeClass === "ALL"
-      ? students
-      : students.filter((s) => s.class === feeClass);
+    // Insert into class_fees (class-level, not per-student)
+    const inserts = validFees.map((f) => ({
+      school_id: school.id,
+      class_target: feeClass,
+      name: f.name.trim(),
+      amount: Number(f.amount),
+    }));
 
-    if (targetStudents.length === 0) {
-      toast.error("No students found in the selected class");
-      setAddingFee(false);
-      return;
-    }
-
-    const inserts = targetStudents.flatMap((student) =>
-      validFees.map((f) => ({
-        school_id: school.id,
-        student_id: student.id,
-        name: f.name.trim(),
-        amount: Number(f.amount),
-      }))
-    );
-
-    const { error } = await supabase.from("fee_items").insert(inserts);
+    const { error } = await supabase.from("class_fees").insert(inserts);
 
     if (error) {
       toast.error(error.message);
     } else {
-      toast.success(`${validFees.length} fee(s) added for ${targetStudents.length} student(s)!`);
+      toast.success(`${validFees.length} fee(s) added for ${feeClass === "ALL" ? "All Classes" : feeClass}!`);
       setAddFeeOpen(false);
       setFeeClass("");
       setFeeEntries(DEFAULT_FEE_TEMPLATES.map((name) => ({ name, amount: "" })));
@@ -268,12 +286,16 @@ const SchoolAdminDashboard = () => {
   const handleViewStudent = async (student: StudentRow) => {
     setSelectedStudent(student);
     setLoadingFees(true);
-    const { data } = await supabase
-      .from("fee_items")
-      .select("*")
-      .eq("student_id", student.id)
-      .eq("school_id", school.id);
-    setStudentFees(data || []);
+
+    // Build fee breakdown from class_fees + payments
+    const applicableFees = getFeesForClass(student.class);
+    const feeBreakdown = applicableFees.map((cf) => {
+      const paid = getPaidForFee(student.id, cf.name, Number(cf.amount));
+      const status = paid >= Number(cf.amount) ? "Cleared" : paid > 0 ? "Partial" : "Unpaid";
+      return { id: cf.id, name: cf.name, amount: cf.amount, paid, status };
+    });
+
+    setStudentFees(feeBreakdown);
     setLoadingFees(false);
   };
 
@@ -438,27 +460,24 @@ const SchoolAdminDashboard = () => {
                       <div className="w-6 h-6 border-4 border-primary border-t-transparent rounded-full animate-spin" />
                     </div>
                   ) : studentFees.length === 0 ? (
-                    <p className="text-center text-muted-foreground py-8">No fees assigned yet.</p>
+                    <p className="text-center text-muted-foreground py-8">No fees set for {selectedStudent.class} yet.</p>
                   ) : (
                     <div className="space-y-3">
-                      {studentFees.map((fee) => {
-                        const feeStatus = Number(fee.paid) >= Number(fee.amount) ? "Cleared" : Number(fee.paid) > 0 ? "Partial" : "Unpaid";
-                        return (
-                          <div key={fee.id} className="flex items-center justify-between p-3 rounded-lg border">
-                            <div>
-                              <p className="font-medium">{fee.name}</p>
-                              <p className="text-sm text-muted-foreground">{formatNaira(Number(fee.amount))}</p>
-                            </div>
-                            <Badge variant="outline" className={feeStatus === "Cleared" ? "bg-primary/15 text-primary" : feeStatus === "Partial" ? "bg-accent/15 text-accent-foreground" : "bg-destructive/10 text-destructive"}>
-                              {feeStatus}
-                              {feeStatus === "Partial" && ` — ${formatNaira(Number(fee.paid))} paid`}
-                            </Badge>
+                      {studentFees.map((fee: any) => (
+                        <div key={fee.id} className="flex items-center justify-between p-3 rounded-lg border">
+                          <div>
+                            <p className="font-medium">{fee.name}</p>
+                            <p className="text-sm text-muted-foreground">{formatNaira(Number(fee.amount))}</p>
                           </div>
-                        );
-                      })}
+                          <Badge variant="outline" className={fee.status === "Cleared" ? "bg-primary/15 text-primary" : fee.status === "Partial" ? "bg-accent/15 text-accent-foreground" : "bg-destructive/10 text-destructive"}>
+                            {fee.status}
+                            {fee.status === "Partial" && ` — ${formatNaira(Number(fee.paid))} paid`}
+                          </Badge>
+                        </div>
+                      ))}
                       <div className="flex justify-between pt-3 border-t font-medium">
                         <span>Total</span>
-                        <span>{formatNaira(studentFees.reduce((a, f) => a + Number(f.amount), 0))}</span>
+                        <span>{formatNaira(studentFees.reduce((a: number, f: any) => a + Number(f.amount), 0))}</span>
                       </div>
                     </div>
                   )}
