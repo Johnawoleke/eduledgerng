@@ -72,7 +72,7 @@ const SchoolAdminDashboard = () => {
 
   // Add fee dialog
   const [addFeeOpen, setAddFeeOpen] = useState(false);
-  const [feeStudentId, setFeeStudentId] = useState("");
+  const [feeClass, setFeeClass] = useState("");
   const [feeEntries, setFeeEntries] = useState<{ name: string; amount: string }[]>(
     DEFAULT_FEE_TEMPLATES.map((name) => ({ name, amount: "" }))
   );
@@ -189,8 +189,8 @@ const SchoolAdminDashboard = () => {
 
   const handleAddFee = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!feeStudentId) {
-      toast.error("Please select a student");
+    if (!feeClass) {
+      toast.error("Please select a class");
       return;
     }
 
@@ -202,21 +202,34 @@ const SchoolAdminDashboard = () => {
 
     setAddingFee(true);
 
-    const inserts = validFees.map((f) => ({
-      school_id: school.id,
-      student_id: feeStudentId,
-      name: f.name.trim(),
-      amount: Number(f.amount),
-    }));
+    // Get students matching the selected class
+    const targetStudents = feeClass === "ALL"
+      ? students
+      : students.filter((s) => s.class === feeClass);
+
+    if (targetStudents.length === 0) {
+      toast.error("No students found in the selected class");
+      setAddingFee(false);
+      return;
+    }
+
+    const inserts = targetStudents.flatMap((student) =>
+      validFees.map((f) => ({
+        school_id: school.id,
+        student_id: student.id,
+        name: f.name.trim(),
+        amount: Number(f.amount),
+      }))
+    );
 
     const { error } = await supabase.from("fee_items").insert(inserts);
 
     if (error) {
       toast.error(error.message);
     } else {
-      toast.success(`${validFees.length} fee(s) added!`);
+      toast.success(`${validFees.length} fee(s) added for ${targetStudents.length} student(s)!`);
       setAddFeeOpen(false);
-      setFeeStudentId("");
+      setFeeClass("");
       setFeeEntries(DEFAULT_FEE_TEMPLATES.map((name) => ({ name, amount: "" })));
       loadData();
     }
@@ -499,12 +512,13 @@ const SchoolAdminDashboard = () => {
           </DialogHeader>
           <form onSubmit={handleAddFee} className="space-y-4">
             <div className="space-y-2">
-              <Label>Student</Label>
-              <Select value={feeStudentId} onValueChange={setFeeStudentId}>
-                <SelectTrigger><SelectValue placeholder="Select a student" /></SelectTrigger>
+              <Label>Class</Label>
+              <Select value={feeClass} onValueChange={setFeeClass}>
+                <SelectTrigger><SelectValue placeholder="Select a class" /></SelectTrigger>
                 <SelectContent>
-                  {students.map((s) => (
-                    <SelectItem key={s.id} value={s.id}>{s.name} ({s.student_id})</SelectItem>
+                  <SelectItem value="ALL">All Classes</SelectItem>
+                  {NIGERIAN_CLASSES.map((c) => (
+                    <SelectItem key={c} value={c}>{c}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
