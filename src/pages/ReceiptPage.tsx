@@ -5,24 +5,11 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import { GraduationCap, Printer, ArrowLeft, CheckCircle2, AlertCircle, Clock } from "lucide-react";
+import { GraduationCap, Printer, ArrowLeft, CheckCircle2, AlertCircle, Clock, Download } from "lucide-react";
+import { generateReceiptPdf, parsePaymentItems } from "@/lib/generateReceiptPdf";
 
 const formatNaira = (amount: number) =>
   new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN", minimumFractionDigits: 0 }).format(amount);
-
-/** Parse item strings that may contain "|amount" suffix from the edge function */
-const parseTransactionItems = (items: string[]) => {
-  return items.map((item) => {
-    const pipeIdx = item.lastIndexOf("|");
-    if (pipeIdx > 0) {
-      const name = item.substring(0, pipeIdx);
-      const amount = Number(item.substring(pipeIdx + 1));
-      if (!isNaN(amount) && amount > 0) return { name, amount };
-    }
-    // Legacy items without amount encoding
-    return { name: item, amount: 0 };
-  });
-};
 
 const ReceiptPage = () => {
   const { slug, paymentId } = useParams<{ slug: string; paymentId: string }>();
@@ -49,7 +36,7 @@ const ReceiptPage = () => {
     );
   }
 
-  const transactionItems = parseTransactionItems(payment.items);
+  const transactionItems = parsePaymentItems(payment.items);
 
   const totalFees = feeItems.reduce((s, f) => s + Number(f.amount), 0);
   const totalPaid = feeItems.reduce((s, f) => s + Number(f.paid), 0);
@@ -67,7 +54,23 @@ const ReceiptPage = () => {
             <ArrowLeft className="w-4 h-4" /> Back to Dashboard
           </Button>
           <Button size="sm" onClick={() => window.print()} className="gap-2">
-            <Printer className="w-4 h-4" /> Print / Download
+            <Printer className="w-4 h-4" /> Print
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => generateReceiptPdf({
+            schoolName: school?.name || "School",
+            studentName: student.name,
+            studentId: student.student_id,
+            studentClass: student.class,
+            term: student.term,
+            session: student.session,
+            reference: payment.reference,
+            date: payment.date,
+            method: payment.method,
+            totalPaid: Number(payment.amount),
+            items: transactionItems,
+            feesSummary: { totalFees, totalPaid, totalOutstanding },
+          })} className="gap-2">
+            <Download className="w-4 h-4" /> Download PDF
           </Button>
         </div>
 

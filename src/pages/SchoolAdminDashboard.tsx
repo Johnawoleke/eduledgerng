@@ -9,7 +9,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { GraduationCap, LogOut, Users, Wallet, TrendingUp, Search, Plus, UserPlus, Copy, Link as LinkIcon, KeyRound, Trash2, ChevronLeft } from "lucide-react";
+import { GraduationCap, LogOut, Users, Wallet, TrendingUp, Search, Plus, UserPlus, Copy, Link as LinkIcon, KeyRound, Trash2, ChevronLeft, Download } from "lucide-react";
+import { generateReceiptPdf, parsePaymentItems } from "@/lib/generateReceiptPdf";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -531,6 +532,7 @@ const SchoolAdminDashboard = () => {
                       <TableHead>Fee</TableHead>
                       <TableHead className="text-right">Amount</TableHead>
                       <TableHead>Date</TableHead>
+                      <TableHead className="text-right">Receipt</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -543,12 +545,34 @@ const SchoolAdminDashboard = () => {
                           <TableCell className="text-xs">{p.items?.join(", ") || "—"}</TableCell>
                           <TableCell className="text-right font-medium">{formatNaira(Number(p.amount))}</TableCell>
                           <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{formatDateTime(p.date)}</TableCell>
+                          <TableCell className="text-right">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="gap-1 h-7 text-xs"
+                              onClick={() => generateReceiptPdf({
+                                schoolName: school?.name || "School",
+                                studentName: studentData?.name || "—",
+                                studentId: studentData?.student_id || "—",
+                                studentClass: studentData?.class || "—",
+                                term: "",
+                                session: "",
+                                reference: p.reference,
+                                date: p.date,
+                                method: p.method,
+                                totalPaid: Number(p.amount),
+                                items: parsePaymentItems(p.items || []),
+                              })}
+                            >
+                              <Download className="w-3 h-3" /> PDF
+                            </Button>
+                          </TableCell>
                         </TableRow>
                       );
                     })}
                     {filteredPayments.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={5} className="text-center text-muted-foreground py-8">No payments yet.</TableCell>
+                        <TableCell colSpan={6} className="text-center text-muted-foreground py-8">No payments yet.</TableCell>
                       </TableRow>
                     )}
                   </TableBody>
