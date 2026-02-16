@@ -172,6 +172,7 @@ export type Database = {
           name: string
           owner_id: string
           phone: string | null
+          school_code: string | null
           slug: string
           updated_at: string
         }
@@ -183,6 +184,7 @@ export type Database = {
           name: string
           owner_id: string
           phone?: string | null
+          school_code?: string | null
           slug: string
           updated_at?: string
         }
@@ -194,6 +196,7 @@ export type Database = {
           name?: string
           owner_id?: string
           phone?: string | null
+          school_code?: string | null
           slug?: string
           updated_at?: string
         }
@@ -203,9 +206,11 @@ export type Database = {
         Row: {
           class: string
           created_at: string
+          default_pin: string | null
           failed_login_attempts: number
           id: string
           locked_until: string | null
+          must_change_pin: boolean
           name: string
           pin: string
           school_id: string
@@ -217,9 +222,11 @@ export type Database = {
         Insert: {
           class: string
           created_at?: string
+          default_pin?: string | null
           failed_login_attempts?: number
           id?: string
           locked_until?: string | null
+          must_change_pin?: boolean
           name: string
           pin: string
           school_id: string
@@ -231,9 +238,11 @@ export type Database = {
         Update: {
           class?: string
           created_at?: string
+          default_pin?: string | null
           failed_login_attempts?: number
           id?: string
           locked_until?: string | null
+          must_change_pin?: boolean
           name?: string
           pin?: string
           school_id?: string
