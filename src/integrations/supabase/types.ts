@@ -272,6 +272,7 @@ export type Database = {
         Returns: {
           class: string
           id: string
+          must_change_pin: boolean
           name: string
           school_id: string
           session: string

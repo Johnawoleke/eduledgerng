@@ -2,3 +2,12 @@ project_id = "eymbfxjnmvrhdxaorwcq"
 
 [functions.register-school]
 verify_jwt = false
+
+[functions.student-auth]
+verify_jwt = false
+
+[functions.student-payment]
+verify_jwt = false
+
+[functions.change-pin]
+verify_jwt = false

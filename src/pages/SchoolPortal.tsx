@@ -65,7 +65,13 @@ const SchoolPortal = () => {
       const { student, school, feeItems, payments } = res.data;
       loginStudent(student, feeItems, payments, { student_id: studentId, pin });
       setSchool(school);
-      navigate(`/school/${slug}/student`);
+      
+      // Check if student must change PIN on first login
+      if (student.must_change_pin) {
+        navigate(`/school/${slug}/change-pin`);
+      } else {
+        navigate(`/school/${slug}/student`);
+      }
     } catch {
       toast.error("Login failed");
     }
