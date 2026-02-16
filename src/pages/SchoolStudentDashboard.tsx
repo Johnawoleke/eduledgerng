@@ -22,7 +22,7 @@ const SchoolStudentDashboard = () => {
 
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [processingOpen, setProcessingOpen] = useState(false);
-  const [lastPayment, setLastPayment] = useState<{ amount: number; reference: string } | null>(null);
+  
   const [selectedFees, setSelectedFees] = useState<Record<string, boolean>>({});
   const [feeAmounts, setFeeAmounts] = useState<Record<string, string>>({});
 
@@ -107,12 +107,11 @@ const SchoolStudentDashboard = () => {
         setStudentData(refreshRes.data.feeItems, refreshRes.data.payments);
       }
 
-      setLastPayment({
-        amount: res.data.totalAmount,
-        reference: res.data.reference,
-      });
       setProcessingOpen(false);
       toast.success("Payment successful!");
+      // Redirect to receipt page
+      const paymentRecord = refreshRes.data?.payments?.[refreshRes.data.payments.length - 1];
+      navigate(`/school/${slug}/receipt/${paymentRecord?.id || "latest"}`);
     } catch {
       toast.error("Payment failed");
       setProcessingOpen(false);
@@ -340,21 +339,6 @@ const SchoolStudentDashboard = () => {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!lastPayment} onOpenChange={() => setLastPayment(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="text-primary">Payment Successful! 🎉</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-2 text-sm">
-            <p><strong>Amount:</strong> {lastPayment && formatNaira(lastPayment.amount)}</p>
-            <p><strong>Reference:</strong> {lastPayment?.reference}</p>
-            <p><strong>Method:</strong> Paystack</p>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setLastPayment(null)}>Close</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 };
