@@ -10,6 +10,20 @@ import { GraduationCap, Printer, ArrowLeft, CheckCircle2, AlertCircle, Clock } f
 const formatNaira = (amount: number) =>
   new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN", minimumFractionDigits: 0 }).format(amount);
 
+/** Parse item strings that may contain "|amount" suffix from the edge function */
+const parseTransactionItems = (items: string[]) => {
+  return items.map((item) => {
+    const pipeIdx = item.lastIndexOf("|");
+    if (pipeIdx > 0) {
+      const name = item.substring(0, pipeIdx);
+      const amount = Number(item.substring(pipeIdx + 1));
+      if (!isNaN(amount) && amount > 0) return { name, amount };
+    }
+    // Legacy items without amount encoding
+    return { name: item, amount: 0 };
+  });
+};
+
 const ReceiptPage = () => {
   const { slug, paymentId } = useParams<{ slug: string; paymentId: string }>();
   const navigate = useNavigate();
@@ -34,6 +48,8 @@ const ReceiptPage = () => {
       </div>
     );
   }
+
+  const transactionItems = parseTransactionItems(payment.items);
 
   const totalFees = feeItems.reduce((s, f) => s + Number(f.amount), 0);
   const totalPaid = feeItems.reduce((s, f) => s + Number(f.paid), 0);
@@ -97,9 +113,12 @@ const ReceiptPage = () => {
             <div className="text-sm">
               <p className="font-semibold mb-2">Fees Paid in This Transaction</p>
               <div className="space-y-1">
-                {payment.items.map((item, i) => (
+                {transactionItems.map((item, i) => (
                   <div key={i} className="flex items-center justify-between py-1">
-                    <span>{item}</span>
+                    <span>{item.name}</span>
+                    {item.amount > 0 && (
+                      <span className="font-medium">{formatNaira(item.amount)}</span>
+                    )}
                   </div>
                 ))}
               </div>

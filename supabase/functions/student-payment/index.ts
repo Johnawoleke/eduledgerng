@@ -22,7 +22,6 @@ serve(async (req) => {
       );
     }
 
-    // Basic input validation
     if (typeof student_id !== "string" || student_id.length > 30 ||
         typeof pin !== "string" || pin.length > 10 ||
         typeof school_slug !== "string" || school_slug.length > 100) {
@@ -37,7 +36,6 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    // Verify school
     const { data: school } = await supabaseAdmin
       .from("schools")
       .select("id")
@@ -51,7 +49,6 @@ serve(async (req) => {
       );
     }
 
-    // Verify student PIN using secure database function (hashed comparison + rate limiting)
     const { data: students, error: verifyError } = await supabaseAdmin
       .rpc("verify_student_pin", {
         p_school_id: school.id,
@@ -72,7 +69,6 @@ serve(async (req) => {
     let totalAmount = 0;
     const itemNames: string[] = [];
 
-    // Process each fee payment
     for (const fp of fee_payments) {
       const { data: feeItem } = await supabaseAdmin
         .from("fee_items")
@@ -96,9 +92,9 @@ serve(async (req) => {
         .eq("id", fp.fee_item_id);
 
       totalAmount += payAmount;
-      itemNames.push(
-        newStatus === "paid" ? feeItem.name : `${feeItem.name} (partial)`
-      );
+      // Store item name with amount paid in this transaction for receipt display
+      const label = newStatus === "paid" ? feeItem.name : `${feeItem.name} (partial)`;
+      itemNames.push(`${label}|${payAmount}`);
     }
 
     if (totalAmount <= 0) {
@@ -108,7 +104,6 @@ serve(async (req) => {
       );
     }
 
-    // Create payment record
     const { data: payment, error: payError } = await supabaseAdmin
       .from("payments")
       .insert({
