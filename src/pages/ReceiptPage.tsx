@@ -1,48 +1,57 @@
 import React from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { payments, students, feeStructure, formatNaira } from "@/lib/mockData";
+import { useSchool } from "@/lib/schoolContext";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { GraduationCap, Printer, ArrowLeft, CheckCircle2, AlertCircle, Clock } from "lucide-react";
 
-const ReceiptPage = () => {
-  const { paymentId } = useParams();
-  const navigate = useNavigate();
+const formatNaira = (amount: number) =>
+  new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN", minimumFractionDigits: 0 }).format(amount);
 
-  const payment = paymentId === "latest" ? payments[payments.length - 1] : payments.find((p) => p.id === paymentId);
+const ReceiptPage = () => {
+  const { slug, paymentId } = useParams<{ slug: string; paymentId: string }>();
+  const navigate = useNavigate();
+  const { student, school, feeItems, payments, isStudentLoggedIn } = useSchool();
+
+  if (!isStudentLoggedIn || !student) {
+    navigate(`/school/${slug}`);
+    return null;
+  }
+
+  const payment = paymentId === "latest"
+    ? payments[payments.length - 1]
+    : payments.find((p) => p.id === paymentId);
 
   if (!payment) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
           <p className="text-muted-foreground">Receipt not found</p>
-          <Button variant="link" onClick={() => navigate(-1)}>Go back</Button>
+          <Button variant="link" onClick={() => navigate(`/school/${slug}/student`)}>Back to Dashboard</Button>
         </div>
       </div>
     );
   }
 
-  const student = students.find((s) => s.id === payment.studentId);
-  const fees = feeStructure[payment.studentId] || [];
-  const totalFees = fees.reduce((s, f) => s + f.amount, 0);
-  const totalPaid = fees.reduce((s, f) => s + f.paid, 0);
+  const totalFees = feeItems.reduce((s, f) => s + Number(f.amount), 0);
+  const totalPaid = feeItems.reduce((s, f) => s + Number(f.paid), 0);
   const totalOutstanding = totalFees - totalPaid;
 
-  const paidFees = fees.filter((f) => f.status === "paid");
-  const partialFees = fees.filter((f) => f.status === "partial");
-  const unpaidFees = fees.filter((f) => f.status === "unpaid");
+  const paidFees = feeItems.filter((f) => f.status === "paid");
+  const partialFees = feeItems.filter((f) => f.status === "partial");
+  const unpaidFees = feeItems.filter((f) => f.status === "unpaid");
 
   return (
     <div className="min-h-screen bg-background p-4">
       <div className="max-w-lg mx-auto">
         <div className="no-print mb-4 flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => navigate(-1)} className="gap-2">
-            <ArrowLeft className="w-4 h-4" /> Back
+          <Button variant="outline" size="sm" onClick={() => navigate(`/school/${slug}/student`)} className="gap-2">
+            <ArrowLeft className="w-4 h-4" /> Back to Dashboard
           </Button>
           <Button size="sm" onClick={() => window.print()} className="gap-2">
-            <Printer className="w-4 h-4" /> Print Receipt
+            <Printer className="w-4 h-4" /> Print / Download
           </Button>
         </div>
 
@@ -54,24 +63,20 @@ const ReceiptPage = () => {
               </div>
             </div>
             <h1 className="text-xl font-bold">EduLedger<span className="text-primary">NG</span></h1>
-            <p className="text-sm text-muted-foreground">Model Secondary School, Lagos</p>
+            <p className="text-sm text-muted-foreground">{school?.name || "School"}</p>
             <p className="text-xs text-muted-foreground mt-1">PAYMENT RECEIPT</p>
           </CardHeader>
           <CardContent className="pt-6 space-y-4">
             {/* Student Info */}
             <div className="grid grid-cols-2 gap-y-2 text-sm">
               <p className="text-muted-foreground">Student Name</p>
-              <p className="font-medium text-right">{payment.studentName}</p>
-              <p className="text-muted-foreground">School ID</p>
-              <p className="font-mono text-right">{payment.studentId}</p>
+              <p className="font-medium text-right">{student.name}</p>
+              <p className="text-muted-foreground">Student ID</p>
+              <p className="font-mono text-right">{student.student_id}</p>
               <p className="text-muted-foreground">Class</p>
-              <p className="text-right">{payment.class}</p>
-              {student && (
-                <>
-                  <p className="text-muted-foreground">Term / Session</p>
-                  <p className="text-right">{student.term} — {student.session}</p>
-                </>
-              )}
+              <p className="text-right">{student.class}</p>
+              <p className="text-muted-foreground">Term / Session</p>
+              <p className="text-right">{student.term} — {student.session}</p>
             </div>
 
             <Separator />
@@ -80,15 +85,15 @@ const ReceiptPage = () => {
             <div className="grid grid-cols-2 gap-y-2 text-sm">
               <p className="text-muted-foreground">Transaction Ref</p>
               <p className="font-mono text-right text-xs">{payment.reference}</p>
-              <p className="text-muted-foreground">Date</p>
-              <p className="text-right">{new Date(payment.date).toLocaleDateString("en-NG", { year: "numeric", month: "long", day: "numeric" })}</p>
+              <p className="text-muted-foreground">Date & Time</p>
+              <p className="text-right">{new Date(payment.date).toLocaleString("en-NG", { year: "numeric", month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" })}</p>
               <p className="text-muted-foreground">Payment Method</p>
               <p className="text-right">{payment.method}</p>
             </div>
 
             <Separator />
 
-            {/* Items Paid */}
+            {/* Items Paid in this transaction */}
             <div className="text-sm">
               <p className="font-semibold mb-2">Fees Paid in This Transaction</p>
               <div className="space-y-1">
@@ -102,15 +107,14 @@ const ReceiptPage = () => {
 
             <Separator />
 
-            {/* Amount Paid */}
             <div className="flex items-center justify-between">
               <p className="text-lg font-bold">Amount Paid</p>
-              <p className="text-2xl font-bold text-primary">{formatNaira(payment.amount)}</p>
+              <p className="text-2xl font-bold text-primary">{formatNaira(Number(payment.amount))}</p>
             </div>
 
             <Separator />
 
-            {/* Fully Cleared Fees */}
+            {/* Full fee status breakdown */}
             {paidFees.length > 0 && (
               <div className="text-sm">
                 <div className="flex items-center gap-2 mb-2">
@@ -121,14 +125,13 @@ const ReceiptPage = () => {
                   {paidFees.map((fee) => (
                     <div key={fee.id} className="flex items-center justify-between py-1">
                       <span>{fee.name}</span>
-                      <Badge variant="outline" className="bg-primary/10 text-primary border-primary/30 text-xs">{formatNaira(fee.amount)}</Badge>
+                      <Badge variant="outline" className="bg-primary/10 text-primary border-primary/30 text-xs">{formatNaira(Number(fee.amount))}</Badge>
                     </div>
                   ))}
                 </div>
               </div>
             )}
 
-            {/* Partially Paid Fees */}
             {partialFees.length > 0 && (
               <div className="text-sm">
                 <div className="flex items-center gap-2 mb-2">
@@ -140,16 +143,15 @@ const ReceiptPage = () => {
                     <div key={fee.id} className="flex items-center justify-between py-1">
                       <div>
                         <span>{fee.name}</span>
-                        <span className="text-muted-foreground ml-1 text-xs">({formatNaira(fee.paid)} of {formatNaira(fee.amount)})</span>
+                        <span className="text-muted-foreground ml-1 text-xs">({formatNaira(Number(fee.paid))} of {formatNaira(Number(fee.amount))})</span>
                       </div>
-                      <Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/30 text-xs">Bal: {formatNaira(fee.amount - fee.paid)}</Badge>
+                      <Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/30 text-xs">Bal: {formatNaira(Number(fee.amount) - Number(fee.paid))}</Badge>
                     </div>
                   ))}
                 </div>
               </div>
             )}
 
-            {/* Outstanding Fees */}
             {unpaidFees.length > 0 && (
               <div className="text-sm">
                 <div className="flex items-center gap-2 mb-2">
@@ -160,7 +162,7 @@ const ReceiptPage = () => {
                   {unpaidFees.map((fee) => (
                     <div key={fee.id} className="flex items-center justify-between py-1">
                       <span>{fee.name}</span>
-                      <Badge variant="outline" className="bg-destructive/10 text-destructive border-destructive/30 text-xs">{formatNaira(fee.amount)}</Badge>
+                      <Badge variant="outline" className="bg-destructive/10 text-destructive border-destructive/30 text-xs">{formatNaira(Number(fee.amount))}</Badge>
                     </div>
                   ))}
                 </div>

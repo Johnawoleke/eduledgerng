@@ -11,6 +11,7 @@ import SchoolPortal from "./pages/SchoolPortal";
 import SchoolStudentDashboard from "./pages/SchoolStudentDashboard";
 import SchoolAdminDashboard from "./pages/SchoolAdminDashboard";
 import ChangePinPage from "./pages/ChangePinPage";
+import ReceiptPage from "./pages/ReceiptPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -33,6 +34,7 @@ const App = () => (
             <Route path="/school/:slug/student" element={<SchoolStudentDashboard />} />
             <Route path="/school/:slug/admin" element={<SchoolAdminDashboard />} />
             <Route path="/school/:slug/change-pin" element={<ChangePinPage />} />
+            <Route path="/school/:slug/receipt/:paymentId" element={<ReceiptPage />} />
 
             <Route path="*" element={<NotFound />} />
           </Routes>
