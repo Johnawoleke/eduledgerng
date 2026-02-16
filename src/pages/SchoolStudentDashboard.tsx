@@ -109,9 +109,9 @@ const SchoolStudentDashboard = () => {
 
       setProcessingOpen(false);
       toast.success("Payment successful!");
-      // Redirect to receipt page
-      const paymentRecord = refreshRes.data?.payments?.[refreshRes.data.payments.length - 1];
-      navigate(`/school/${slug}/receipt/${paymentRecord?.id || "latest"}`);
+      // Use the payment ID returned directly from the payment response
+      const newPaymentId = res.data?.payment?.id;
+      navigate(`/school/${slug}/receipt/${newPaymentId || "latest"}`);
     } catch {
       toast.error("Payment failed");
       setProcessingOpen(false);
