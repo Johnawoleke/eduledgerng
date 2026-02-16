@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { GraduationCap, LogOut, Wallet, CreditCard, History, Receipt } from "lucide-react";
+import { GraduationCap, LogOut, Wallet, CreditCard, History, Receipt, Eye } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -249,17 +249,30 @@ const SchoolStudentDashboard = () => {
                     <TableHead>Reference</TableHead>
                     <TableHead>Items</TableHead>
                     <TableHead className="text-right">Amount</TableHead>
+                    <TableHead className="text-right">Receipt</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {payments.map((p) => (
-                    <TableRow key={p.id}>
-                      <TableCell>{new Date(p.date).toLocaleDateString("en-NG")}</TableCell>
-                      <TableCell className="font-mono text-xs">{p.reference}</TableCell>
-                      <TableCell className="text-xs">{p.items.join(", ")}</TableCell>
-                      <TableCell className="text-right font-medium">{formatNaira(Number(p.amount))}</TableCell>
-                    </TableRow>
-                  ))}
+                  {payments.map((p) => {
+                    // Strip amount suffix from item display
+                    const displayItems = p.items.map((item) => {
+                      const pipeIdx = item.lastIndexOf("|");
+                      return pipeIdx > 0 ? item.substring(0, pipeIdx) : item;
+                    });
+                    return (
+                      <TableRow key={p.id}>
+                        <TableCell>{new Date(p.date).toLocaleDateString("en-NG")}</TableCell>
+                        <TableCell className="font-mono text-xs">{p.reference}</TableCell>
+                        <TableCell className="text-xs">{displayItems.join(", ")}</TableCell>
+                        <TableCell className="text-right font-medium">{formatNaira(Number(p.amount))}</TableCell>
+                        <TableCell className="text-right">
+                          <Button variant="ghost" size="sm" onClick={() => navigate(`/school/${slug}/receipt/${p.id}`)} className="gap-1 h-7 text-xs">
+                            <Eye className="w-3 h-3" /> View
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             )}
