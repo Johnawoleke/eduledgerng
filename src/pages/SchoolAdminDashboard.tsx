@@ -154,7 +154,7 @@ const SchoolAdminDashboard = () => {
     const fullName = [newSurname.trim(), newFirstName.trim(), newMiddleName.trim()].filter(Boolean).join(" ");
     const studentId = generateStudentCode(newSurname.trim(), newFirstName.trim(), newMiddleName.trim());
 
-    const { error } = await supabase.from("students").insert({
+    const { data: newStudent, error } = await supabase.from("students").insert({
       school_id: school.id,
       student_id: studentId,
       name: fullName,
@@ -162,11 +162,29 @@ const SchoolAdminDashboard = () => {
       pin: "password",
       default_pin: "password",
       must_change_pin: true,
-    });
+    }).select("id").single();
 
     if (error) {
       toast.error(error.message);
     } else {
+      // Auto-provision fees from classmates
+      const classmate = students.find((s) => s.class === newStudentClass && s.totalFees > 0);
+      if (classmate && newStudent) {
+        const { data: classFees } = await supabase
+          .from("fee_items")
+          .select("name, amount")
+          .eq("student_id", classmate.id)
+          .eq("school_id", school.id);
+        if (classFees && classFees.length > 0) {
+          const inserts = classFees.map((f: any) => ({
+            school_id: school.id,
+            student_id: newStudent.id,
+            name: f.name,
+            amount: Number(f.amount),
+          }));
+          await supabase.from("fee_items").insert(inserts);
+        }
+      }
       toast.success(`Student added! ID: ${studentId}, Default Password: password`);
       setAddStudentOpen(false);
       setNewSurname("");

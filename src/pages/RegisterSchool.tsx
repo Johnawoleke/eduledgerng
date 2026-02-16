@@ -126,7 +126,7 @@ const RegisterSchool = () => {
             <GraduationCap className="w-8 h-8 text-primary-foreground" />
           </div>
           <h1 className="text-3xl font-bold text-foreground">
-            EduLedger<span className="text-primary">NG</span>
+            EduLedger<span className="text-primary font-bold">NG</span>
           </h1>
           <p className="text-muted-foreground mt-1">Register Your School</p>
         </div>

@@ -81,7 +81,7 @@ const ReceiptPage = () => {
                 <GraduationCap className="w-5 h-5 text-primary-foreground" />
               </div>
             </div>
-            <h1 className="text-xl font-bold">EduLedger<span className="text-primary">NG</span></h1>
+            <h1 className="text-xl font-bold">EduLedger<span className="text-primary font-bold">NG</span></h1>
             <p className="text-sm text-muted-foreground">{school?.name || "School"}</p>
             <p className="text-xs text-muted-foreground mt-1">PAYMENT RECEIPT</p>
           </CardHeader>
