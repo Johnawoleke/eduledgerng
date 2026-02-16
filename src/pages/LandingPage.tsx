@@ -33,12 +33,12 @@ const LandingPage = () => {
       <section className="py-20 px-4">
         <div className="container mx-auto max-w-3xl text-center">
           <h1 className="text-4xl sm:text-5xl font-bold text-foreground mb-6">
-            School Fee Management
+            School Records,
             <br />
-            <span className="text-primary">Made Simple</span>
+            <span className="text-primary">Simplified</span>
           </h1>
           <p className="text-lg text-muted-foreground mb-8 max-w-2xl mx-auto">
-            Register your school, add students and fees, and give each student their own portal to view and pay fees online. Complete data isolation — each school is independent.
+            Register your school, manage students, track fees and payments, and give each student a secure portal — all in one place.
           </p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <Button size="lg" onClick={() => navigate("/register")} className="gap-2">
