@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { GraduationCap, LogOut, Wallet, CreditCard, History, Receipt, Eye } from "lucide-react";
+import { GraduationCap, LogOut, Wallet, CreditCard, History, Eye } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -22,7 +22,6 @@ const SchoolStudentDashboard = () => {
 
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [processingOpen, setProcessingOpen] = useState(false);
-  
   const [selectedFees, setSelectedFees] = useState<Record<string, boolean>>({});
   const [feeAmounts, setFeeAmounts] = useState<Record<string, string>>({});
 
@@ -66,51 +65,99 @@ const SchoolStudentDashboard = () => {
     return "bg-destructive/10 text-destructive border-destructive/30";
   };
 
-  // === PAYSTACK TEMPORARILY DISABLED ===
-  // The full Paystack payment flow (popup + verify-payment edge function) is
-  // preserved below in a commented block. Uncomment handlePayPaystack and
-  // change the button onClick back to handlePayPaystack to re-enable.
-  //
-  // const handlePayPaystack = async () => {
-  //   if (!window.PaystackPop) { toast.error("Payment gateway not loaded."); return; }
-  //   const feePayments = unpaidFees.filter((f) => selectedFees[f.id]).map((f) => ({
-  //     fee_item_id: f.id,
-  //     amount: Math.min(Number(feeAmounts[f.id] || 0), Number(f.amount) - Number(f.paid)),
-  //   })).filter((fp) => fp.amount > 0);
-  //   if (feePayments.length === 0 || paymentTotal <= 0) return;
-  //   setPaymentOpen(false);
-  //   const paystackKey = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY;
-  //   const reference = `PSK-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
-  //   const handler = window.PaystackPop.setup({
-  //     key: paystackKey, email: `${student!.student_id}@${slug}.eduledger.ng`,
-  //     amount: paymentTotal * 100, currency: "NGN", ref: reference,
-  //     metadata: { student_id: student!.student_id, student_name: student!.name, school_slug: slug,
-  //       custom_fields: [{ display_name: "Student", variable_name: "student", value: student!.name },
-  //         { display_name: "School", variable_name: "school", value: school?.name || slug }] },
-  //     callback: async (response) => {
-  //       setProcessingOpen(true);
-  //       try {
-  //         const res = await supabase.functions.invoke("verify-payment", {
-  //           body: { reference: response.reference, school_slug: slug,
-  //             student_id: studentCredentials?.student_id, pin: studentCredentials?.pin, fee_payments: feePayments } });
-  //         if (res.error || res.data?.error) { toast.error(res.data?.error || "Verification failed"); setProcessingOpen(false); return; }
-  //         const refreshRes = await supabase.functions.invoke("student-auth", {
-  //           body: { school_slug: slug, student_id: studentCredentials?.student_id, pin: studentCredentials?.pin } });
-  //         if (refreshRes.data && !refreshRes.data.error) setStudentData(refreshRes.data.feeItems, refreshRes.data.payments);
-  //         setProcessingOpen(false);
-  //         toast.success("Payment verified!");
-  //         navigate(`/school/${slug}/receipt/${res.data?.payment?.id || "latest"}`);
-  //       } catch { toast.error("Verification failed"); setProcessingOpen(false); }
-  //     },
-  //     onClose: () => { toast.info("Payment cancelled"); },
-  //   });
-  //   handler.openIframe();
-  // };
-  // === END PAYSTACK DISABLED ===
+  const handlePayPaystack = async () => {
+    if (!window.PaystackPop) {
+      toast.error("Payment gateway not loaded. Please refresh the page.");
+      return;
+    }
 
-  const handlePay = () => {
-    toast.info("Online payments coming soon. Please pay at the school office.");
+    const feePayments = unpaidFees
+      .filter((f) => selectedFees[f.id])
+      .map((f) => ({
+        fee_item_id: f.id,
+        amount: Math.min(Number(feeAmounts[f.id] || 0), Number(f.amount) - Number(f.paid)),
+      }))
+      .filter((fp) => fp.amount > 0);
+
+    if (feePayments.length === 0 || paymentTotal <= 0) {
+      toast.error("Please select at least one fee to pay.");
+      return;
+    }
+
     setPaymentOpen(false);
+
+    const paystackKey = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || "pk_test_22f2038e11f810aef2b6df8898c27bba64c6f42c";
+
+    // Email: studentId@schoolSlug.eduledgerng.com
+    const studentEmail = `${student!.student_id}@${slug}.eduledgerng.com`;
+    const reference = `EL-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+
+    const handler = window.PaystackPop.setup({
+      key: paystackKey,
+      email: studentEmail,
+      amount: Math.round(paymentTotal * 100), // kobo
+      currency: "NGN",
+      ref: reference,
+      metadata: {
+        student_id: student!.student_id,
+        student_name: student!.name,
+        school_slug: slug,
+        custom_fields: [
+          { display_name: "Student", variable_name: "student", value: student!.name },
+          { display_name: "School", variable_name: "school", value: school?.name || slug },
+          { display_name: "Class", variable_name: "class", value: student!.class },
+        ],
+      },
+      callback: async (response: { reference: string }) => {
+        setProcessingOpen(true);
+        try {
+          // Verify payment server-side
+          const res = await supabase.functions.invoke("verify-payment", {
+            body: {
+              reference: response.reference,
+              school_slug: slug,
+              student_id: studentCredentials?.student_id,
+              pin: studentCredentials?.pin,
+              fee_payments: feePayments,
+            },
+          });
+
+          if (res.error || res.data?.error) {
+            toast.error(res.data?.error || "Payment verification failed. Please contact support.");
+            setProcessingOpen(false);
+            return;
+          }
+
+          // Refresh student data
+          const refreshRes = await supabase.functions.invoke("student-auth", {
+            body: {
+              school_slug: slug,
+              student_id: studentCredentials?.student_id,
+              pin: studentCredentials?.pin,
+            },
+          });
+
+          if (refreshRes.data && !refreshRes.data.error) {
+            setStudentData(refreshRes.data.feeItems, refreshRes.data.payments);
+          }
+
+          setProcessingOpen(false);
+          toast.success("Payment successful!");
+
+          const paymentId = res.data?.payment?.id || "latest";
+          navigate(`/school/${slug}/receipt/${paymentId}`);
+        } catch (err) {
+          console.error("Payment verification error:", err);
+          toast.error("Verification failed. Please contact support with reference: " + response.reference);
+          setProcessingOpen(false);
+        }
+      },
+      onClose: () => {
+        toast.info("Payment cancelled.");
+      },
+    });
+
+    handler.openIframe();
   };
 
   if (!student) {
@@ -200,16 +247,24 @@ const SchoolStudentDashboard = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {feeItems.map((fee) => (
-                  <TableRow key={fee.id}>
-                    <TableCell className="font-medium">{fee.name}</TableCell>
-                    <TableCell className="text-right">{formatNaira(Number(fee.amount))}</TableCell>
-                    <TableCell className="text-right">{formatNaira(Number(fee.paid))}</TableCell>
-                    <TableCell className="text-right">
-                      <Badge variant="outline" className={statusColor(fee.status)}>{fee.status}</Badge>
+                {feeItems.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={4} className="text-center text-muted-foreground py-6">
+                      No fees have been set for your class yet.
                     </TableCell>
                   </TableRow>
-                ))}
+                ) : (
+                  feeItems.map((fee) => (
+                    <TableRow key={fee.id}>
+                      <TableCell className="font-medium">{fee.name}</TableCell>
+                      <TableCell className="text-right">{formatNaira(Number(fee.amount))}</TableCell>
+                      <TableCell className="text-right">{formatNaira(Number(fee.paid))}</TableCell>
+                      <TableCell className="text-right">
+                        <Badge variant="outline" className={statusColor(fee.status)}>{fee.status}</Badge>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
               </TableBody>
             </Table>
           </CardContent>
@@ -220,7 +275,7 @@ const SchoolStudentDashboard = () => {
             <CardContent className="pt-6 flex flex-col sm:flex-row items-center justify-between gap-4">
               <div>
                 <p className="font-semibold">Outstanding Balance: {formatNaira(balance)}</p>
-                <p className="text-sm text-muted-foreground">Select fees to pay</p>
+                <p className="text-sm text-muted-foreground">Select fees to pay online via Paystack</p>
               </div>
               <Button onClick={openPaymentModal} className="gap-2">
                 <CreditCard className="w-4 h-4" /> Make Payment
@@ -249,7 +304,6 @@ const SchoolStudentDashboard = () => {
                 </TableHeader>
                 <TableBody>
                   {payments.map((p) => {
-                    // Strip amount suffix from item display
                     const displayItems = p.items.map((item) => {
                       const pipeIdx = item.lastIndexOf("|");
                       return pipeIdx > 0 ? item.substring(0, pipeIdx) : item;
@@ -329,24 +383,28 @@ const SchoolStudentDashboard = () => {
                 <span className="font-semibold">Total to Pay:</span>
                 <span className="text-xl font-bold text-primary">{formatNaira(paymentTotal)}</span>
               </div>
-              <Button className="w-full gap-2" disabled={paymentTotal <= 0} onClick={handlePay}>
-                <CreditCard className="w-4 h-4" /> Pay {formatNaira(paymentTotal)}
+              <Button
+                className="w-full gap-2"
+                disabled={paymentTotal <= 0}
+                onClick={handlePayPaystack}
+              >
+                <CreditCard className="w-4 h-4" /> Pay {formatNaira(paymentTotal)} via Paystack
               </Button>
             </div>
           )}
         </DialogContent>
       </Dialog>
 
+      {/* Processing Dialog */}
       <Dialog open={processingOpen}>
         <DialogContent className="text-center">
           <div className="py-8">
             <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-            <p className="font-semibold">Processing payment...</p>
-            <p className="text-sm text-muted-foreground">Please wait</p>
+            <p className="font-semibold">Verifying payment...</p>
+            <p className="text-sm text-muted-foreground">Please wait, do not close this window</p>
           </div>
         </DialogContent>
       </Dialog>
-
     </div>
   );
 };

@@ -31,9 +31,10 @@ serve(async (req) => {
       );
     }
 
-    const verifyRes = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`, {
-      headers: { Authorization: `Bearer ${paystackKey}` },
-    });
+    const verifyRes = await fetch(
+      `https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`,
+      { headers: { Authorization: `Bearer ${paystackKey}` } }
+    );
     const verifyData = await verifyRes.json();
 
     if (!verifyData.status || verifyData.data?.status !== "success") {
@@ -53,7 +54,7 @@ serve(async (req) => {
 
     const { data: school } = await supabaseAdmin
       .from("schools")
-      .select("id")
+      .select("id, name, slug")
       .eq("slug", school_slug)
       .maybeSingle();
 
@@ -94,38 +95,56 @@ serve(async (req) => {
       );
     }
 
-    // 4. Process fee items
+    // 4. Get the class fees for this student to validate fee items
+    const { data: classFees } = await supabaseAdmin
+      .from("class_fees")
+      .select("*")
+      .eq("school_id", school.id)
+      .in("class_target", [student.class, "ALL"]);
+
+    // Get existing payments to calculate current paid amounts
+    const { data: existingPayments } = await supabaseAdmin
+      .from("payments")
+      .select("items")
+      .eq("student_id", student.id);
+
+    // Calculate how much has already been paid per fee name
+    const paidByFee: Record<string, number> = {};
+    (existingPayments || []).forEach((p: any) => {
+      (p.items || []).forEach((item: string) => {
+        const pipeIdx = item.lastIndexOf("|");
+        if (pipeIdx > 0) {
+          const itemName = item.substring(0, pipeIdx);
+          const itemAmount = Number(item.substring(pipeIdx + 1));
+          if (!isNaN(itemAmount)) {
+            paidByFee[itemName] = (paidByFee[itemName] || 0) + itemAmount;
+          }
+        }
+      });
+    });
+
+    // 5. Process fee payments
     let totalAmount = 0;
     const itemNames: string[] = [];
 
     for (const fp of fee_payments) {
-      const { data: feeItem } = await supabaseAdmin
-        .from("fee_items")
-        .select("*")
-        .eq("id", fp.fee_item_id)
-        .eq("student_id", student.id)
-        .maybeSingle();
+      // fp has: fee_item_id (class_fees.id), amount
+      const classFee = (classFees || []).find((cf: any) => cf.id === fp.fee_item_id);
+      if (!classFee) continue;
 
-      if (!feeItem) continue;
-
-      const owing = feeItem.amount - feeItem.paid;
-      const payAmount = Math.min(Math.max(fp.amount, 0), owing);
+      const alreadyPaid = paidByFee[classFee.name] || 0;
+      const owing = Math.max(Number(classFee.amount) - alreadyPaid, 0);
+      const payAmount = Math.min(Math.max(Number(fp.amount), 0), owing);
       if (payAmount <= 0) continue;
 
-      const newPaid = feeItem.paid + payAmount;
-      const newStatus = newPaid >= feeItem.amount ? "paid" : "partial";
-
-      await supabaseAdmin
-        .from("fee_items")
-        .update({ paid: newPaid, status: newStatus })
-        .eq("id", fp.fee_item_id);
-
       totalAmount += payAmount;
-      const label = newStatus === "paid" ? feeItem.name : `${feeItem.name} (partial)`;
+      const newPaid = alreadyPaid + payAmount;
+      const isFullyPaid = newPaid >= Number(classFee.amount);
+      const label = isFullyPaid ? classFee.name : `${classFee.name} (partial)`;
       itemNames.push(`${label}|${payAmount}`);
     }
 
-    // 5. Validate amount matches Paystack (kobo → naira)
+    // 6. Validate amount loosely against Paystack
     const paystackNaira = paystackAmount / 100;
     if (Math.abs(paystackNaira - totalAmount) > 1) {
       console.warn(`Amount mismatch: Paystack=${paystackNaira}, calculated=${totalAmount}`);
@@ -133,12 +152,12 @@ serve(async (req) => {
 
     if (totalAmount <= 0) {
       return new Response(
-        JSON.stringify({ error: "No valid payments" }),
+        JSON.stringify({ error: "No valid payments to record" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // 6. Record payment
+    // 7. Record payment
     const { data: payment, error: payError } = await supabaseAdmin
       .from("payments")
       .insert({
@@ -153,6 +172,7 @@ serve(async (req) => {
       .single();
 
     if (payError) {
+      console.error("Payment insert error:", payError);
       return new Response(
         JSON.stringify({ error: "Failed to record payment" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
