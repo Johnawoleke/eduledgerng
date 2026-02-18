@@ -66,8 +66,11 @@ const SchoolStudentDashboard = () => {
   };
 
   const handlePayPaystack = async () => {
-    if (!window.PaystackPop) {
-      toast.error("Payment gateway not loaded. Please refresh the page.");
+    if (typeof window.PaystackPop === "undefined") {
+      toast.error(
+        "Paystack payment gateway failed to load. Please refresh the page and try again.",
+        { duration: 6000 }
+      );
       return;
     }
 
