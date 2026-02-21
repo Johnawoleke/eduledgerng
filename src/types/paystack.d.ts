@@ -5,6 +5,7 @@ interface PaystackPopup {
     amount: number;
     ref?: string;
     currency?: string;
+    channels?: string[];
     metadata?: Record<string, unknown>;
     callback: (response: { reference: string; status: string; trans: string; transaction: string }) => void;
     onClose: () => void;
