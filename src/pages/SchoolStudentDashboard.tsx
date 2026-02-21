@@ -66,46 +66,35 @@ const SchoolStudentDashboard = () => {
     return "bg-destructive/10 text-destructive border-destructive/30";
   };
 
-  const forcePaystackIframeVisible = () => {
-    // Find and force-show Paystack iframes that may be hidden on mobile
-    const iframes = document.querySelectorAll('iframe[name^="paystack"]');
-    console.log("[Paystack Debug] Found iframes:", iframes.length);
-    iframes.forEach((iframe) => {
-      const el = iframe as HTMLIFrameElement;
-      console.log("[Paystack Debug] iframe name:", el.name, "display:", el.style.display, "visibility:", el.style.visibility);
-      if (el.name.includes("checkout") && !el.name.includes("background")) {
-        el.style.position = "fixed";
-        el.style.top = "0";
-        el.style.left = "0";
-        el.style.width = "100%";
-        el.style.height = "100%";
-        el.style.zIndex = "2147483647";
-        el.style.display = "block";
-        el.style.visibility = "visible";
-      }
-      if (el.name.includes("background")) {
-        el.style.position = "fixed";
-        el.style.top = "0";
-        el.style.left = "0";
-        el.style.width = "100%";
-        el.style.height = "100%";
-        el.style.zIndex = "2147483646";
-        el.style.display = "block";
-        el.style.visibility = "visible";
+  // MutationObserver to watch for Paystack iframes and force visibility on mobile
+  const watchForPaystackIframes = () => {
+    const observer = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        for (const node of Array.from(mutation.addedNodes)) {
+          if (node instanceof HTMLIFrameElement && node.name?.startsWith("paystack")) {
+            console.log("[Paystack] Detected iframe:", node.name);
+            node.style.position = "fixed";
+            node.style.top = "0";
+            node.style.left = "0";
+            node.style.width = "100vw";
+            node.style.height = "100vh";
+            node.style.zIndex = "2147483647";
+            node.style.display = "block";
+            node.style.visibility = "visible";
+            node.style.border = "none";
+          }
+        }
       }
     });
+    observer.observe(document.body, { childList: true, subtree: true });
+    // Auto-disconnect after 30s
+    setTimeout(() => observer.disconnect(), 30000);
+    return observer;
   };
 
   const handlePayPaystack = () => {
-    console.log("[Paystack Debug] handlePayPaystack called");
-    console.log("[Paystack Debug] PaystackPop available:", typeof window.PaystackPop !== "undefined");
-
-    // Check PaystackPop is available
     if (typeof window.PaystackPop === "undefined") {
-      toast.error(
-        "Paystack payment gateway failed to load. Please refresh the page and try again.",
-        { duration: 8000 }
-      );
+      toast.error("Paystack failed to load. Please refresh the page.", { duration: 8000 });
       return;
     }
 
@@ -123,7 +112,6 @@ const SchoolStudentDashboard = () => {
     }
 
     const amountKobo = Math.round(paymentTotal * 100);
-    console.log("[Paystack Debug] amountKobo:", amountKobo);
     if (amountKobo < 100) {
       toast.error("Minimum payment amount is ₦1.");
       return;
@@ -133,22 +121,22 @@ const SchoolStudentDashboard = () => {
     const studentEmail = `${student!.student_id}@${slug}.eduledgerng.com`;
     const reference = `EL-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
 
-    console.log("[Paystack Debug] key:", paystackKey.substring(0, 10) + "...");
-    console.log("[Paystack Debug] email:", studentEmail);
-    console.log("[Paystack Debug] reference:", reference);
-
-    // Show loading indicator and close modal
-    setPaymentLoading(true);
+    // CRITICAL: Close ALL dialogs/overlays FIRST, then open Paystack with NO competing UI
     setPaymentOpen(false);
+    setPaymentLoading(false);
+    setProcessingOpen(false);
+
+    // Start watching for Paystack iframes before opening
+    const observer = watchForPaystackIframes();
 
     try {
-      console.log("[Paystack Debug] Calling PaystackPop.setup...");
-      const handler = window.PaystackPop.setup({
+      const handler = (window.PaystackPop as any).setup({
         key: paystackKey,
         email: studentEmail,
         amount: amountKobo,
         currency: "NGN",
         ref: reference,
+        channels: ['card', 'bank', 'ussd', 'bank_transfer'],
         metadata: {
           student_id: student!.student_id,
           student_name: student!.name,
@@ -160,7 +148,7 @@ const SchoolStudentDashboard = () => {
           ],
         },
         callback: async (response: { reference: string }) => {
-          setPaymentLoading(false);
+          observer.disconnect();
           setProcessingOpen(true);
           try {
             const res = await supabase.functions.invoke("verify-payment", {
@@ -194,7 +182,6 @@ const SchoolStudentDashboard = () => {
 
             setProcessingOpen(false);
             toast.success("Payment successful! Redirecting to receipt...");
-
             const paymentId = res.data?.payment?.id || "latest";
             navigate(`/school/${slug}/receipt/${paymentId}`);
           } catch (err) {
@@ -204,27 +191,15 @@ const SchoolStudentDashboard = () => {
           }
         },
         onClose: () => {
-          console.log("[Paystack Debug] Paystack popup closed by user");
-          setPaymentLoading(false);
+          observer.disconnect();
           toast.info("Payment window closed. No charge was made.");
         },
       });
 
-      console.log("[Paystack Debug] handler created, calling openIframe...");
       handler.openIframe();
-      console.log("[Paystack Debug] openIframe called successfully");
-
-      // Force visibility after a short tick to ensure Paystack has created its iframes
-      requestAnimationFrame(() => {
-        forcePaystackIframeVisible();
-        // Check again after another frame
-        requestAnimationFrame(() => {
-          forcePaystackIframeVisible();
-        });
-      });
     } catch (err) {
-      console.error("[Paystack Debug] Setup error:", err);
-      setPaymentLoading(false);
+      observer.disconnect();
+      console.error("[Paystack] Setup error:", err);
       toast.error("Failed to open payment window. Please refresh and try again.", { duration: 8000 });
     }
   };
@@ -475,16 +450,6 @@ const SchoolStudentDashboard = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Paystack Loading Overlay - shows while waiting for Paystack to open */}
-      {paymentLoading && (
-        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center" style={{ zIndex: 2147483640 }}>
-          <div className="text-center space-y-3">
-            <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
-            <p className="font-semibold">Opening payment window...</p>
-            <p className="text-sm text-muted-foreground">If nothing appears, please refresh and try again</p>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
