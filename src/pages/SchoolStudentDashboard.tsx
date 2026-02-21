@@ -22,6 +22,7 @@ const SchoolStudentDashboard = () => {
 
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [processingOpen, setProcessingOpen] = useState(false);
+  const [paymentLoading, setPaymentLoading] = useState(false);
   const [selectedFees, setSelectedFees] = useState<Record<string, boolean>>({});
   const [feeAmounts, setFeeAmounts] = useState<Record<string, string>>({});
 
@@ -65,7 +66,40 @@ const SchoolStudentDashboard = () => {
     return "bg-destructive/10 text-destructive border-destructive/30";
   };
 
+  const forcePaystackIframeVisible = () => {
+    // Find and force-show Paystack iframes that may be hidden on mobile
+    const iframes = document.querySelectorAll('iframe[name^="paystack"]');
+    console.log("[Paystack Debug] Found iframes:", iframes.length);
+    iframes.forEach((iframe) => {
+      const el = iframe as HTMLIFrameElement;
+      console.log("[Paystack Debug] iframe name:", el.name, "display:", el.style.display, "visibility:", el.style.visibility);
+      if (el.name.includes("checkout") && !el.name.includes("background")) {
+        el.style.position = "fixed";
+        el.style.top = "0";
+        el.style.left = "0";
+        el.style.width = "100%";
+        el.style.height = "100%";
+        el.style.zIndex = "2147483647";
+        el.style.display = "block";
+        el.style.visibility = "visible";
+      }
+      if (el.name.includes("background")) {
+        el.style.position = "fixed";
+        el.style.top = "0";
+        el.style.left = "0";
+        el.style.width = "100%";
+        el.style.height = "100%";
+        el.style.zIndex = "2147483646";
+        el.style.display = "block";
+        el.style.visibility = "visible";
+      }
+    });
+  };
+
   const handlePayPaystack = () => {
+    console.log("[Paystack Debug] handlePayPaystack called");
+    console.log("[Paystack Debug] PaystackPop available:", typeof window.PaystackPop !== "undefined");
+
     // Check PaystackPop is available
     if (typeof window.PaystackPop === "undefined") {
       toast.error(
@@ -89,6 +123,7 @@ const SchoolStudentDashboard = () => {
     }
 
     const amountKobo = Math.round(paymentTotal * 100);
+    console.log("[Paystack Debug] amountKobo:", amountKobo);
     if (amountKobo < 100) {
       toast.error("Minimum payment amount is ₦1.");
       return;
@@ -98,84 +133,100 @@ const SchoolStudentDashboard = () => {
     const studentEmail = `${student!.student_id}@${slug}.eduledgerng.com`;
     const reference = `EL-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
 
-    // Close the selection modal FIRST so it doesn't block the popup
+    console.log("[Paystack Debug] key:", paystackKey.substring(0, 10) + "...");
+    console.log("[Paystack Debug] email:", studentEmail);
+    console.log("[Paystack Debug] reference:", reference);
+
+    // Show loading indicator and close modal
+    setPaymentLoading(true);
     setPaymentOpen(false);
 
-    // Small delay to let the modal close before opening Paystack iframe
-    setTimeout(() => {
-      try {
-        const handler = window.PaystackPop.setup({
-          key: paystackKey,
-          email: studentEmail,
-          amount: amountKobo,
-          currency: "NGN",
-          ref: reference,
-          metadata: {
-            student_id: student!.student_id,
-            student_name: student!.name,
-            school_slug: slug,
-            custom_fields: [
-              { display_name: "Student", variable_name: "student", value: student!.name },
-              { display_name: "School", variable_name: "school", value: school?.name || slug },
-              { display_name: "Class", variable_name: "class", value: student!.class },
-            ],
-          },
-          callback: async (response: { reference: string }) => {
-            // Show processing AFTER Paystack closes
-            setProcessingOpen(true);
-            try {
-              const res = await supabase.functions.invoke("verify-payment", {
-                body: {
-                  reference: response.reference,
-                  school_slug: slug,
-                  student_id: studentCredentials?.student_id,
-                  pin: studentCredentials?.pin,
-                  fee_payments: feePayments,
-                },
-              });
+    try {
+      console.log("[Paystack Debug] Calling PaystackPop.setup...");
+      const handler = window.PaystackPop.setup({
+        key: paystackKey,
+        email: studentEmail,
+        amount: amountKobo,
+        currency: "NGN",
+        ref: reference,
+        metadata: {
+          student_id: student!.student_id,
+          student_name: student!.name,
+          school_slug: slug,
+          custom_fields: [
+            { display_name: "Student", variable_name: "student", value: student!.name },
+            { display_name: "School", variable_name: "school", value: school?.name || slug },
+            { display_name: "Class", variable_name: "class", value: student!.class },
+          ],
+        },
+        callback: async (response: { reference: string }) => {
+          setPaymentLoading(false);
+          setProcessingOpen(true);
+          try {
+            const res = await supabase.functions.invoke("verify-payment", {
+              body: {
+                reference: response.reference,
+                school_slug: slug,
+                student_id: studentCredentials?.student_id,
+                pin: studentCredentials?.pin,
+                fee_payments: feePayments,
+              },
+            });
 
-              if (res.error || res.data?.error) {
-                const errMsg = res.data?.error || res.error?.message || "Payment verification failed.";
-                toast.error(errMsg + " Please contact support with ref: " + response.reference, { duration: 10000 });
-                setProcessingOpen(false);
-                return;
-              }
-
-              // Refresh student data
-              const refreshRes = await supabase.functions.invoke("student-auth", {
-                body: {
-                  school_slug: slug,
-                  student_id: studentCredentials?.student_id,
-                  pin: studentCredentials?.pin,
-                },
-              });
-
-              if (refreshRes.data && !refreshRes.data.error) {
-                setStudentData(refreshRes.data.feeItems, refreshRes.data.payments);
-              }
-
+            if (res.error || res.data?.error) {
+              const errMsg = res.data?.error || res.error?.message || "Payment verification failed.";
+              toast.error(errMsg + " Please contact support with ref: " + response.reference, { duration: 10000 });
               setProcessingOpen(false);
-              toast.success("Payment successful! Redirecting to receipt...");
-
-              const paymentId = res.data?.payment?.id || "latest";
-              navigate(`/school/${slug}/receipt/${paymentId}`);
-            } catch (err) {
-              console.error("Payment verification error:", err);
-              toast.error("Verification error. Contact support with ref: " + response.reference, { duration: 10000 });
-              setProcessingOpen(false);
+              return;
             }
-          },
-          onClose: () => {
-            toast.info("Payment window closed. No charge was made.");
-          },
-        });
 
-        handler.openIframe();
-      } catch (err) {
-        console.error("Paystack setup error:", err);
-        toast.error("Failed to open payment window. Please refresh and try again.", { duration: 8000 });
-      }
-    }, 300);
+            const refreshRes = await supabase.functions.invoke("student-auth", {
+              body: {
+                school_slug: slug,
+                student_id: studentCredentials?.student_id,
+                pin: studentCredentials?.pin,
+              },
+            });
+
+            if (refreshRes.data && !refreshRes.data.error) {
+              setStudentData(refreshRes.data.feeItems, refreshRes.data.payments);
+            }
+
+            setProcessingOpen(false);
+            toast.success("Payment successful! Redirecting to receipt...");
+
+            const paymentId = res.data?.payment?.id || "latest";
+            navigate(`/school/${slug}/receipt/${paymentId}`);
+          } catch (err) {
+            console.error("Payment verification error:", err);
+            toast.error("Verification error. Contact support with ref: " + response.reference, { duration: 10000 });
+            setProcessingOpen(false);
+          }
+        },
+        onClose: () => {
+          console.log("[Paystack Debug] Paystack popup closed by user");
+          setPaymentLoading(false);
+          toast.info("Payment window closed. No charge was made.");
+        },
+      });
+
+      console.log("[Paystack Debug] handler created, calling openIframe...");
+      handler.openIframe();
+      console.log("[Paystack Debug] openIframe called successfully");
+
+      // Force visibility after a short tick to ensure Paystack has created its iframes
+      requestAnimationFrame(() => {
+        forcePaystackIframeVisible();
+        // Check again after another frame
+        requestAnimationFrame(() => {
+          forcePaystackIframeVisible();
+        });
+      });
+    } catch (err) {
+      console.error("[Paystack Debug] Setup error:", err);
+      setPaymentLoading(false);
+      toast.error("Failed to open payment window. Please refresh and try again.", { duration: 8000 });
+    }
   };
 
   if (!student) {
@@ -423,6 +474,17 @@ const SchoolStudentDashboard = () => {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Paystack Loading Overlay - shows while waiting for Paystack to open */}
+      {paymentLoading && (
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center" style={{ zIndex: 2147483640 }}>
+          <div className="text-center space-y-3">
+            <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
+            <p className="font-semibold">Opening payment window...</p>
+            <p className="text-sm text-muted-foreground">If nothing appears, please refresh and try again</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
