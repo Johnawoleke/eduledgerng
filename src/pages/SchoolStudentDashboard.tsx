@@ -179,7 +179,7 @@ const SchoolStudentDashboard = () => {
             <CardContent className="pt-6 flex flex-col sm:flex-row items-center justify-between gap-4">
               <div>
                 <p className="font-semibold">Outstanding Balance: {formatNaira(balance)}</p>
-                <p className="text-sm text-muted-foreground">Select fees to pay online via Paystack</p>
+                <p className="text-sm text-muted-foreground">Select fees to pay online</p>
               </div>
               <Button onClick={openPaymentModal} className="gap-2">
                 <CreditCard className="w-4 h-4" /> Make Payment
