@@ -21,8 +21,6 @@ const SchoolStudentDashboard = () => {
   const { student, school, feeItems, payments, logoutStudent, studentCredentials, setStudentData } = useSchool();
 
   const [paymentOpen, setPaymentOpen] = useState(false);
-  const [processingOpen, setProcessingOpen] = useState(false);
-  const [paymentLoading, setPaymentLoading] = useState(false);
   const [selectedFees, setSelectedFees] = useState<Record<string, boolean>>({});
   const [feeAmounts, setFeeAmounts] = useState<Record<string, string>>({});
 
@@ -64,144 +62,6 @@ const SchoolStudentDashboard = () => {
     if (status === "paid") return "bg-primary/15 text-primary border-primary/30";
     if (status === "partial") return "bg-accent/15 text-accent-foreground border-accent/30";
     return "bg-destructive/10 text-destructive border-destructive/30";
-  };
-
-  // MutationObserver to watch for Paystack iframes and force visibility on mobile
-  const watchForPaystackIframes = () => {
-    const observer = new MutationObserver((mutations) => {
-      for (const mutation of mutations) {
-        for (const node of Array.from(mutation.addedNodes)) {
-          if (node instanceof HTMLIFrameElement && node.name?.startsWith("paystack")) {
-            console.log("[Paystack] Detected iframe:", node.name);
-            node.style.position = "fixed";
-            node.style.top = "0";
-            node.style.left = "0";
-            node.style.width = "100vw";
-            node.style.height = "100vh";
-            node.style.zIndex = "2147483647";
-            node.style.display = "block";
-            node.style.visibility = "visible";
-            node.style.border = "none";
-          }
-        }
-      }
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
-    // Auto-disconnect after 30s
-    setTimeout(() => observer.disconnect(), 30000);
-    return observer;
-  };
-
-  const handlePayPaystack = () => {
-    if (typeof window.PaystackPop === "undefined") {
-      toast.error("Paystack failed to load. Please refresh the page.", { duration: 8000 });
-      return;
-    }
-
-    const feePayments = unpaidFees
-      .filter((f) => selectedFees[f.id])
-      .map((f) => ({
-        fee_item_id: f.id,
-        amount: Math.min(Number(feeAmounts[f.id] || 0), Number(f.amount) - Number(f.paid)),
-      }))
-      .filter((fp) => fp.amount > 0);
-
-    if (feePayments.length === 0 || paymentTotal <= 0) {
-      toast.error("Please select at least one fee and enter an amount.");
-      return;
-    }
-
-    const amountKobo = Math.round(paymentTotal * 100);
-    if (amountKobo < 100) {
-      toast.error("Minimum payment amount is ₦1.");
-      return;
-    }
-
-    const paystackKey = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || "pk_test_22f2038e11f810aef2b6df8898c27bba64c6f42c";
-    const studentEmail = `${student!.student_id}@${slug}.eduledgerng.com`;
-    const reference = `EL-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
-
-    // CRITICAL: Close ALL dialogs/overlays FIRST, then open Paystack with NO competing UI
-    setPaymentOpen(false);
-    setPaymentLoading(false);
-    setProcessingOpen(false);
-
-    // Start watching for Paystack iframes before opening
-    const observer = watchForPaystackIframes();
-
-    try {
-      const handler = (window.PaystackPop as any).setup({
-        key: paystackKey,
-        email: studentEmail,
-        amount: amountKobo,
-        currency: "NGN",
-        ref: reference,
-        channels: ['card', 'bank', 'ussd', 'bank_transfer'],
-        metadata: {
-          student_id: student!.student_id,
-          student_name: student!.name,
-          school_slug: slug,
-          custom_fields: [
-            { display_name: "Student", variable_name: "student", value: student!.name },
-            { display_name: "School", variable_name: "school", value: school?.name || slug },
-            { display_name: "Class", variable_name: "class", value: student!.class },
-          ],
-        },
-        callback: async (response: { reference: string }) => {
-          observer.disconnect();
-          setProcessingOpen(true);
-          try {
-            const res = await supabase.functions.invoke("verify-payment", {
-              body: {
-                reference: response.reference,
-                school_slug: slug,
-                student_id: studentCredentials?.student_id,
-                pin: studentCredentials?.pin,
-                fee_payments: feePayments,
-              },
-            });
-
-            if (res.error || res.data?.error) {
-              const errMsg = res.data?.error || res.error?.message || "Payment verification failed.";
-              toast.error(errMsg + " Please contact support with ref: " + response.reference, { duration: 10000 });
-              setProcessingOpen(false);
-              return;
-            }
-
-            const refreshRes = await supabase.functions.invoke("student-auth", {
-              body: {
-                school_slug: slug,
-                student_id: studentCredentials?.student_id,
-                pin: studentCredentials?.pin,
-              },
-            });
-
-            if (refreshRes.data && !refreshRes.data.error) {
-              setStudentData(refreshRes.data.feeItems, refreshRes.data.payments);
-            }
-
-            setProcessingOpen(false);
-            toast.success("Payment successful! Redirecting to receipt...");
-            const paymentId = res.data?.payment?.id || "latest";
-            navigate(`/school/${slug}/receipt/${paymentId}`);
-          } catch (err) {
-            console.error("Payment verification error:", err);
-            toast.error("Verification error. Contact support with ref: " + response.reference, { duration: 10000 });
-            setProcessingOpen(false);
-          }
-        },
-        onClose: () => {
-          observer.disconnect();
-          toast.info("Payment window closed. No charge was made.");
-        },
-      });
-
-      handler.openIframe();
-    } catch (err) {
-      observer.disconnect();
-      console.error("[Paystack] Setup error:", err);
-      toast.error("Failed to open payment window. Please refresh and try again.", { duration: 8000 });
-    }
   };
 
   if (!student) {
@@ -319,7 +179,7 @@ const SchoolStudentDashboard = () => {
             <CardContent className="pt-6 flex flex-col sm:flex-row items-center justify-between gap-4">
               <div>
                 <p className="font-semibold">Outstanding Balance: {formatNaira(balance)}</p>
-                <p className="text-sm text-muted-foreground">Select fees to pay online via Paystack</p>
+                <p className="text-sm text-muted-foreground">Select fees to pay online</p>
               </div>
               <Button onClick={openPaymentModal} className="gap-2">
                 <CreditCard className="w-4 h-4" /> Make Payment
@@ -430,25 +290,17 @@ const SchoolStudentDashboard = () => {
               <Button
                 className="w-full gap-2"
                 disabled={paymentTotal <= 0}
-                onClick={handlePayPaystack}
+                onClick={() => { toast.info("Payment provider coming soon."); }}
               >
-                <CreditCard className="w-4 h-4" /> Pay {formatNaira(paymentTotal)} via Paystack
+                <CreditCard className="w-4 h-4" /> Pay {formatNaira(paymentTotal)}
               </Button>
             </div>
           )}
         </DialogContent>
       </Dialog>
 
-      {/* Processing Dialog */}
-      <Dialog open={processingOpen}>
-        <DialogContent className="text-center">
-          <div className="py-8">
-            <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-            <p className="font-semibold">Verifying payment...</p>
-            <p className="text-sm text-muted-foreground">Please wait, do not close this window</p>
-          </div>
-        </DialogContent>
-      </Dialog>
+
+
 
     </div>
   );

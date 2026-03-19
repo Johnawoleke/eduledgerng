@@ -111,7 +111,7 @@ serve(async (req) => {
         student_id: student.id,
         amount: totalAmount,
         reference,
-        method: "Paystack",
+        method: "Online",
         items: itemNames,
       })
       .select()

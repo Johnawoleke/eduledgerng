@@ -289,7 +289,7 @@ const StudentDashboard = () => {
                 <span className="text-xl font-bold text-primary">{formatNaira(paymentTotal)}</span>
               </div>
               <Button className="w-full gap-2" disabled={paymentTotal <= 0} onClick={() => handlePay(paymentTotal)}>
-                <CreditCard className="w-4 h-4" /> Pay {formatNaira(paymentTotal)} via Paystack
+                <CreditCard className="w-4 h-4" /> Pay {formatNaira(paymentTotal)}
               </Button>
             </div>
           )}
@@ -301,7 +301,7 @@ const StudentDashboard = () => {
         <DialogContent className="text-center">
           <div className="py-8">
             <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-            <p className="font-semibold">Processing payment via Paystack...</p>
+            <p className="font-semibold">Processing payment...</p>
             <p className="text-sm text-muted-foreground">Please wait</p>
           </div>
         </DialogContent>
@@ -316,7 +316,7 @@ const StudentDashboard = () => {
           <div className="space-y-2 text-sm">
             <p><strong>Amount:</strong> {lastPayment && formatNaira(lastPayment.amount)}</p>
             <p><strong>Reference:</strong> {lastPayment?.reference}</p>
-            <p><strong>Method:</strong> Paystack</p>
+            <p><strong>Method:</strong> Online</p>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setLastPayment(null)}>Close</Button>
