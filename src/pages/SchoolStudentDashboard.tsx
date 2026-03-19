@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { GraduationCap, LogOut, Wallet, CreditCard, History, Eye } from "lucide-react";
+import { GraduationCap, LogOut, Wallet, CreditCard, History, Eye, Loader2, Banknote } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -23,6 +23,7 @@ const SchoolStudentDashboard = () => {
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [selectedFees, setSelectedFees] = useState<Record<string, boolean>>({});
   const [feeAmounts, setFeeAmounts] = useState<Record<string, string>>({});
+  const [payingWithZendfi, setPayingWithZendfi] = useState(false);
 
   const totalFees = feeItems.reduce((s, f) => s + Number(f.amount), 0);
   const totalPaid = feeItems.reduce((s, f) => s + Number(f.paid), 0);
@@ -182,7 +183,7 @@ const SchoolStudentDashboard = () => {
                 <p className="text-sm text-muted-foreground">Select fees to pay online</p>
               </div>
               <Button onClick={openPaymentModal} className="gap-2">
-                <CreditCard className="w-4 h-4" /> Make Payment
+                <Banknote className="w-4 h-4" /> Pay with Bank Transfer (via Zendfi)
               </Button>
             </CardContent>
           </Card>
@@ -289,10 +290,52 @@ const SchoolStudentDashboard = () => {
               </div>
               <Button
                 className="w-full gap-2"
-                disabled={paymentTotal <= 0}
-                onClick={() => { toast.info("Payment provider coming soon."); }}
+                disabled={paymentTotal <= 0 || payingWithZendfi}
+                onClick={async () => {
+                  if (!studentCredentials || !slug) return;
+                  setPayingWithZendfi(true);
+                  try {
+                    const feePayments = unpaidFees
+                      .filter((f) => selectedFees[f.id])
+                      .map((f) => ({
+                        fee_item_id: f.id,
+                        amount: Math.min(
+                          Math.max(Number(feeAmounts[f.id] || 0), 0),
+                          Number(f.amount) - Number(f.paid)
+                        ),
+                      }))
+                      .filter((fp) => fp.amount > 0);
+
+                    const { data, error } = await supabase.functions.invoke("create-zendfi-payment", {
+                      body: {
+                        school_slug: slug,
+                        student_id: studentCredentials.student_id,
+                        pin: studentCredentials.pin,
+                        fee_payments: feePayments,
+                      },
+                    });
+
+                    if (error || !data?.hosted_page_url) {
+                      toast.error(data?.error || "Failed to create payment link. Please try again.");
+                      setPayingWithZendfi(false);
+                      return;
+                    }
+
+                    toast.success("Redirecting to payment page...");
+                    setPaymentOpen(false);
+                    window.location.href = data.hosted_page_url;
+                  } catch (err) {
+                    console.error("Zendfi payment error:", err);
+                    toast.error("Something went wrong. Please try again.");
+                    setPayingWithZendfi(false);
+                  }
+                }}
               >
-                <CreditCard className="w-4 h-4" /> Pay {formatNaira(paymentTotal)}
+                {payingWithZendfi ? (
+                  <><Loader2 className="w-4 h-4 animate-spin" /> Processing...</>
+                ) : (
+                  <><Banknote className="w-4 h-4" /> Pay {formatNaira(paymentTotal)} via Bank Transfer</>
+                )}
               </Button>
             </div>
           )}
