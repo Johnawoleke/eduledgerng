@@ -14,3 +14,9 @@ verify_jwt = false
 
 [functions.verify-payment]
 verify_jwt = false
+
+[functions.create-zendfi-payment]
+verify_jwt = false
+
+[functions.zendfi-webhook]
+verify_jwt = false
