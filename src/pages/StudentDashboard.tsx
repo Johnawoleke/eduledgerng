@@ -289,7 +289,7 @@ const StudentDashboard = () => {
                 <span className="text-xl font-bold text-primary">{formatNaira(paymentTotal)}</span>
               </div>
               <Button className="w-full gap-2" disabled={paymentTotal <= 0} onClick={() => handlePay(paymentTotal)}>
-                <CreditCard className="w-4 h-4" /> Pay {formatNaira(paymentTotal)} via Paystack
+                <CreditCard className="w-4 h-4" /> Pay {formatNaira(paymentTotal)}
               </Button>
             </div>
           )}
