@@ -23,6 +23,7 @@ const SchoolStudentDashboard = () => {
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [selectedFees, setSelectedFees] = useState<Record<string, boolean>>({});
   const [feeAmounts, setFeeAmounts] = useState<Record<string, string>>({});
+  const [payingWithZendfi, setPayingWithZendfi] = useState(false);
 
   const totalFees = feeItems.reduce((s, f) => s + Number(f.amount), 0);
   const totalPaid = feeItems.reduce((s, f) => s + Number(f.paid), 0);
