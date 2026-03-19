@@ -290,10 +290,52 @@ const SchoolStudentDashboard = () => {
               </div>
               <Button
                 className="w-full gap-2"
-                disabled={paymentTotal <= 0}
-                onClick={() => { toast.info("Payment provider coming soon."); }}
+                disabled={paymentTotal <= 0 || payingWithZendfi}
+                onClick={async () => {
+                  if (!studentCredentials || !slug) return;
+                  setPayingWithZendfi(true);
+                  try {
+                    const feePayments = unpaidFees
+                      .filter((f) => selectedFees[f.id])
+                      .map((f) => ({
+                        fee_item_id: f.id,
+                        amount: Math.min(
+                          Math.max(Number(feeAmounts[f.id] || 0), 0),
+                          Number(f.amount) - Number(f.paid)
+                        ),
+                      }))
+                      .filter((fp) => fp.amount > 0);
+
+                    const { data, error } = await supabase.functions.invoke("create-zendfi-payment", {
+                      body: {
+                        school_slug: slug,
+                        student_id: studentCredentials.student_id,
+                        pin: studentCredentials.pin,
+                        fee_payments: feePayments,
+                      },
+                    });
+
+                    if (error || !data?.hosted_page_url) {
+                      toast.error(data?.error || "Failed to create payment link. Please try again.");
+                      setPayingWithZendfi(false);
+                      return;
+                    }
+
+                    toast.success("Redirecting to payment page...");
+                    setPaymentOpen(false);
+                    window.location.href = data.hosted_page_url;
+                  } catch (err) {
+                    console.error("Zendfi payment error:", err);
+                    toast.error("Something went wrong. Please try again.");
+                    setPayingWithZendfi(false);
+                  }
+                }}
               >
-                <CreditCard className="w-4 h-4" /> Pay {formatNaira(paymentTotal)}
+                {payingWithZendfi ? (
+                  <><Loader2 className="w-4 h-4 animate-spin" /> Processing...</>
+                ) : (
+                  <><Banknote className="w-4 h-4" /> Pay {formatNaira(paymentTotal)} via Bank Transfer</>
+                )}
               </Button>
             </div>
           )}
