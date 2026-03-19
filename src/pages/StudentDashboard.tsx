@@ -301,7 +301,7 @@ const StudentDashboard = () => {
         <DialogContent className="text-center">
           <div className="py-8">
             <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-            <p className="font-semibold">Processing payment via Paystack...</p>
+            <p className="font-semibold">Processing payment...</p>
             <p className="text-sm text-muted-foreground">Please wait</p>
           </div>
         </DialogContent>
