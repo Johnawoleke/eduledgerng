@@ -290,9 +290,9 @@ const SchoolStudentDashboard = () => {
               <Button
                 className="w-full gap-2"
                 disabled={paymentTotal <= 0}
-                onClick={handlePayPaystack}
+                onClick={() => { toast.info("Payment provider coming soon."); }}
               >
-                <CreditCard className="w-4 h-4" /> Pay {formatNaira(paymentTotal)} via Paystack
+                <CreditCard className="w-4 h-4" /> Pay {formatNaira(paymentTotal)}
               </Button>
             </div>
           )}
