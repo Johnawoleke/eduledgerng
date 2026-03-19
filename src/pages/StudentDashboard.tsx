@@ -316,7 +316,7 @@ const StudentDashboard = () => {
           <div className="space-y-2 text-sm">
             <p><strong>Amount:</strong> {lastPayment && formatNaira(lastPayment.amount)}</p>
             <p><strong>Reference:</strong> {lastPayment?.reference}</p>
-            <p><strong>Method:</strong> Paystack</p>
+            <p><strong>Method:</strong> Online</p>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setLastPayment(null)}>Close</Button>

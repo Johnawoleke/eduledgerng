@@ -299,16 +299,8 @@ const SchoolStudentDashboard = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Processing Dialog */}
-      <Dialog open={processingOpen}>
-        <DialogContent className="text-center">
-          <div className="py-8">
-            <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-            <p className="font-semibold">Verifying payment...</p>
-            <p className="text-sm text-muted-foreground">Please wait, do not close this window</p>
-          </div>
-        </DialogContent>
-      </Dialog>
+
+
 
     </div>
   );
