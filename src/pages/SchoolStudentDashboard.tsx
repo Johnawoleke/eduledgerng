@@ -21,8 +21,6 @@ const SchoolStudentDashboard = () => {
   const { student, school, feeItems, payments, logoutStudent, studentCredentials, setStudentData } = useSchool();
 
   const [paymentOpen, setPaymentOpen] = useState(false);
-  const [processingOpen, setProcessingOpen] = useState(false);
-  const [paymentLoading, setPaymentLoading] = useState(false);
   const [selectedFees, setSelectedFees] = useState<Record<string, boolean>>({});
   const [feeAmounts, setFeeAmounts] = useState<Record<string, string>>({});
 
