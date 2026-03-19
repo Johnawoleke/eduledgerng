@@ -183,7 +183,7 @@ const SchoolStudentDashboard = () => {
                 <p className="text-sm text-muted-foreground">Select fees to pay online</p>
               </div>
               <Button onClick={openPaymentModal} className="gap-2">
-                <CreditCard className="w-4 h-4" /> Make Payment
+                <Banknote className="w-4 h-4" /> Pay with Bank Transfer (via Zendfi)
               </Button>
             </CardContent>
           </Card>
