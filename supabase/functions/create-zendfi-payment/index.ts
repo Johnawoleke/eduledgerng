@@ -133,7 +133,19 @@ serve(async (req) => {
       body: JSON.stringify(zendfiPayload),
     });
 
-    const zendfiData = await zendfiRes.json();
+    const zendfiText = await zendfiRes.text();
+    console.log("Zendfi response status:", zendfiRes.status, "body:", zendfiText);
+
+    let zendfiData: any;
+    try {
+      zendfiData = JSON.parse(zendfiText);
+    } catch {
+      console.error("Zendfi returned non-JSON:", zendfiText);
+      return new Response(
+        JSON.stringify({ error: "Payment provider returned an invalid response", details: zendfiText }),
+        { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
     if (!zendfiRes.ok || !zendfiData.hosted_page_url) {
       console.error("Zendfi API error:", JSON.stringify(zendfiData));
