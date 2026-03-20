@@ -60,26 +60,49 @@ serve(async (req) => {
 
     const student = students[0];
 
-    // Calculate total NGN amount and validate fee items
+    // Get class-level fees for this student's class (matching exact class OR "ALL")
+    const { data: classFees } = await supabaseAdmin
+      .from("class_fees")
+      .select("*")
+      .eq("school_id", school.id)
+      .in("class_target", [student.class, "ALL"]);
+
+    // Get existing payments for this student to calculate paid amounts
+    const { data: existingPayments } = await supabaseAdmin
+      .from("payments")
+      .select("items")
+      .eq("student_id", student.id);
+
+    // Build a map of fee name -> total paid (same logic as student-auth)
+    const paidMap: Record<string, number> = {};
+    (existingPayments || []).forEach((p: any) => {
+      (p.items || []).forEach((item: string) => {
+        const pipeIdx = item.lastIndexOf("|");
+        if (pipeIdx > 0) {
+          const itemName = item.substring(0, pipeIdx);
+          const itemAmount = Number(item.substring(pipeIdx + 1));
+          if (!isNaN(itemAmount)) {
+            paidMap[itemName] = (paidMap[itemName] || 0) + itemAmount;
+          }
+        }
+      });
+    });
+
+    // Validate fee_payments against class fees
     let totalNGN = 0;
     const validatedItems: { fee_item_id: string; amount: number; name: string }[] = [];
 
     for (const fp of fee_payments) {
-      const { data: feeItem } = await supabaseAdmin
-        .from("fee_items")
-        .select("*")
-        .eq("id", fp.fee_item_id)
-        .eq("student_id", student.id)
-        .maybeSingle();
+      const classFee = (classFees || []).find((cf: any) => cf.id === fp.fee_item_id);
+      if (!classFee) continue;
 
-      if (!feeItem) continue;
-
-      const owing = feeItem.amount - feeItem.paid;
+      const totalPaid = Math.min(paidMap[classFee.name] || 0, Number(classFee.amount));
+      const owing = Number(classFee.amount) - totalPaid;
       const payAmount = Math.min(Math.max(fp.amount, 0), owing);
       if (payAmount <= 0) continue;
 
       totalNGN += payAmount;
-      validatedItems.push({ fee_item_id: fp.fee_item_id, amount: payAmount, name: feeItem.name });
+      validatedItems.push({ fee_item_id: fp.fee_item_id, amount: payAmount, name: classFee.name });
     }
 
     if (totalNGN <= 0) {
