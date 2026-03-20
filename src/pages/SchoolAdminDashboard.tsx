@@ -658,6 +658,10 @@ const SchoolAdminDashboard = () => {
                 </SelectContent>
               </Select>
             </div>
+            <div className="space-y-2">
+              <Label>Parent/Guardian Email *</Label>
+              <Input type="email" placeholder="e.g. parent@email.com" value={newParentEmail} onChange={(e) => setNewParentEmail(e.target.value)} maxLength={100} required />
+            </div>
             <DialogFooter>
               <Button type="submit" disabled={addingStudent}>
                 {addingStudent ? "Adding..." : "Add Student"}

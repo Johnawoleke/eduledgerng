@@ -127,6 +127,15 @@ serve(async (req) => {
       );
     }
 
+    // Fetch parent_email from the student record
+    const { data: studentRecord } = await supabaseAdmin
+      .from("students")
+      .select("parent_email")
+      .eq("id", student.id)
+      .maybeSingle();
+
+    const customerEmail = studentRecord?.parent_email || `${student_id}@${school_slug}.eduledger.ng`;
+
     const zendfiPayload = {
       amount: amountUSD,
       currency: "USD",
@@ -134,7 +143,7 @@ serve(async (req) => {
       onramp: true,
       payer_service_charge: true,
       customer: {
-        email: `${student_id}@${school_slug}.eduledger.ng`,
+        email: customerEmail,
         name: student.name,
       },
       metadata: {
