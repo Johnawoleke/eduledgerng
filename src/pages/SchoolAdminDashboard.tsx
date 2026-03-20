@@ -83,6 +83,7 @@ const SchoolAdminDashboard = () => {
   const [newFirstName, setNewFirstName] = useState("");
   const [newMiddleName, setNewMiddleName] = useState("");
   const [newStudentClass, setNewStudentClass] = useState("");
+  const [newParentEmail, setNewParentEmail] = useState("");
   const [addingStudent, setAddingStudent] = useState(false);
 
   // Add fee dialog
