@@ -197,6 +197,11 @@ const SchoolAdminDashboard = () => {
       toast.error("Surname, First Name, and Class are required");
       return;
     }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!newParentEmail.trim() || !emailRegex.test(newParentEmail.trim())) {
+      toast.error("A valid Parent/Guardian email is required");
+      return;
+    }
     setAddingStudent(true);
 
     const fullName = [newSurname.trim(), newFirstName.trim(), newMiddleName.trim()].filter(Boolean).join(" ");
@@ -210,18 +215,19 @@ const SchoolAdminDashboard = () => {
       pin: "password",
       default_pin: "password",
       must_change_pin: true,
-    });
+      parent_email: newParentEmail.trim().toLowerCase(),
+    } as any);
 
     if (error) {
       toast.error(error.message);
     } else {
-      // No fee provisioning needed - fees come from class_fees automatically
       toast.success(`Student added! ID: ${studentId}, Default Password: password`);
       setAddStudentOpen(false);
       setNewSurname("");
       setNewFirstName("");
       setNewMiddleName("");
       setNewStudentClass("");
+      setNewParentEmail("");
       loadData();
     }
     setAddingStudent(false);
