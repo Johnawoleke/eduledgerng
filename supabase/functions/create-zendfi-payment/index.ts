@@ -106,6 +106,7 @@ serve(async (req) => {
 
     const zendfiPayload = {
       amount: amountUSD,
+      currency: "USD",
       description: `EduLedgerNG - School Fee Payment`,
       onramp: true,
       payer_service_charge: true,
