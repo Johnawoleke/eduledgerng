@@ -253,6 +253,7 @@ export type Database = {
           locked_until: string | null
           must_change_pin: boolean
           name: string
+          parent_email: string | null
           pin: string
           school_id: string
           session: string
@@ -269,6 +270,7 @@ export type Database = {
           locked_until?: string | null
           must_change_pin?: boolean
           name: string
+          parent_email?: string | null
           pin: string
           school_id: string
           session?: string
@@ -285,6 +287,7 @@ export type Database = {
           locked_until?: string | null
           must_change_pin?: boolean
           name?: string
+          parent_email?: string | null
           pin?: string
           school_id?: string
           session?: string

@@ -83,6 +83,7 @@ const SchoolAdminDashboard = () => {
   const [newFirstName, setNewFirstName] = useState("");
   const [newMiddleName, setNewMiddleName] = useState("");
   const [newStudentClass, setNewStudentClass] = useState("");
+  const [newParentEmail, setNewParentEmail] = useState("");
   const [addingStudent, setAddingStudent] = useState(false);
 
   // Add fee dialog
@@ -196,6 +197,11 @@ const SchoolAdminDashboard = () => {
       toast.error("Surname, First Name, and Class are required");
       return;
     }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!newParentEmail.trim() || !emailRegex.test(newParentEmail.trim())) {
+      toast.error("A valid Parent/Guardian email is required");
+      return;
+    }
     setAddingStudent(true);
 
     const fullName = [newSurname.trim(), newFirstName.trim(), newMiddleName.trim()].filter(Boolean).join(" ");
@@ -209,18 +215,19 @@ const SchoolAdminDashboard = () => {
       pin: "password",
       default_pin: "password",
       must_change_pin: true,
-    });
+      parent_email: newParentEmail.trim().toLowerCase(),
+    } as any);
 
     if (error) {
       toast.error(error.message);
     } else {
-      // No fee provisioning needed - fees come from class_fees automatically
       toast.success(`Student added! ID: ${studentId}, Default Password: password`);
       setAddStudentOpen(false);
       setNewSurname("");
       setNewFirstName("");
       setNewMiddleName("");
       setNewStudentClass("");
+      setNewParentEmail("");
       loadData();
     }
     setAddingStudent(false);
@@ -650,6 +657,10 @@ const SchoolAdminDashboard = () => {
                   {NIGERIAN_CLASSES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
                 </SelectContent>
               </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Parent/Guardian Email *</Label>
+              <Input type="email" placeholder="e.g. parent@email.com" value={newParentEmail} onChange={(e) => setNewParentEmail(e.target.value)} maxLength={100} required />
             </div>
             <DialogFooter>
               <Button type="submit" disabled={addingStudent}>
