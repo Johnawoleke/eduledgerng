@@ -243,7 +243,7 @@ const RegisterSchool = () => {
                        <Select value={bankName} onValueChange={setBankName}>
                          <SelectTrigger><SelectValue placeholder="Select bank" /></SelectTrigger>
                          <SelectContent>
-                           <SelectItem value="">— Skip —</SelectItem>
+                           <SelectItem value="none">— Skip —</SelectItem>
                            {NIGERIAN_BANKS.map((b) => (
                              <SelectItem key={b} value={b}>{b}</SelectItem>
                            ))}
