@@ -516,13 +516,14 @@ const SchoolAdminDashboard = () => {
                 <Card>
                   <CardContent className="pt-6 overflow-x-auto">
                     <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Name</TableHead>
-                          <TableHead>Student ID</TableHead>
-                          <TableHead className="text-right">Paid</TableHead>
-                          <TableHead>Status</TableHead>
-                        </TableRow>
+                     <TableHeader>
+                       <TableRow>
+                         <TableHead>Name</TableHead>
+                         <TableHead>Student ID</TableHead>
+                         <TableHead className="hidden sm:table-cell">Parent Email</TableHead>
+                         <TableHead className="text-right">Paid</TableHead>
+                         <TableHead>Status</TableHead>
+                       </TableRow>
                       </TableHeader>
                       <TableBody>
                         {filteredStudents.map((s) => {
