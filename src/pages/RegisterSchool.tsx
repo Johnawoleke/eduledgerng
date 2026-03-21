@@ -53,6 +53,10 @@ const RegisterSchool = () => {
       toast.error("Password must be at least 6 characters");
       return;
     }
+    if (accountNumber && !/^\d{10}$/.test(accountNumber)) {
+      toast.error("Account number must be exactly 10 digits");
+      return;
+    }
 
     setLoading(true);
 
