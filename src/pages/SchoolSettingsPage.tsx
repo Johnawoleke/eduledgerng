@@ -61,7 +61,7 @@ const SchoolSettingsPage = () => {
       .update({
         address: address || null,
         phone: phone || null,
-        bank_name: bankName || null,
+        bank_name: bankName && bankName !== "none" ? bankName : null,
         account_number: accountNumber || null,
         account_name: accountName || null,
       } as any)
