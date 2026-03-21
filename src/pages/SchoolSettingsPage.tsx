@@ -140,7 +140,7 @@ const SchoolSettingsPage = () => {
                 <Select value={bankName} onValueChange={setBankName}>
                   <SelectTrigger><SelectValue placeholder="Select bank" /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">— None —</SelectItem>
+                    <SelectItem value="none">— None —</SelectItem>
                     {NIGERIAN_BANKS.map((b) => (
                       <SelectItem key={b} value={b}>{b}</SelectItem>
                     ))}
