@@ -532,6 +532,7 @@ const SchoolAdminDashboard = () => {
                             <TableRow key={s.id} className="cursor-pointer" onClick={() => handleViewStudent(s)}>
                               <TableCell className="font-medium">{s.name}</TableCell>
                               <TableCell className="font-mono text-xs">{s.student_id}</TableCell>
+                              <TableCell className="hidden sm:table-cell text-xs text-muted-foreground">{s.parent_email || "—"}</TableCell>
                               <TableCell className="text-right">{formatNaira(s.totalPaid)}</TableCell>
                               <TableCell>
                                 <Badge variant="outline" className={status === "Cleared" ? "bg-primary/15 text-primary" : status === "Partial" ? "bg-accent/15 text-accent-foreground" : "bg-destructive/10 text-destructive"}>
