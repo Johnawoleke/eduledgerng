@@ -9,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { GraduationCap, LogOut, Users, Wallet, TrendingUp, Search, Plus, UserPlus, Copy, Link as LinkIcon, KeyRound, Trash2, ChevronLeft, Download } from "lucide-react";
+import { GraduationCap, LogOut, Users, Wallet, TrendingUp, Search, Plus, UserPlus, Copy, Link as LinkIcon, KeyRound, Trash2, ChevronLeft, Download, Settings } from "lucide-react";
 import { generateReceiptPdf, parsePaymentItems } from "@/lib/generateReceiptPdf";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -41,6 +41,7 @@ interface StudentRow {
   session: string;
   default_pin: string | null;
   must_change_pin: boolean;
+  parent_email: string | null;
   totalFees: number;
   totalPaid: number;
 }
@@ -141,7 +142,7 @@ const SchoolAdminDashboard = () => {
 
     const { data: studentsData } = await supabase
       .from("students")
-      .select("id, student_id, name, class, term, session, default_pin, must_change_pin")
+      .select("id, student_id, name, class, term, session, default_pin, must_change_pin, parent_email")
       .eq("school_id", schoolData.id);
 
     // Fetch class-level fees
@@ -365,9 +366,14 @@ const SchoolAdminDashboard = () => {
             <span className="font-bold text-lg">{school?.name}</span>
             <Badge variant="outline" className="ml-2 text-xs">Admin</Badge>
           </div>
-          <Button variant="ghost" size="sm" onClick={handleLogout}>
-            <LogOut className="w-4 h-4" />
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button variant="ghost" size="sm" onClick={() => navigate(`/school/${slug}/settings`)} title="Settings">
+              <Settings className="w-4 h-4" />
+            </Button>
+            <Button variant="ghost" size="sm" onClick={handleLogout}>
+              <LogOut className="w-4 h-4" />
+            </Button>
+          </div>
         </div>
       </header>
 
@@ -455,10 +461,13 @@ const SchoolAdminDashboard = () => {
                     <Button variant="ghost" size="icon" onClick={() => setSelectedStudent(null)}>
                       <ChevronLeft className="w-5 h-5" />
                     </Button>
-                    <div>
-                      <CardTitle className="text-lg">{selectedStudent.name}</CardTitle>
-                      <p className="text-sm text-muted-foreground">{selectedStudent.student_id} · {selectedStudent.class}</p>
-                    </div>
+                     <div>
+                       <CardTitle className="text-lg">{selectedStudent.name}</CardTitle>
+                       <p className="text-sm text-muted-foreground">{selectedStudent.student_id} · {selectedStudent.class}</p>
+                       {selectedStudent.parent_email && (
+                         <p className="text-xs text-muted-foreground mt-0.5">Parent: {selectedStudent.parent_email}</p>
+                       )}
+                     </div>
                   </div>
                 </CardHeader>
                 <CardContent className="pt-0">
@@ -507,13 +516,14 @@ const SchoolAdminDashboard = () => {
                 <Card>
                   <CardContent className="pt-6 overflow-x-auto">
                     <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Name</TableHead>
-                          <TableHead>Student ID</TableHead>
-                          <TableHead className="text-right">Paid</TableHead>
-                          <TableHead>Status</TableHead>
-                        </TableRow>
+                     <TableHeader>
+                       <TableRow>
+                         <TableHead>Name</TableHead>
+                         <TableHead>Student ID</TableHead>
+                         <TableHead className="hidden sm:table-cell">Parent Email</TableHead>
+                         <TableHead className="text-right">Paid</TableHead>
+                         <TableHead>Status</TableHead>
+                       </TableRow>
                       </TableHeader>
                       <TableBody>
                         {filteredStudents.map((s) => {
@@ -522,6 +532,7 @@ const SchoolAdminDashboard = () => {
                             <TableRow key={s.id} className="cursor-pointer" onClick={() => handleViewStudent(s)}>
                               <TableCell className="font-medium">{s.name}</TableCell>
                               <TableCell className="font-mono text-xs">{s.student_id}</TableCell>
+                              <TableCell className="hidden sm:table-cell text-xs text-muted-foreground">{s.parent_email || "—"}</TableCell>
                               <TableCell className="text-right">{formatNaira(s.totalPaid)}</TableCell>
                               <TableCell>
                                 <Badge variant="outline" className={status === "Cleared" ? "bg-primary/15 text-primary" : status === "Partial" ? "bg-accent/15 text-accent-foreground" : "bg-destructive/10 text-destructive"}>
@@ -533,7 +544,7 @@ const SchoolAdminDashboard = () => {
                         })}
                         {filteredStudents.length === 0 && (
                           <TableRow>
-                            <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
+                            <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
                               No students in {studentsClassFilter}.
                             </TableCell>
                           </TableRow>

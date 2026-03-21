@@ -4,9 +4,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { GraduationCap, ArrowRight, CheckCircle2, Link as LinkIcon } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { NIGERIAN_BANKS } from "@/lib/nigerianBanks";
 
 const slugify = (text: string) =>
   text
@@ -26,6 +28,9 @@ const RegisterSchool = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
+  const [bankName, setBankName] = useState("");
+  const [accountNumber, setAccountNumber] = useState("");
+  const [accountName, setAccountName] = useState("");
   const [loading, setLoading] = useState(false);
   const [createdSlug, setCreatedSlug] = useState("");
 
@@ -48,12 +53,16 @@ const RegisterSchool = () => {
       toast.error("Password must be at least 6 characters");
       return;
     }
+    if (accountNumber && !/^\d{10}$/.test(accountNumber)) {
+      toast.error("Account number must be exactly 10 digits");
+      return;
+    }
 
     setLoading(true);
 
     try {
       const response = await supabase.functions.invoke("register-school", {
-        body: { schoolName, slug, address, phone, schoolEmail, email, password, fullName, schoolCode },
+        body: { schoolName, slug, address, phone, schoolEmail, email, password, fullName, schoolCode, bankName: bankName || null, accountNumber: accountNumber || null, accountName: accountName || null },
       });
 
       if (response.error) {
@@ -225,10 +234,48 @@ const RegisterSchool = () => {
                     />
                   </div>
                 </div>
-                <Button type="submit" className="w-full">
-                  Next <ArrowRight className="w-4 h-4 ml-2" />
-                </Button>
-              </form>
+                 {/* Optional Bank Details */}
+                 <div className="border-t pt-4 mt-2">
+                   <p className="text-sm font-medium text-muted-foreground mb-3">Bank Details (Optional)</p>
+                   <div className="space-y-3">
+                     <div className="space-y-2">
+                       <Label>Bank Name</Label>
+                       <Select value={bankName} onValueChange={setBankName}>
+                         <SelectTrigger><SelectValue placeholder="Select bank" /></SelectTrigger>
+                         <SelectContent>
+                           <SelectItem value="">— Skip —</SelectItem>
+                           {NIGERIAN_BANKS.map((b) => (
+                             <SelectItem key={b} value={b}>{b}</SelectItem>
+                           ))}
+                         </SelectContent>
+                       </Select>
+                     </div>
+                     <div className="space-y-2">
+                       <Label>Account Number</Label>
+                       <Input
+                         placeholder="10-digit account number"
+                         value={accountNumber}
+                         onChange={(e) => setAccountNumber(e.target.value.replace(/\D/g, "").substring(0, 10))}
+                         maxLength={10}
+                         inputMode="numeric"
+                       />
+                     </div>
+                     <div className="space-y-2">
+                       <Label>Account Name</Label>
+                       <Input
+                         placeholder="Account holder name"
+                         value={accountName}
+                         onChange={(e) => setAccountName(e.target.value)}
+                         maxLength={100}
+                       />
+                     </div>
+                   </div>
+                 </div>
+
+                 <Button type="submit" className="w-full">
+                   Next <ArrowRight className="w-4 h-4 ml-2" />
+                 </Button>
+               </form>
             ) : (
               <form className="space-y-4" onSubmit={handleSubmit}>
                 <div className="space-y-2">

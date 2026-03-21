@@ -11,7 +11,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { schoolName, slug, address, phone, schoolEmail, email, password, fullName, schoolCode } = await req.json();
+    const { schoolName, slug, address, phone, schoolEmail, email, password, fullName, schoolCode, bankName, accountNumber, accountName } = await req.json();
 
     if (!schoolName?.trim() || !slug?.trim() || !email?.trim() || !password?.trim()) {
       return new Response(JSON.stringify({ error: "Missing required fields" }), {
@@ -71,6 +71,9 @@ Deno.serve(async (req) => {
       phone: phone || null,
       email: schoolEmail || null,
       school_code: schoolCode || slug.substring(0, 4).toUpperCase(),
+      bank_name: bankName || null,
+      account_number: accountNumber || null,
+      account_name: accountName || null,
     });
 
     if (schoolError) {
