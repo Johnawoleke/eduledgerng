@@ -61,7 +61,7 @@ const SchoolSettingsPage = () => {
       .update({
         address: address || null,
         phone: phone || null,
-        bank_name: bankName || null,
+        bank_name: bankName && bankName !== "none" ? bankName : null,
         account_number: accountNumber || null,
         account_name: accountName || null,
       } as any)
@@ -140,7 +140,7 @@ const SchoolSettingsPage = () => {
                 <Select value={bankName} onValueChange={setBankName}>
                   <SelectTrigger><SelectValue placeholder="Select bank" /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">— None —</SelectItem>
+                    <SelectItem value="none">— None —</SelectItem>
                     {NIGERIAN_BANKS.map((b) => (
                       <SelectItem key={b} value={b}>{b}</SelectItem>
                     ))}
