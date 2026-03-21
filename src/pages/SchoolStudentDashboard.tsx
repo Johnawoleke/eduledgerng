@@ -44,7 +44,7 @@ const SchoolStudentDashboard = () => {
     });
   };
 
-  const paymentTotal = useMemo(() => {
+  const basePaymentTotal = useMemo(() => {
     return unpaidFees.reduce((sum, fee) => {
       if (!selectedFees[fee.id]) return sum;
       const owing = Number(fee.amount) - Number(fee.paid);
@@ -52,6 +52,10 @@ const SchoolStudentDashboard = () => {
       return sum + Math.min(Math.max(val, 0), owing);
     }, 0);
   }, [selectedFees, feeAmounts, unpaidFees]);
+
+  const platformFee = Math.round(basePaymentTotal * 0.01);
+  const gatewayFee = Math.round(basePaymentTotal * 0.006);
+  const paymentTotal = basePaymentTotal + platformFee + gatewayFee;
 
   const openPaymentModal = () => {
     setSelectedFees({});
@@ -284,6 +288,23 @@ const SchoolStudentDashboard = () => {
           </div>
           {unpaidFees.length > 0 && (
             <div className="border-t pt-4 space-y-3">
+              {basePaymentTotal > 0 && (
+                <div className="space-y-1 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">School Fee</span>
+                    <span>{formatNaira(basePaymentTotal)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Platform Fee (1%)</span>
+                    <span>{formatNaira(platformFee)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Gateway Fee (0.6%)</span>
+                    <span>{formatNaira(gatewayFee)}</span>
+                  </div>
+                  <div className="border-t my-1" />
+                </div>
+              )}
               <div className="flex items-center justify-between">
                 <span className="font-semibold">Total to Pay:</span>
                 <span className="text-xl font-bold text-primary">{formatNaira(paymentTotal)}</span>

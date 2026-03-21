@@ -16,7 +16,6 @@ serve(async (req) => {
     const payload = await req.json();
     console.log("Zendfi webhook received:", JSON.stringify(payload));
 
-    // Check for successful payment event
     const status = payload?.status || payload?.data?.status || payload?.event;
     if (status !== "completed" && status !== "successful" && status !== "payment.successful") {
       console.log("Non-success status, ignoring:", status);
@@ -40,7 +39,7 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    // Check if this payment was already processed (idempotency)
+    // Idempotency check
     const { data: existingPayment } = await supabaseAdmin
       .from("payments")
       .select("id")
@@ -55,38 +54,20 @@ serve(async (req) => {
       });
     }
 
-    // Update fee items
-    let totalAmount = 0;
+    // Use base_amount (excluding service charges) for recording
+    // Each item in metadata.items has { fee_item_id, amount, name } where amount is the base fee amount
+    let totalBaseAmount = 0;
     const itemNames: string[] = [];
 
     for (const item of metadata.items) {
-      const { data: feeItem } = await supabaseAdmin
-        .from("fee_items")
-        .select("*")
-        .eq("id", item.fee_item_id)
-        .eq("student_id", metadata.student_db_id)
-        .maybeSingle();
-
-      if (!feeItem) continue;
-
-      const owing = feeItem.amount - feeItem.paid;
-      const payAmount = Math.min(Math.max(item.amount, 0), owing);
+      const payAmount = Math.max(Number(item.amount), 0);
       if (payAmount <= 0) continue;
 
-      const newPaid = feeItem.paid + payAmount;
-      const newStatus = newPaid >= feeItem.amount ? "paid" : "partial";
-
-      await supabaseAdmin
-        .from("fee_items")
-        .update({ paid: newPaid, status: newStatus })
-        .eq("id", item.fee_item_id);
-
-      totalAmount += payAmount;
-      const label = newStatus === "paid" ? item.name : `${item.name} (partial)`;
-      itemNames.push(`${label}|${payAmount}`);
+      totalBaseAmount += payAmount;
+      itemNames.push(`${item.name}|${payAmount}`);
     }
 
-    if (totalAmount <= 0) {
+    if (totalBaseAmount <= 0) {
       console.error("No valid fee updates for reference:", metadata.reference);
       return new Response(JSON.stringify({ error: "No valid payments" }), {
         status: 400,
@@ -94,13 +75,13 @@ serve(async (req) => {
       });
     }
 
-    // Record payment
+    // Record payment with base amount only (no service charges)
     const { error: payError } = await supabaseAdmin
       .from("payments")
       .insert({
         school_id: metadata.school_id,
         student_id: metadata.student_db_id,
-        amount: totalAmount,
+        amount: totalBaseAmount,
         reference: metadata.reference,
         method: "Bank Transfer (Zendfi)",
         items: itemNames,
@@ -114,10 +95,10 @@ serve(async (req) => {
       });
     }
 
-    console.log("Payment processed successfully:", metadata.reference, "Amount:", totalAmount);
+    console.log("Payment processed successfully:", metadata.reference, "Base amount:", totalBaseAmount);
 
     return new Response(
-      JSON.stringify({ received: true, reference: metadata.reference, amount: totalAmount }),
+      JSON.stringify({ received: true, reference: metadata.reference, amount: totalBaseAmount }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {
