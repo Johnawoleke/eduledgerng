@@ -7,8 +7,6 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const NGN_TO_USD_RATE = 1500;
-
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -60,20 +58,19 @@ serve(async (req) => {
 
     const student = students[0];
 
-    // Get class-level fees for this student's class (matching exact class OR "ALL")
+    // Get class-level fees for this student's class
     const { data: classFees } = await supabaseAdmin
       .from("class_fees")
       .select("*")
       .eq("school_id", school.id)
       .in("class_target", [student.class, "ALL"]);
 
-    // Get existing payments for this student to calculate paid amounts
+    // Get existing payments to calculate paid amounts
     const { data: existingPayments } = await supabaseAdmin
       .from("payments")
       .select("items")
       .eq("student_id", student.id);
 
-    // Build a map of fee name -> total paid (same logic as student-auth)
     const paidMap: Record<string, number> = {};
     (existingPayments || []).forEach((p: any) => {
       (p.items || []).forEach((item: string) => {
@@ -89,7 +86,7 @@ serve(async (req) => {
     });
 
     // Validate fee_payments against class fees
-    let totalNGN = 0;
+    let baseAmountNGN = 0;
     const validatedItems: { fee_item_id: string; amount: number; name: string }[] = [];
 
     for (const fp of fee_payments) {
@@ -101,24 +98,24 @@ serve(async (req) => {
       const payAmount = Math.min(Math.max(fp.amount, 0), owing);
       if (payAmount <= 0) continue;
 
-      totalNGN += payAmount;
+      baseAmountNGN += payAmount;
       validatedItems.push({ fee_item_id: fp.fee_item_id, amount: payAmount, name: classFee.name });
     }
 
-    if (totalNGN <= 0) {
+    if (baseAmountNGN <= 0) {
       return new Response(
         JSON.stringify({ error: "No valid payments" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Convert to USD
-    const amountUSD = Math.ceil((totalNGN / NGN_TO_USD_RATE) * 100) / 100;
+    // Calculate service charges
+    const platformFee = Math.round(baseAmountNGN * 0.01);
+    const gatewayFee = Math.round(baseAmountNGN * 0.006);
+    const totalNGN = baseAmountNGN + platformFee + gatewayFee;
 
-    // Generate internal reference
     const reference = `EDU-${Date.now().toString(36).toUpperCase()}`;
 
-    // Create Zendfi payment link
     const zendfiKey = Deno.env.get("ZENDFI_TEST_KEY");
     if (!zendfiKey) {
       return new Response(
@@ -127,21 +124,21 @@ serve(async (req) => {
       );
     }
 
-    // Fetch parent_email from the student record
+    // Fetch parent_email
     const { data: studentRecord } = await supabaseAdmin
       .from("students")
       .select("parent_email")
       .eq("id", student.id)
       .maybeSingle();
 
-    const customerEmail = studentRecord?.parent_email || `${student_id}@${school_slug}.eduledger.ng`;
+    const customerEmail = studentRecord?.parent_email || `${student_id}@${school_slug}.eduledgerng.ng`;
 
     const zendfiPayload = {
-      amount: amountUSD,
-      currency: "USD",
+      amount_ngn: totalNGN,
+      currency: "NGN",
       description: `EduLedgerNG - School Fee Payment`,
       onramp: true,
-      payer_service_charge: true,
+      payer_service_charge: false,
       customer: {
         email: customerEmail,
         name: student.name,
@@ -152,6 +149,9 @@ serve(async (req) => {
         student_db_id: student.id,
         student_id,
         school_slug,
+        base_amount: baseAmountNGN,
+        platform_fee: platformFee,
+        gateway_fee: gatewayFee,
         total_ngn: totalNGN,
         items: validatedItems,
       },
@@ -173,7 +173,6 @@ serve(async (req) => {
     try {
       zendfiData = JSON.parse(zendfiText);
     } catch {
-      console.error("Zendfi returned non-JSON:", zendfiText);
       return new Response(
         JSON.stringify({ error: "Payment provider returned an invalid response", details: zendfiText }),
         { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -181,7 +180,6 @@ serve(async (req) => {
     }
 
     if (!zendfiRes.ok || !zendfiData.hosted_page_url) {
-      console.error("Zendfi API error:", JSON.stringify(zendfiData));
       return new Response(
         JSON.stringify({ error: "Failed to create payment link", details: zendfiData }),
         { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -193,7 +191,7 @@ serve(async (req) => {
         hosted_page_url: zendfiData.hosted_page_url,
         reference,
         amount_ngn: totalNGN,
-        amount_usd: amountUSD,
+        base_amount: baseAmountNGN,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
