@@ -28,6 +28,9 @@ const RegisterSchool = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
+  const [bankName, setBankName] = useState("");
+  const [accountNumber, setAccountNumber] = useState("");
+  const [accountName, setAccountName] = useState("");
   const [loading, setLoading] = useState(false);
   const [createdSlug, setCreatedSlug] = useState("");
 
