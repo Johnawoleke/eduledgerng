@@ -41,6 +41,7 @@ interface StudentRow {
   session: string;
   default_pin: string | null;
   must_change_pin: boolean;
+  parent_email: string | null;
   totalFees: number;
   totalPaid: number;
 }
