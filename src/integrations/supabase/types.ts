@@ -206,7 +206,10 @@ export type Database = {
       }
       schools: {
         Row: {
+          account_name: string | null
+          account_number: string | null
           address: string | null
+          bank_name: string | null
           created_at: string
           email: string | null
           id: string
@@ -218,7 +221,10 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          account_name?: string | null
+          account_number?: string | null
           address?: string | null
+          bank_name?: string | null
           created_at?: string
           email?: string | null
           id?: string
@@ -230,7 +236,10 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          account_name?: string | null
+          account_number?: string | null
           address?: string | null
+          bank_name?: string | null
           created_at?: string
           email?: string | null
           id?: string
