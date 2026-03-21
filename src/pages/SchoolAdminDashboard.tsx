@@ -141,7 +141,7 @@ const SchoolAdminDashboard = () => {
 
     const { data: studentsData } = await supabase
       .from("students")
-      .select("id, student_id, name, class, term, session, default_pin, must_change_pin")
+      .select("id, student_id, name, class, term, session, default_pin, must_change_pin, parent_email")
       .eq("school_id", schoolData.id);
 
     // Fetch class-level fees
