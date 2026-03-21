@@ -461,10 +461,13 @@ const SchoolAdminDashboard = () => {
                     <Button variant="ghost" size="icon" onClick={() => setSelectedStudent(null)}>
                       <ChevronLeft className="w-5 h-5" />
                     </Button>
-                    <div>
-                      <CardTitle className="text-lg">{selectedStudent.name}</CardTitle>
-                      <p className="text-sm text-muted-foreground">{selectedStudent.student_id} · {selectedStudent.class}</p>
-                    </div>
+                     <div>
+                       <CardTitle className="text-lg">{selectedStudent.name}</CardTitle>
+                       <p className="text-sm text-muted-foreground">{selectedStudent.student_id} · {selectedStudent.class}</p>
+                       {selectedStudent.parent_email && (
+                         <p className="text-xs text-muted-foreground mt-0.5">Parent: {selectedStudent.parent_email}</p>
+                       )}
+                     </div>
                   </div>
                 </CardHeader>
                 <CardContent className="pt-0">
