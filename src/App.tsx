@@ -12,6 +12,7 @@ import SchoolStudentDashboard from "./pages/SchoolStudentDashboard";
 import SchoolAdminDashboard from "./pages/SchoolAdminDashboard";
 import ChangePinPage from "./pages/ChangePinPage";
 import ReceiptPage from "./pages/ReceiptPage";
+import SchoolSettingsPage from "./pages/SchoolSettingsPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
