@@ -234,10 +234,48 @@ const RegisterSchool = () => {
                     />
                   </div>
                 </div>
-                <Button type="submit" className="w-full">
-                  Next <ArrowRight className="w-4 h-4 ml-2" />
-                </Button>
-              </form>
+                 {/* Optional Bank Details */}
+                 <div className="border-t pt-4 mt-2">
+                   <p className="text-sm font-medium text-muted-foreground mb-3">Bank Details (Optional)</p>
+                   <div className="space-y-3">
+                     <div className="space-y-2">
+                       <Label>Bank Name</Label>
+                       <Select value={bankName} onValueChange={setBankName}>
+                         <SelectTrigger><SelectValue placeholder="Select bank" /></SelectTrigger>
+                         <SelectContent>
+                           <SelectItem value="">— Skip —</SelectItem>
+                           {NIGERIAN_BANKS.map((b) => (
+                             <SelectItem key={b} value={b}>{b}</SelectItem>
+                           ))}
+                         </SelectContent>
+                       </Select>
+                     </div>
+                     <div className="space-y-2">
+                       <Label>Account Number</Label>
+                       <Input
+                         placeholder="10-digit account number"
+                         value={accountNumber}
+                         onChange={(e) => setAccountNumber(e.target.value.replace(/\D/g, "").substring(0, 10))}
+                         maxLength={10}
+                         inputMode="numeric"
+                       />
+                     </div>
+                     <div className="space-y-2">
+                       <Label>Account Name</Label>
+                       <Input
+                         placeholder="Account holder name"
+                         value={accountName}
+                         onChange={(e) => setAccountName(e.target.value)}
+                         maxLength={100}
+                       />
+                     </div>
+                   </div>
+                 </div>
+
+                 <Button type="submit" className="w-full">
+                   Next <ArrowRight className="w-4 h-4 ml-2" />
+                 </Button>
+               </form>
             ) : (
               <form className="space-y-4" onSubmit={handleSubmit}>
                 <div className="space-y-2">

@@ -35,6 +35,7 @@ const App = () => (
             <Route path="/school/:slug/student" element={<SchoolStudentDashboard />} />
             <Route path="/school/:slug/admin" element={<SchoolAdminDashboard />} />
             <Route path="/school/:slug/change-pin" element={<ChangePinPage />} />
+            <Route path="/school/:slug/settings" element={<SchoolSettingsPage />} />
             <Route path="/school/:slug/receipt/:paymentId" element={<ReceiptPage />} />
 
             <Route path="*" element={<NotFound />} />
