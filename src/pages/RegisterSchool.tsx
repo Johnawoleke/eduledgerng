@@ -62,7 +62,7 @@ const RegisterSchool = () => {
 
     try {
       const response = await supabase.functions.invoke("register-school", {
-        body: { schoolName, slug, address, phone, schoolEmail, email, password, fullName, schoolCode, bankName: bankName || null, accountNumber: accountNumber || null, accountName: accountName || null },
+        body: { schoolName, slug, address, phone, schoolEmail, email, password, fullName, schoolCode, bankName: (bankName && bankName !== "none") ? bankName : null, accountNumber: accountNumber || null, accountName: accountName || null },
       });
 
       if (response.error) {
