@@ -44,7 +44,7 @@ const SchoolStudentDashboard = () => {
     });
   };
 
-  const paymentTotal = useMemo(() => {
+  const basePaymentTotal = useMemo(() => {
     return unpaidFees.reduce((sum, fee) => {
       if (!selectedFees[fee.id]) return sum;
       const owing = Number(fee.amount) - Number(fee.paid);
@@ -52,6 +52,10 @@ const SchoolStudentDashboard = () => {
       return sum + Math.min(Math.max(val, 0), owing);
     }, 0);
   }, [selectedFees, feeAmounts, unpaidFees]);
+
+  const platformFee = Math.round(basePaymentTotal * 0.01);
+  const gatewayFee = Math.round(basePaymentTotal * 0.006);
+  const paymentTotal = basePaymentTotal + platformFee + gatewayFee;
 
   const openPaymentModal = () => {
     setSelectedFees({});
