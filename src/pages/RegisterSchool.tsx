@@ -62,7 +62,7 @@ const RegisterSchool = () => {
 
     try {
       const response = await supabase.functions.invoke("register-school", {
-        body: { schoolName, slug, address, phone, schoolEmail, email, password, fullName, schoolCode, bankName: bankName || null, accountNumber: accountNumber || null, accountName: accountName || null },
+        body: { schoolName, slug, address, phone, schoolEmail, email, password, fullName, schoolCode, bankName: (bankName && bankName !== "none") ? bankName : null, accountNumber: accountNumber || null, accountName: accountName || null },
       });
 
       if (response.error) {
@@ -243,7 +243,7 @@ const RegisterSchool = () => {
                        <Select value={bankName} onValueChange={setBankName}>
                          <SelectTrigger><SelectValue placeholder="Select bank" /></SelectTrigger>
                          <SelectContent>
-                           <SelectItem value="">— Skip —</SelectItem>
+                           <SelectItem value="none">— Skip —</SelectItem>
                            {NIGERIAN_BANKS.map((b) => (
                              <SelectItem key={b} value={b}>{b}</SelectItem>
                            ))}
