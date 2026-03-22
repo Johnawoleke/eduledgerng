@@ -135,8 +135,9 @@ serve(async (req) => {
 
     const zendfiPayload = {
       amount_ngn: totalNGN,
-      currency: "NGN",
-      description: `EduLedgerNG - School Fee Payment`,
+      currency: "USD",
+      token: "USDC",
+      description: "EduLedgerNG - School Fee Payment",
       onramp: true,
       payer_service_charge: false,
       customer: {
@@ -144,11 +145,11 @@ serve(async (req) => {
         name: student.name,
       },
       metadata: {
-        reference,
+        reference: reference,
         school_id: school.id,
         student_db_id: student.id,
-        student_id,
-        school_slug,
+        student_id: student_id,
+        school_slug: school_slug,
         base_amount: baseAmountNGN,
         platform_fee: platformFee,
         gateway_fee: gatewayFee,
