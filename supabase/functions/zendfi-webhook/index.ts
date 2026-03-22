@@ -68,6 +68,17 @@ serve(async (req) => {
       });
     }
 
+    // Verify webhook signature
+    const verification = await verifySignature(bodyText, signature);
+    console.log("Signature verification:", verification.reason);
+    if (!verification.valid) {
+      console.error("Webhook signature verification failed:", verification.reason);
+      return new Response(JSON.stringify({ error: "Invalid signature" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     let payload: any;
     try {
       payload = JSON.parse(bodyText);
