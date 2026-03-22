@@ -55,7 +55,8 @@ const SchoolStudentDashboard = () => {
 
   const platformFee = Math.round(basePaymentTotal * 0.01);
   const gatewayFee = Math.round(basePaymentTotal * 0.006);
-  const paymentTotal = basePaymentTotal + platformFee + gatewayFee;
+  const bankCharge = Math.round(basePaymentTotal * 0.02);
+  const paymentTotal = basePaymentTotal + platformFee + gatewayFee + bankCharge;
 
   const openPaymentModal = () => {
     setSelectedFees({});
