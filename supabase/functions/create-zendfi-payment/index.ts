@@ -112,7 +112,8 @@ serve(async (req) => {
     // Calculate service charges
     const platformFee = Math.round(baseAmountNGN * 0.01);
     const gatewayFee = Math.round(baseAmountNGN * 0.006);
-    const totalNGN = baseAmountNGN + platformFee + gatewayFee;
+    const bankCharge = Math.round(baseAmountNGN * 0.02);
+    const totalNGN = baseAmountNGN + platformFee + gatewayFee + bankCharge;
 
     const reference = `EDU-${Date.now().toString(36).toUpperCase()}`;
 
