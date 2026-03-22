@@ -1,5 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { crypto } from "https://deno.land/std@0.168.0/crypto/mod.ts";
+import { encode as hexEncode } from "https://deno.land/std@0.168.0/encoding/hex.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -7,16 +9,53 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+async function verifySignature(body: string, signature: string | null): Promise<{ valid: boolean; reason: string }> {
+  const secret = Deno.env.get("ZENDFI_WEBHOOK_SECRET");
+  
+  if (!secret) {
+    console.warn("ZENDFI_WEBHOOK_SECRET not set - skipping verification");
+    return { valid: true, reason: "no_secret_configured" };
+  }
+
+  if (!signature) {
+    console.warn("No X-Zendfi-Signature header present - rejecting");
+    return { valid: false, reason: "missing_signature" };
+  }
+
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const signatureBuffer = await crypto.subtle.sign("HMAC", key, encoder.encode(body));
+  const expectedSignature = new TextDecoder().decode(hexEncode(new Uint8Array(signatureBuffer)));
+
+  // Constant-time comparison
+  if (expectedSignature.length !== signature.length) {
+    return { valid: false, reason: "signature_mismatch" };
+  }
+  
+  let mismatch = 0;
+  for (let i = 0; i < expectedSignature.length; i++) {
+    mismatch |= expectedSignature.charCodeAt(i) ^ signature.charCodeAt(i);
+  }
+  
+  return mismatch === 0
+    ? { valid: true, reason: "signature_verified" }
+    : { valid: false, reason: "signature_mismatch" };
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    // Signature verification placeholder
     const signature = req.headers.get("x-zendfi-signature");
     console.log("Webhook signature:", signature || "none");
-    // TODO: Verify signature when Zendfi provides webhook secret
 
     const bodyText = await req.text();
     console.log("Zendfi webhook raw body:", bodyText);
@@ -25,6 +64,17 @@ serve(async (req) => {
       console.log("Empty body received, returning 200");
       return new Response(JSON.stringify({ received: true, ignored: "empty body" }), {
         status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Verify webhook signature
+    const verification = await verifySignature(bodyText, signature);
+    console.log("Signature verification:", verification.reason);
+    if (!verification.valid) {
+      console.error("Webhook signature verification failed:", verification.reason);
+      return new Response(JSON.stringify({ error: "Invalid signature" }), {
+        status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
