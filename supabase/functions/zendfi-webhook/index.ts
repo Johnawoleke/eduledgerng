@@ -13,8 +13,34 @@ serve(async (req) => {
   }
 
   try {
-    const payload = await req.json();
-    console.log("Zendfi webhook received:", JSON.stringify(payload));
+    // Signature verification placeholder
+    const signature = req.headers.get("x-zendfi-signature");
+    console.log("Webhook signature:", signature || "none");
+    // TODO: Verify signature when Zendfi provides webhook secret
+
+    const bodyText = await req.text();
+    console.log("Zendfi webhook raw body:", bodyText);
+
+    if (!bodyText || bodyText.trim().length === 0) {
+      console.log("Empty body received, returning 200");
+      return new Response(JSON.stringify({ received: true, ignored: "empty body" }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    let payload: any;
+    try {
+      payload = JSON.parse(bodyText);
+    } catch {
+      console.error("Invalid JSON body");
+      return new Response(JSON.stringify({ error: "Invalid JSON" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    console.log("Zendfi webhook parsed:", JSON.stringify(payload));
 
     const status = payload?.status || payload?.data?.status || payload?.event;
     if (status !== "completed" && status !== "successful" && status !== "payment.successful") {
@@ -55,14 +81,12 @@ serve(async (req) => {
     }
 
     // Use base_amount (excluding service charges) for recording
-    // Each item in metadata.items has { fee_item_id, amount, name } where amount is the base fee amount
     let totalBaseAmount = 0;
     const itemNames: string[] = [];
 
     for (const item of metadata.items) {
       const payAmount = Math.max(Number(item.amount), 0);
       if (payAmount <= 0) continue;
-
       totalBaseAmount += payAmount;
       itemNames.push(`${item.name}|${payAmount}`);
     }
@@ -95,7 +119,8 @@ serve(async (req) => {
       });
     }
 
-    console.log("Payment processed successfully:", metadata.reference, "Base amount:", totalBaseAmount);
+    console.log("Payment recorded successfully:", metadata.reference, "Base amount:", totalBaseAmount);
+    console.log("Service charges - Platform:", metadata.platform_fee, "Gateway:", metadata.gateway_fee, "Bank:", metadata.bank_charge, "Total charged:", metadata.total_ngn);
 
     return new Response(
       JSON.stringify({ received: true, reference: metadata.reference, amount: totalBaseAmount }),
