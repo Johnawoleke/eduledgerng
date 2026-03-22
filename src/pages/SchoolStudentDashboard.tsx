@@ -292,16 +292,21 @@ const SchoolStudentDashboard = () => {
               {basePaymentTotal > 0 && (
                 <div className="space-y-1 text-sm">
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">School Fee</span>
+                    <span className="text-muted-foreground">School Fees</span>
                     <span>{formatNaira(basePaymentTotal)}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Platform Fee (1%)</span>
+                  <p className="text-xs font-medium text-muted-foreground pt-1">Service Charges:</p>
+                  <div className="flex justify-between pl-2">
+                    <span className="text-muted-foreground">• Platform Fee (1%)</span>
                     <span>{formatNaira(platformFee)}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Gateway Fee (0.6%)</span>
+                  <div className="flex justify-between pl-2">
+                    <span className="text-muted-foreground">• Gateway Fee (0.6%)</span>
                     <span>{formatNaira(gatewayFee)}</span>
+                  </div>
+                  <div className="flex justify-between pl-2">
+                    <span className="text-muted-foreground">• Bank Charge (2%)</span>
+                    <span>{formatNaira(bankCharge)}</span>
                   </div>
                   <div className="border-t my-1" />
                 </div>

@@ -157,6 +157,7 @@ serve(async (req) => {
         base_amount: baseAmountNGN,
         platform_fee: platformFee,
         gateway_fee: gatewayFee,
+        bank_charge: bankCharge,
         total_ngn: totalNGN,
         items: validatedItems,
       },
