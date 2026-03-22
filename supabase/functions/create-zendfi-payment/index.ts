@@ -133,7 +133,10 @@ serve(async (req) => {
 
     const customerEmail = studentRecord?.parent_email || `${student_id}@${school_slug}.eduledgerng.ng`;
 
+    const totalUSD = Math.round((totalNGN / 1500) * 100) / 100;
+
     const zendfiPayload = {
+      amount: totalUSD,
       amount_ngn: totalNGN,
       currency: "USD",
       token: "USDC",
