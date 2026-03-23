@@ -105,6 +105,8 @@ serve(async (req) => {
         amount: Number(cf.amount),
         paid,
         status: paid >= Number(cf.amount) ? "paid" : paid > 0 ? "partial" : "unpaid",
+        session_id: cf.session_id || null,
+        term_id: cf.term_id || null,
       };
     });
 
