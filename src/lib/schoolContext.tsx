@@ -22,6 +22,8 @@ interface FeeItem {
   amount: number;
   paid: number;
   status: string;
+  session_id?: string | null;
+  term_id?: string | null;
 }
 
 interface PaymentRecord {
