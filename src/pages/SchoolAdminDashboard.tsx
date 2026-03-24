@@ -9,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { GraduationCap, LogOut, Users, Wallet, TrendingUp, Search, Plus, UserPlus, Copy, Link as LinkIcon, KeyRound, Trash2, ChevronLeft, Download, Settings, Calendar, ChevronRight } from "lucide-react";
+import { GraduationCap, LogOut, Users, Wallet, TrendingUp, Search, Plus, UserPlus, Copy, Link as LinkIcon, KeyRound, Trash2, ChevronLeft, Download, Settings } from "lucide-react";
 import { generateReceiptPdf, parsePaymentItems } from "@/lib/generateReceiptPdf";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -93,47 +93,56 @@ const SchoolAdminDashboard = () => {
   const [feeSessionId, setFeeSessionId] = useState("");
   const [feeTermId, setFeeTermId] = useState("");
 
-  // Academic period management
-  const [moveTermOpen, setMoveTermOpen] = useState(false);
-  const [movingTerm, setMovingTerm] = useState(false);
+  // New session dialog
   const [newSessionOpen, setNewSessionOpen] = useState(false);
   const [newSessionName, setNewSessionName] = useState("");
   const [creatingSession, setCreatingSession] = useState(false);
 
   const academicPeriods = useAcademicPeriods(school?.id);
 
-  // Set fee dialog defaults when academic periods load
+  // Set fee dialog defaults to match dashboard selection
   useEffect(() => {
-    if (academicPeriods.currentSession && !feeSessionId) {
-      setFeeSessionId(academicPeriods.currentSession.id);
+    if (academicPeriods.selectedSessionId && !feeSessionId) {
+      setFeeSessionId(academicPeriods.selectedSessionId);
     }
-    if (academicPeriods.currentTerm && !feeTermId) {
-      setFeeTermId(academicPeriods.currentTerm.id);
+    if (academicPeriods.selectedTermId && !feeTermId) {
+      setFeeTermId(academicPeriods.selectedTermId);
     }
-  }, [academicPeriods.currentSession, academicPeriods.currentTerm]);
+  }, [academicPeriods.selectedSessionId, academicPeriods.selectedTermId]);
 
   // Update fee term dropdown when fee session changes
   useEffect(() => {
     if (!feeSessionId) return;
     const sessionTerms = academicPeriods.terms.filter((t) => t.session_id === feeSessionId);
-    const currentTerm = sessionTerms.find((t) => t.is_current) || sessionTerms[0];
-    if (currentTerm) setFeeTermId(currentTerm.id);
+    const term1 = sessionTerms.find((t) => t.name === "Term 1") || sessionTerms[0];
+    if (term1) setFeeTermId(term1.id);
   }, [feeSessionId, academicPeriods.terms]);
 
+  // Filter fees by selected session+term
+  const filteredClassFees = classFees.filter((f) => {
+    if (!academicPeriods.selectedTermId) return true;
+    // Show fees matching selected term, or legacy fees without term_id
+    return f.term_id === academicPeriods.selectedTermId || (!f.term_id && !f.session_id);
+  });
+
+  // Filter payments by selected session+term
+  const filteredPaymentsByPeriod = payments.filter((p) => {
+    if (!academicPeriods.selectedTermId) return true;
+    // Show payments matching selected term, or legacy payments without term_id
+    return p.term_id === academicPeriods.selectedTermId || (!p.term_id && !p.session_id);
+  });
+
   // Helper: get class fees applicable to a student class for the selected term
-  const getFeesForClass = (studentClass: string, termId?: string) => {
-    return classFees.filter((f) => {
-      const classMatch = f.class_target === studentClass || f.class_target === "ALL";
-      if (!termId) return classMatch;
-      // Show fees that match the term OR have no term set (legacy)
-      return classMatch && (f.term_id === termId || !f.term_id);
+  const getFeesForClass = (studentClass: string) => {
+    return filteredClassFees.filter((f) => {
+      return f.class_target === studentClass || f.class_target === "ALL";
     });
   };
 
-  // Helper: calculate paid amount for a fee from payments
+  // Helper: calculate paid amount for a fee from filtered payments
   const getPaidForFee = (studentId: string, feeName: string, feeAmount: number) => {
     let totalPaid = 0;
-    payments
+    filteredPaymentsByPeriod
       .filter((p) => p.student_id === studentId)
       .forEach((p) => {
         (p.items || []).forEach((item: string) => {
@@ -190,20 +199,9 @@ const SchoolAdminDashboard = () => {
     setClassFees(allClassFees);
     setPayments(paymentsData || []);
 
+    // Student rows - totals will be recalculated in render based on period filter
     const studentRows: StudentRow[] = (studentsData || []).map((s: any) => {
-      const applicableFees = allClassFees.filter(
-        (f) => f.class_target === s.class || f.class_target === "ALL"
-      );
-      const totalFees = applicableFees.reduce((a, f) => a + Number(f.amount), 0);
-
-      let totalPaid = 0;
-      (paymentsData || [])
-        .filter((p: any) => p.student_id === s.id)
-        .forEach((p: any) => {
-          totalPaid += Number(p.amount);
-        });
-
-      return { ...s, totalFees, totalPaid: Math.min(totalPaid, totalFees) };
+      return { ...s, totalFees: 0, totalPaid: 0 };
     });
 
     studentRows.sort((a, b) => a.name.localeCompare(b.name));
@@ -214,6 +212,23 @@ const SchoolAdminDashboard = () => {
   useEffect(() => {
     loadData();
   }, [slug]);
+
+  // Recalculate student totals when period filter changes
+  const studentsWithTotals = students.map((s) => {
+    const applicableFees = filteredClassFees.filter(
+      (f) => f.class_target === s.class || f.class_target === "ALL"
+    );
+    const totalFees = applicableFees.reduce((a, f) => a + Number(f.amount), 0);
+
+    let totalPaid = 0;
+    filteredPaymentsByPeriod
+      .filter((p) => p.student_id === s.id)
+      .forEach((p) => {
+        totalPaid += Number(p.amount);
+      });
+
+    return { ...s, totalFees, totalPaid: Math.min(totalPaid, totalFees) };
+  });
 
   const handleAddStudent = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -325,38 +340,10 @@ const SchoolAdminDashboard = () => {
     setLoadingFees(false);
   };
 
-  const handleMoveToNextTerm = async () => {
-    if (!school?.id || !academicPeriods.currentSession || !academicPeriods.currentTerm) return;
-    setMovingTerm(true);
-
-    const sessionTerms = academicPeriods.terms
-      .filter((t) => t.session_id === academicPeriods.currentSession!.id)
-      .sort((a, b) => a.created_at.localeCompare(b.created_at));
-
-    const currentIdx = sessionTerms.findIndex((t) => t.id === academicPeriods.currentTerm!.id);
-
-    if (currentIdx < sessionTerms.length - 1) {
-      // Move to next term in same session
-      const nextTerm = sessionTerms[currentIdx + 1];
-      await supabase.from("academic_terms").update({ is_current: false } as any).eq("id", academicPeriods.currentTerm.id);
-      await supabase.from("academic_terms").update({ is_current: true } as any).eq("id", nextTerm.id);
-      toast.success(`Moved to ${nextTerm.name}`);
-    } else {
-      // Term 3 - need to move to next session
-      toast.info("You're on the last term. Create a new session first, then move to it.");
-    }
-
-    setMovingTerm(false);
-    setMoveTermOpen(false);
-    academicPeriods.reload();
-    loadData();
-  };
-
   const handleCreateSession = async () => {
     if (!newSessionName.trim() || !school?.id) return;
     setCreatingSession(true);
 
-    // Insert new session (trigger ensures only one current)
     const { data: newSession, error: sessionError } = await supabase
       .from("academic_sessions")
       .insert({ school_id: school.id, name: newSessionName.trim(), is_current: false } as any)
@@ -369,7 +356,6 @@ const SchoolAdminDashboard = () => {
       return;
     }
 
-    // Create 3 terms
     await supabase.from("academic_terms").insert([
       { session_id: newSession.id, school_id: school.id, name: "Term 1", is_current: false },
       { session_id: newSession.id, school_id: school.id, name: "Term 2", is_current: false },
@@ -383,35 +369,6 @@ const SchoolAdminDashboard = () => {
     academicPeriods.reload();
   };
 
-  const handleMoveToNextSession = async (sessionId: string) => {
-    if (!school?.id) return;
-    setMovingTerm(true);
-
-    // Set old session/term as not current
-    if (academicPeriods.currentTerm) {
-      await supabase.from("academic_terms").update({ is_current: false } as any).eq("id", academicPeriods.currentTerm.id);
-    }
-    if (academicPeriods.currentSession) {
-      await supabase.from("academic_sessions").update({ is_current: false } as any).eq("id", academicPeriods.currentSession.id);
-    }
-
-    // Set new session as current
-    await supabase.from("academic_sessions").update({ is_current: true } as any).eq("id", sessionId);
-
-    // Set Term 1 of new session as current
-    const newTerms = academicPeriods.terms.filter((t) => t.session_id === sessionId);
-    const term1 = newTerms.find((t) => t.name === "Term 1") || newTerms[0];
-    if (term1) {
-      await supabase.from("academic_terms").update({ is_current: true } as any).eq("id", term1.id);
-    }
-
-    toast.success("Moved to new session!");
-    setMovingTerm(false);
-    setMoveTermOpen(false);
-    academicPeriods.reload();
-    loadData();
-  };
-
   const portalUrl = `${window.location.origin}/school/${slug}`;
   const copyPortalLink = () => { navigator.clipboard.writeText(portalUrl); toast.success("Portal link copied!"); };
 
@@ -423,18 +380,19 @@ const SchoolAdminDashboard = () => {
     );
   }
 
-  const totalStudents = students.length;
-  const totalCollected = payments.reduce((s, p) => s + Number(p.amount), 0);
-  const totalFees = students.reduce((s, st) => s + st.totalFees, 0);
-  const outstanding = totalFees - students.reduce((s, st) => s + st.totalPaid, 0);
+  // Stats based on filtered period
+  const totalStudents = studentsWithTotals.length;
+  const totalCollected = filteredPaymentsByPeriod.reduce((s, p) => s + Number(p.amount), 0);
+  const totalFees = studentsWithTotals.reduce((s, st) => s + st.totalFees, 0);
+  const outstanding = totalFees - studentsWithTotals.reduce((s, st) => s + st.totalPaid, 0);
 
-  const filteredStudents = students.filter((s) => {
+  const filteredStudents = studentsWithTotals.filter((s) => {
     const matchClass = s.class === studentsClassFilter;
     const matchSearch = !search || s.name.toLowerCase().includes(search.toLowerCase()) || s.student_id.toLowerCase().includes(search.toLowerCase());
     return matchClass && matchSearch;
   });
 
-  const filteredPayments = payments.filter((p) => {
+  const filteredPayments = filteredPaymentsByPeriod.filter((p) => {
     const studentData = p.students as any;
     const matchClass = paymentsClassFilter === "ALL" || studentData?.class === paymentsClassFilter;
     const matchSearch = !search ||
@@ -455,20 +413,6 @@ const SchoolAdminDashboard = () => {
     if (isYesterday) return `Yesterday ${time}`;
     return d.toLocaleDateString("en-NG", { day: "numeric", month: "short" }) + ` ${time}`;
   };
-
-  // Check if on last term of current session
-  const isOnLastTerm = () => {
-    if (!academicPeriods.currentSession || !academicPeriods.currentTerm) return false;
-    const sessionTerms = academicPeriods.terms
-      .filter((t) => t.session_id === academicPeriods.currentSession!.id)
-      .sort((a, b) => a.created_at.localeCompare(b.created_at));
-    return sessionTerms[sessionTerms.length - 1]?.id === academicPeriods.currentTerm.id;
-  };
-
-  // Future sessions available
-  const futureSessions = academicPeriods.sessions.filter(
-    (s) => !s.is_current && s.created_at > (academicPeriods.currentSession?.created_at || "")
-  );
 
   // Fee dialog term options
   const feeTermOptions = academicPeriods.terms.filter((t) => t.session_id === feeSessionId);
@@ -514,32 +458,22 @@ const SchoolAdminDashboard = () => {
           </CardContent>
         </Card>
 
-        {/* Current Academic Period */}
-        <Card className="border-accent/20">
-          <CardContent className="pt-6">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-accent/10 flex items-center justify-center">
-                  <Calendar className="w-5 h-5 text-accent-foreground" />
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Current Academic Period</p>
-                  <p className="text-lg font-bold">
-                    {academicPeriods.currentSession?.name || "—"} · {academicPeriods.currentTerm?.name || "—"}
-                  </p>
-                </div>
-              </div>
-              <div className="flex gap-2 flex-wrap">
-                <Button variant="outline" size="sm" onClick={() => setNewSessionOpen(true)} className="gap-1">
-                  <Plus className="w-3 h-3" /> New Session
-                </Button>
-                <Button size="sm" onClick={() => setMoveTermOpen(true)} className="gap-1">
-                  <ChevronRight className="w-3 h-3" /> Next Term
-                </Button>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        {/* Session & Term Filter */}
+        <div className="flex flex-col sm:flex-row items-end gap-3">
+          <div className="flex-1 w-full">
+            <AcademicPeriodSelector
+              sessions={academicPeriods.sessions}
+              termsForSelectedSession={academicPeriods.termsForSelectedSession}
+              selectedSessionId={academicPeriods.selectedSessionId}
+              selectedTermId={academicPeriods.selectedTermId}
+              onSessionChange={academicPeriods.setSelectedSessionId}
+              onTermChange={academicPeriods.setSelectedTermId}
+            />
+          </div>
+          <Button variant="outline" size="sm" onClick={() => setNewSessionOpen(true)} className="gap-1 shrink-0">
+            <Plus className="w-3 h-3" /> New Session
+          </Button>
+        </div>
 
         {/* Stats */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -621,7 +555,7 @@ const SchoolAdminDashboard = () => {
                       <div className="w-6 h-6 border-4 border-primary border-t-transparent rounded-full animate-spin" />
                     </div>
                   ) : studentFees.length === 0 ? (
-                    <p className="text-center text-muted-foreground py-8">No fees set for {selectedStudent.class} yet.</p>
+                    <p className="text-center text-muted-foreground py-8">No fees set for this period yet.</p>
                   ) : (
                     <div className="space-y-3">
                       {studentFees.map((fee: any) => (
@@ -760,8 +694,8 @@ const SchoolAdminDashboard = () => {
                                 studentName: studentData?.name || "—",
                                 studentId: studentData?.student_id || "—",
                                 studentClass: studentData?.class || "—",
-                                term: "",
-                                session: "",
+                                term: academicPeriods.selectedTerm?.name || "",
+                                session: academicPeriods.selectedSession?.name || "",
                                 reference: p.reference,
                                 date: p.date,
                                 method: p.method,
@@ -777,7 +711,7 @@ const SchoolAdminDashboard = () => {
                     })}
                     {filteredPayments.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={6} className="text-center text-muted-foreground py-8">No payments yet.</TableCell>
+                        <TableCell colSpan={6} className="text-center text-muted-foreground py-8">No payments for this period.</TableCell>
                       </TableRow>
                     )}
                   </TableBody>
@@ -832,7 +766,7 @@ const SchoolAdminDashboard = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Add Fee Dialog - with Session & Term */}
+      {/* Add Fee Dialog */}
       <Dialog open={addFeeOpen} onOpenChange={setAddFeeOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
@@ -840,7 +774,6 @@ const SchoolAdminDashboard = () => {
             <DialogDescription>Select session, term, and fill in amounts for applicable fees.</DialogDescription>
           </DialogHeader>
           <form onSubmit={handleAddFee} className="space-y-4">
-            {/* Session & Term selectors at top */}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
                 <Label>Session</Label>
@@ -848,9 +781,7 @@ const SchoolAdminDashboard = () => {
                   <SelectTrigger><SelectValue placeholder="Select session" /></SelectTrigger>
                   <SelectContent>
                     {academicPeriods.sessions.map((s) => (
-                      <SelectItem key={s.id} value={s.id}>
-                        {s.name} {s.is_current ? "(Current)" : ""}
-                      </SelectItem>
+                      <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -861,9 +792,7 @@ const SchoolAdminDashboard = () => {
                   <SelectTrigger><SelectValue placeholder="Select term" /></SelectTrigger>
                   <SelectContent>
                     {feeTermOptions.map((t) => (
-                      <SelectItem key={t.id} value={t.id}>
-                        {t.name} {t.is_current ? "(Current)" : ""}
-                      </SelectItem>
+                      <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -938,71 +867,17 @@ const SchoolAdminDashboard = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Move to Next Term Dialog */}
-      <Dialog open={moveTermOpen} onOpenChange={setMoveTermOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Move to Next Term</DialogTitle>
-            <DialogDescription>
-              This will move the school to the next academic term. Students with unpaid balances will carry forward as outstanding balances.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="p-4 rounded-lg bg-muted/50">
-              <p className="text-sm font-medium">Current Period</p>
-              <p className="text-lg font-bold">{academicPeriods.currentSession?.name} · {academicPeriods.currentTerm?.name}</p>
-            </div>
-
-            {isOnLastTerm() ? (
-              <div className="space-y-3">
-                <p className="text-sm text-muted-foreground">
-                  You're on the last term ({academicPeriods.currentTerm?.name}). Select a new session to move to:
-                </p>
-                {futureSessions.length === 0 ? (
-                  <div className="text-center py-4">
-                    <p className="text-sm text-muted-foreground mb-3">No future sessions available.</p>
-                    <Button variant="outline" size="sm" onClick={() => { setMoveTermOpen(false); setNewSessionOpen(true); }}>
-                      Create New Session
-                    </Button>
-                  </div>
-                ) : (
-                  futureSessions.map((s) => (
-                    <Button
-                      key={s.id}
-                      variant="outline"
-                      className="w-full justify-between"
-                      disabled={movingTerm}
-                      onClick={() => handleMoveToNextSession(s.id)}
-                    >
-                      <span>{s.name} · Term 1</span>
-                      <ChevronRight className="w-4 h-4" />
-                    </Button>
-                  ))
-                )}
-              </div>
-            ) : (
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setMoveTermOpen(false)}>Cancel</Button>
-                <Button onClick={handleMoveToNextTerm} disabled={movingTerm}>
-                  {movingTerm ? "Moving..." : "Confirm Move"}
-                </Button>
-              </DialogFooter>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
-
       {/* Create New Session Dialog */}
       <Dialog open={newSessionOpen} onOpenChange={setNewSessionOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Create New Academic Session</DialogTitle>
-            <DialogDescription>This will create a new session with 3 terms. It will not be set as current until you move to it.</DialogDescription>
+            <DialogDescription>This will create a new session with 3 terms (Term 1, Term 2, Term 3).</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
               <Label>Session Name</Label>
-              <Input placeholder="e.g. 2026/2027" value={newSessionName} onChange={(e) => setNewSessionName(e.target.value)} maxLength={20} />
+              <Input placeholder="e.g. 2027/2028" value={newSessionName} onChange={(e) => setNewSessionName(e.target.value)} maxLength={20} />
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setNewSessionOpen(false)}>Cancel</Button>

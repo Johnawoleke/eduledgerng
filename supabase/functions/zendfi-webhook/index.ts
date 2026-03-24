@@ -33,7 +33,6 @@ async function verifySignature(body: string, signature: string | null): Promise<
   const signatureBuffer = await crypto.subtle.sign("HMAC", key, encoder.encode(body));
   const expectedSignature = new TextDecoder().decode(hexEncode(new Uint8Array(signatureBuffer)));
 
-  // Constant-time comparison
   if (expectedSignature.length !== signature.length) {
     return { valid: false, reason: "signature_mismatch" };
   }
@@ -55,24 +54,18 @@ serve(async (req) => {
 
   try {
     const signature = req.headers.get("x-zendfi-signature");
-    console.log("Webhook signature:", signature || "none");
-
     const bodyText = await req.text();
-    console.log("Zendfi webhook raw body:", bodyText);
 
     if (!bodyText || bodyText.trim().length === 0) {
-      console.log("Empty body received, returning 200");
       return new Response(JSON.stringify({ received: true, ignored: "empty body" }), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // Verify webhook signature
     const verification = await verifySignature(bodyText, signature);
     console.log("Signature verification:", verification.reason);
     if (!verification.valid) {
-      console.error("Webhook signature verification failed:", verification.reason);
       return new Response(JSON.stringify({ error: "Invalid signature" }), {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -83,7 +76,6 @@ serve(async (req) => {
     try {
       payload = JSON.parse(bodyText);
     } catch {
-      console.error("Invalid JSON body");
       return new Response(JSON.stringify({ error: "Invalid JSON" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -94,7 +86,6 @@ serve(async (req) => {
 
     const status = payload?.status || payload?.data?.status || payload?.event;
     if (status !== "completed" && status !== "successful" && status !== "payment.successful") {
-      console.log("Non-success status, ignoring:", status);
       return new Response(JSON.stringify({ received: true }), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -103,7 +94,6 @@ serve(async (req) => {
 
     const metadata = payload?.metadata || payload?.data?.metadata;
     if (!metadata?.reference || !metadata?.school_id || !metadata?.student_db_id || !metadata?.items) {
-      console.error("Missing metadata in webhook payload");
       return new Response(JSON.stringify({ error: "Missing metadata" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -123,14 +113,12 @@ serve(async (req) => {
       .maybeSingle();
 
     if (existingPayment) {
-      console.log("Payment already processed:", metadata.reference);
       return new Response(JSON.stringify({ received: true, already_processed: true }), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // Use base_amount (excluding service charges) for recording
     let totalBaseAmount = 0;
     const itemNames: string[] = [];
 
@@ -142,24 +130,28 @@ serve(async (req) => {
     }
 
     if (totalBaseAmount <= 0) {
-      console.error("No valid fee updates for reference:", metadata.reference);
       return new Response(JSON.stringify({ error: "No valid payments" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // Record payment with base amount only (no service charges)
+    // Record payment with session_id and term_id
+    const paymentRecord: any = {
+      school_id: metadata.school_id,
+      student_id: metadata.student_db_id,
+      amount: totalBaseAmount,
+      reference: metadata.reference,
+      method: "Bank Transfer (Zendfi)",
+      items: itemNames,
+    };
+
+    if (metadata.session_id) paymentRecord.session_id = metadata.session_id;
+    if (metadata.term_id) paymentRecord.term_id = metadata.term_id;
+
     const { error: payError } = await supabaseAdmin
       .from("payments")
-      .insert({
-        school_id: metadata.school_id,
-        student_id: metadata.student_db_id,
-        amount: totalBaseAmount,
-        reference: metadata.reference,
-        method: "Bank Transfer (Zendfi)",
-        items: itemNames,
-      });
+      .insert(paymentRecord);
 
     if (payError) {
       console.error("Failed to insert payment:", payError);
@@ -169,8 +161,7 @@ serve(async (req) => {
       });
     }
 
-    console.log("Payment recorded successfully:", metadata.reference, "Base amount:", totalBaseAmount);
-    console.log("Service charges - Platform:", metadata.platform_fee, "Gateway:", metadata.gateway_fee, "Bank:", metadata.bank_charge, "Total charged:", metadata.total_ngn);
+    console.log("Payment recorded:", metadata.reference, "Amount:", totalBaseAmount, "Session:", metadata.session_id, "Term:", metadata.term_id);
 
     return new Response(
       JSON.stringify({ received: true, reference: metadata.reference, amount: totalBaseAmount }),
