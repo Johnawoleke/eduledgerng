@@ -22,6 +22,9 @@ export interface AcademicTerm {
   created_at: string;
 }
 
+// Default sessions to auto-create if none exist
+const DEFAULT_SESSIONS = ["2024/2025", "2025/2026", "2026/2027"];
+
 export const useAcademicPeriods = (schoolId: string | undefined) => {
   const [sessions, setSessions] = useState<AcademicSession[]>([]);
   const [terms, setTerms] = useState<AcademicTerm[]>([]);
@@ -33,18 +36,47 @@ export const useAcademicPeriods = (schoolId: string | undefined) => {
     if (!schoolId) return;
     setLoading(true);
 
-    const { data: sessionsData } = await supabase
+    let { data: sessionsData } = await supabase
       .from("academic_sessions")
       .select("*")
       .eq("school_id", schoolId)
-      .order("created_at", { ascending: false });
+      .order("name", { ascending: true });
 
-    const allSessions = (sessionsData || []) as AcademicSession[];
+    let allSessions = (sessionsData || []) as AcademicSession[];
+
+    // Auto-create default sessions if none exist
+    if (allSessions.length === 0) {
+      for (const name of DEFAULT_SESSIONS) {
+        const { data: newSession } = await supabase
+          .from("academic_sessions")
+          .insert({ school_id: schoolId, name, is_current: false } as any)
+          .select()
+          .single();
+
+        if (newSession) {
+          await supabase.from("academic_terms").insert([
+            { session_id: newSession.id, school_id: schoolId, name: "Term 1", is_current: false },
+            { session_id: newSession.id, school_id: schoolId, name: "Term 2", is_current: false },
+            { session_id: newSession.id, school_id: schoolId, name: "Term 3", is_current: false },
+          ] as any);
+        }
+      }
+      // Reload after creation
+      const { data: reloaded } = await supabase
+        .from("academic_sessions")
+        .select("*")
+        .eq("school_id", schoolId)
+        .order("name", { ascending: true });
+      allSessions = (reloaded || []) as AcademicSession[];
+    }
+
     setSessions(allSessions);
 
-    const currentSession = allSessions.find((s) => s.is_current) || allSessions[0];
-    if (currentSession && !selectedSessionId) {
-      setSelectedSessionId(currentSession.id);
+    // Default selection: latest session (by name descending) and Term 1
+    if (!selectedSessionId && allSessions.length > 0) {
+      // Pick the latest session by name (e.g. 2025/2026 > 2024/2025)
+      const sorted = [...allSessions].sort((a, b) => b.name.localeCompare(a.name));
+      setSelectedSessionId(sorted[0].id);
     }
 
     const { data: termsData } = await supabase
@@ -56,12 +88,6 @@ export const useAcademicPeriods = (schoolId: string | undefined) => {
     const allTerms = (termsData || []) as AcademicTerm[];
     setTerms(allTerms);
 
-    if (currentSession && !selectedTermId) {
-      const currentTerm = allTerms.find((t) => t.session_id === currentSession.id && t.is_current) ||
-        allTerms.find((t) => t.session_id === currentSession.id);
-      if (currentTerm) setSelectedTermId(currentTerm.id);
-    }
-
     setLoading(false);
   }, [schoolId]);
 
@@ -69,35 +95,17 @@ export const useAcademicPeriods = (schoolId: string | undefined) => {
     loadPeriods();
   }, [loadPeriods]);
 
-  // When session changes, auto-select its current term
+  // When session changes, auto-select Term 1
   useEffect(() => {
     if (!selectedSessionId || terms.length === 0) return;
     const sessionTerms = terms.filter((t) => t.session_id === selectedSessionId);
-    const currentTerm = sessionTerms.find((t) => t.is_current) || sessionTerms[0];
-    if (currentTerm) setSelectedTermId(currentTerm.id);
+    const term1 = sessionTerms.find((t) => t.name === "Term 1") || sessionTerms[0];
+    if (term1) setSelectedTermId(term1.id);
   }, [selectedSessionId, terms]);
 
-  const currentSession = sessions.find((s) => s.is_current);
-  const currentTerm = terms.find((t) => t.is_current && t.session_id === currentSession?.id);
   const selectedSession = sessions.find((s) => s.id === selectedSessionId);
   const selectedTerm = terms.find((t) => t.id === selectedTermId);
   const termsForSelectedSession = terms.filter((t) => t.session_id === selectedSessionId);
-
-  const isFutureSession = (sessionId: string) => {
-    if (!currentSession) return false;
-    const session = sessions.find((s) => s.id === sessionId);
-    if (!session || !currentSession) return false;
-    return session.created_at > currentSession.created_at && !session.is_current;
-  };
-
-  const isFutureTerm = (termId: string) => {
-    const term = terms.find((t) => t.id === termId);
-    if (!term) return false;
-    if (isFutureSession(term.session_id)) return true;
-    if (term.session_id !== currentSession?.id) return false;
-    if (!currentTerm) return false;
-    return term.created_at > currentTerm.created_at && !term.is_current;
-  };
 
   return {
     sessions,
@@ -107,12 +115,8 @@ export const useAcademicPeriods = (schoolId: string | undefined) => {
     setSelectedSessionId,
     setSelectedTermId,
     termsForSelectedSession,
-    currentSession,
-    currentTerm,
     selectedSession,
     selectedTerm,
-    isFutureSession,
-    isFutureTerm,
     loading,
     reload: loadPeriods,
   };

@@ -13,7 +13,7 @@ serve(async (req) => {
   }
 
   try {
-    const { school_slug, student_id, pin, fee_payments } = await req.json();
+    const { school_slug, student_id, pin, fee_payments, session_id, term_id } = await req.json();
 
     if (!school_slug || !student_id || !pin || !fee_payments?.length) {
       return new Response(
@@ -159,6 +159,8 @@ serve(async (req) => {
         gateway_fee: gatewayFee,
         bank_charge: bankCharge,
         total_ngn: totalNGN,
+        session_id: session_id || null,
+        term_id: term_id || null,
         items: validatedItems,
       },
     };

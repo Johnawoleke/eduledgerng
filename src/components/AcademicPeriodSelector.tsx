@@ -10,9 +10,6 @@ interface Props {
   selectedTermId: string;
   onSessionChange: (id: string) => void;
   onTermChange: (id: string) => void;
-  isFutureSession?: (id: string) => boolean;
-  isFutureTerm?: (id: string) => boolean;
-  disableFuture?: boolean;
   compact?: boolean;
 }
 
@@ -23,9 +20,6 @@ const AcademicPeriodSelector: React.FC<Props> = ({
   selectedTermId,
   onSessionChange,
   onTermChange,
-  isFutureSession,
-  isFutureTerm,
-  disableFuture = false,
   compact = false,
 }) => {
   return (
@@ -38,13 +32,8 @@ const AcademicPeriodSelector: React.FC<Props> = ({
           </SelectTrigger>
           <SelectContent>
             {sessions.map((s) => (
-              <SelectItem
-                key={s.id}
-                value={s.id}
-                disabled={disableFuture && isFutureSession?.(s.id)}
-              >
-                {s.name} {s.is_current ? "(Current)" : ""}
-                {disableFuture && isFutureSession?.(s.id) ? " 🔒" : ""}
+              <SelectItem key={s.id} value={s.id}>
+                {s.name}
               </SelectItem>
             ))}
           </SelectContent>
@@ -58,13 +47,8 @@ const AcademicPeriodSelector: React.FC<Props> = ({
           </SelectTrigger>
           <SelectContent>
             {termsForSelectedSession.map((t) => (
-              <SelectItem
-                key={t.id}
-                value={t.id}
-                disabled={disableFuture && isFutureTerm?.(t.id)}
-              >
-                {t.name} {t.is_current ? "(Current)" : ""}
-                {disableFuture && isFutureTerm?.(t.id) ? " 🔒" : ""}
+              <SelectItem key={t.id} value={t.id}>
+                {t.name}
               </SelectItem>
             ))}
           </SelectContent>

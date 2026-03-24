@@ -219,7 +219,9 @@ export type Database = {
           method: string
           reference: string
           school_id: string
+          session_id: string | null
           student_id: string
+          term_id: string | null
         }
         Insert: {
           amount: number
@@ -230,7 +232,9 @@ export type Database = {
           method?: string
           reference: string
           school_id: string
+          session_id?: string | null
           student_id: string
+          term_id?: string | null
         }
         Update: {
           amount?: number
@@ -241,7 +245,9 @@ export type Database = {
           method?: string
           reference?: string
           school_id?: string
+          session_id?: string | null
           student_id?: string
+          term_id?: string | null
         }
         Relationships: [
           {
@@ -252,10 +258,24 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "payments_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "academic_sessions"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "payments_student_id_fkey"
             columns: ["student_id"]
             isOneToOne: false
             referencedRelation: "students"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payments_term_id_fkey"
+            columns: ["term_id"]
+            isOneToOne: false
+            referencedRelation: "academic_terms"
             referencedColumns: ["id"]
           },
         ]
