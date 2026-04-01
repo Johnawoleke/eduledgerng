@@ -9,19 +9,36 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-async function verifySignature(body: string, signature: string | null): Promise<{ valid: boolean; reason: string }> {
+async function verifySignature(body: string, signatureHeader: string | null): Promise<{ valid: boolean; reason: string }> {
   const secret = Deno.env.get("ZENDFI_WEBHOOK_SECRET");
-  
+
   if (!secret) {
     console.warn("ZENDFI_WEBHOOK_SECRET not set - skipping verification");
     return { valid: true, reason: "no_secret_configured" };
   }
 
-  if (!signature) {
+  if (!signatureHeader) {
     console.warn("No X-Zendfi-Signature header present - rejecting");
     return { valid: false, reason: "missing_signature" };
   }
 
+  // Parse t=timestamp,v1=signature format
+  const parts: Record<string, string> = {};
+  for (const part of signatureHeader.split(",")) {
+    const eqIdx = part.indexOf("=");
+    if (eqIdx > 0) {
+      parts[part.substring(0, eqIdx).trim()] = part.substring(eqIdx + 1).trim();
+    }
+  }
+
+  const timestamp = parts["t"];
+  const signature = parts["v1"];
+
+  if (!timestamp || !signature) {
+    return { valid: false, reason: "malformed_signature_header" };
+  }
+
+  const signedPayload = `${timestamp}.${body}`;
   const encoder = new TextEncoder();
   const key = await crypto.subtle.importKey(
     "raw",
@@ -30,18 +47,18 @@ async function verifySignature(body: string, signature: string | null): Promise<
     false,
     ["sign"]
   );
-  const signatureBuffer = await crypto.subtle.sign("HMAC", key, encoder.encode(body));
+  const signatureBuffer = await crypto.subtle.sign("HMAC", key, encoder.encode(signedPayload));
   const expectedSignature = new TextDecoder().decode(hexEncode(new Uint8Array(signatureBuffer)));
 
   if (expectedSignature.length !== signature.length) {
     return { valid: false, reason: "signature_mismatch" };
   }
-  
+
   let mismatch = 0;
   for (let i = 0; i < expectedSignature.length; i++) {
     mismatch |= expectedSignature.charCodeAt(i) ^ signature.charCodeAt(i);
   }
-  
+
   return mismatch === 0
     ? { valid: true, reason: "signature_verified" }
     : { valid: false, reason: "signature_mismatch" };
@@ -53,7 +70,7 @@ serve(async (req) => {
   }
 
   try {
-    const signature = req.headers.get("x-zendfi-signature");
+    const signatureHeader = req.headers.get("x-zendfi-signature");
     const bodyText = await req.text();
 
     if (!bodyText || bodyText.trim().length === 0) {
@@ -63,7 +80,7 @@ serve(async (req) => {
       });
     }
 
-    const verification = await verifySignature(bodyText, signature);
+    const verification = await verifySignature(bodyText, signatureHeader);
     console.log("Signature verification:", verification.reason);
     if (!verification.valid) {
       return new Response(JSON.stringify({ error: "Invalid signature" }), {
@@ -84,6 +101,23 @@ serve(async (req) => {
 
     console.log("Zendfi webhook parsed:", JSON.stringify(payload));
 
+    const supabaseAdmin = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+    );
+
+    // Insert into payment_events for realtime tracking
+    const eventType = payload?.event;
+    const paymentObj = payload?.payment || payload?.data?.payment;
+    await supabaseAdmin.from("payment_events").insert({
+      event_type: eventType || null,
+      payment_id: paymentObj?.id || null,
+      status: paymentObj?.status || null,
+      amount_usd: paymentObj?.amount_usd || null,
+      payload: payload,
+    });
+
+    // --- Existing payment processing logic ---
     const status = payload?.status || payload?.data?.status || payload?.event;
     if (status !== "completed" && status !== "successful" && status !== "payment.successful") {
       return new Response(JSON.stringify({ received: true }), {
@@ -94,16 +128,11 @@ serve(async (req) => {
 
     const metadata = payload?.metadata || payload?.data?.metadata;
     if (!metadata?.reference || !metadata?.school_id || !metadata?.student_db_id || !metadata?.items) {
-      return new Response(JSON.stringify({ error: "Missing metadata" }), {
-        status: 400,
+      return new Response(JSON.stringify({ received: true, note: "no_metadata" }), {
+        status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-
-    const supabaseAdmin = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-    );
 
     // Idempotency check
     const { data: existingPayment } = await supabaseAdmin
@@ -130,8 +159,8 @@ serve(async (req) => {
     }
 
     if (totalBaseAmount <= 0) {
-      return new Response(JSON.stringify({ error: "No valid payments" }), {
-        status: 400,
+      return new Response(JSON.stringify({ received: true, note: "no_valid_payments" }), {
+        status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -161,7 +190,7 @@ serve(async (req) => {
       });
     }
 
-    console.log("Payment recorded:", metadata.reference, "Amount:", totalBaseAmount, "Session:", metadata.session_id, "Term:", metadata.term_id);
+    console.log("Payment recorded:", metadata.reference, "Amount:", totalBaseAmount);
 
     return new Response(
       JSON.stringify({ received: true, reference: metadata.reference, amount: totalBaseAmount }),
