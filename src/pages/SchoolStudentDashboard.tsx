@@ -29,6 +29,33 @@ const SchoolStudentDashboard = () => {
 
   const academicPeriods = useAcademicPeriods(school?.id);
 
+  // Re-fetch fees and payments when session/term changes
+  useEffect(() => {
+    if (!student || !studentCredentials || !slug) return;
+    if (!academicPeriods.selectedSessionId || !academicPeriods.selectedTermId) return;
+
+    const fetchPeriodData = async () => {
+      try {
+        const { data, error } = await supabase.functions.invoke("student-auth", {
+          body: {
+            school_slug: slug,
+            student_id: studentCredentials.student_id,
+            pin: studentCredentials.pin,
+            session_id: academicPeriods.selectedSessionId,
+            term_id: academicPeriods.selectedTermId,
+          },
+        });
+        if (!error && data) {
+          setStudentData(data.feeItems || [], data.payments || []);
+        }
+      } catch (err) {
+        console.error("Failed to reload period data:", err);
+      }
+    };
+
+    fetchPeriodData();
+  }, [academicPeriods.selectedSessionId, academicPeriods.selectedTermId]);
+
   // Filter fee items by selected term
   const filteredFeeItems = useMemo(() => {
     if (!academicPeriods.selectedTermId) return feeItems;
@@ -40,9 +67,9 @@ const SchoolStudentDashboard = () => {
   // Filter payments by selected term
   const filteredPayments = useMemo(() => {
     if (!academicPeriods.selectedTermId) return payments;
-    // Payments from context don't have session_id/term_id yet (they come from student-auth)
-    // We'll show all payments for now - the edge function will be updated to include these
-    return payments;
+    return payments.filter((p: any) =>
+      p.term_id === academicPeriods.selectedTermId || (!p.term_id && !p.session_id)
+    );
   }, [payments, academicPeriods.selectedTermId]);
 
   const totalFees = filteredFeeItems.reduce((s, f) => s + Number(f.amount), 0);

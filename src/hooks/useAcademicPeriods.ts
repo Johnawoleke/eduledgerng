@@ -74,7 +74,7 @@ export const useAcademicPeriods = (schoolId: string | undefined) => {
 
     setSessions(allSessions);
 
-    // Default selection: latest session (by name descending) and Term 1
+    // Default selection: latest session (by name descending)
     if (!selectedSessionId && allSessions.length > 0) {
       const sorted = [...allSessions].sort((a, b) => b.name.localeCompare(a.name));
       setSelectedSessionId(sorted[0].id);
@@ -84,7 +84,7 @@ export const useAcademicPeriods = (schoolId: string | undefined) => {
       .from("academic_terms")
       .select("*")
       .eq("school_id", schoolId)
-      .order("created_at", { ascending: true });
+      .order("term_number", { ascending: true });
 
     const allTerms = (termsData || []) as AcademicTerm[];
     setTerms(allTerms);
@@ -99,14 +99,18 @@ export const useAcademicPeriods = (schoolId: string | undefined) => {
   // When session changes, auto-select Term 1
   useEffect(() => {
     if (!selectedSessionId || terms.length === 0) return;
-    const sessionTerms = terms.filter((t) => t.session_id === selectedSessionId);
-    const term1 = sessionTerms.find((t) => t.name === "Term 1") || sessionTerms[0];
+    const sessionTerms = terms
+      .filter((t) => t.session_id === selectedSessionId)
+      .sort((a, b) => (a.term_number || 0) - (b.term_number || 0));
+    const term1 = sessionTerms[0];
     if (term1) setSelectedTermId(term1.id);
   }, [selectedSessionId, terms]);
 
   const selectedSession = sessions.find((s) => s.id === selectedSessionId);
   const selectedTerm = terms.find((t) => t.id === selectedTermId);
-  const termsForSelectedSession = terms.filter((t) => t.session_id === selectedSessionId);
+  const termsForSelectedSession = terms
+    .filter((t) => t.session_id === selectedSessionId)
+    .sort((a, b) => (a.term_number || 0) - (b.term_number || 0));
 
   return {
     sessions,
