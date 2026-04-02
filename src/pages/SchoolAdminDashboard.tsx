@@ -344,9 +344,13 @@ const SchoolAdminDashboard = () => {
     if (!newSessionName.trim() || !school?.id) return;
     setCreatingSession(true);
 
+    const parts = newSessionName.trim().split("/");
+    const startYear = parts.length === 2 ? Number(parts[0]) : null;
+    const endYear = parts.length === 2 ? Number(parts[1]) : null;
+
     const { data: newSession, error: sessionError } = await supabase
       .from("academic_sessions")
-      .insert({ school_id: school.id, name: newSessionName.trim(), is_current: false } as any)
+      .insert({ school_id: school.id, name: newSessionName.trim(), start_year: startYear, end_year: endYear } as any)
       .select()
       .single();
 
@@ -357,9 +361,9 @@ const SchoolAdminDashboard = () => {
     }
 
     await supabase.from("academic_terms").insert([
-      { session_id: newSession.id, school_id: school.id, name: "Term 1", is_current: false },
-      { session_id: newSession.id, school_id: school.id, name: "Term 2", is_current: false },
-      { session_id: newSession.id, school_id: school.id, name: "Term 3", is_current: false },
+      { session_id: newSession.id, school_id: school.id, name: "Term 1", term_number: 1 },
+      { session_id: newSession.id, school_id: school.id, name: "Term 2", term_number: 2 },
+      { session_id: newSession.id, school_id: school.id, name: "Term 3", term_number: 3 },
     ] as any);
 
     toast.success(`Session ${newSessionName.trim()} created!`);

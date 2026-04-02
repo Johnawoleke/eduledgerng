@@ -278,7 +278,9 @@ const SchoolStudentDashboard = () => {
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Select Fees to Pay</DialogTitle>
-            <DialogDescription>Tick fees and adjust amounts for partial payments.</DialogDescription>
+            <DialogDescription>
+              Payment for {academicPeriods.selectedSession?.name || "—"} — {academicPeriods.selectedTerm?.name || "—"}
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 max-h-[50vh] overflow-y-auto">
             {unpaidFees.length === 0 ? (
