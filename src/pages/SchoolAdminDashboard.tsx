@@ -341,21 +341,34 @@ const SchoolAdminDashboard = () => {
   };
 
   const handleCreateSession = async () => {
-    if (!newSessionName.trim() || !school?.id) return;
-    setCreatingSession(true);
+    const name = newSessionName.trim();
+    if (!name || !school?.id) return;
 
-    const parts = newSessionName.trim().split("/");
-    const startYear = parts.length === 2 ? Number(parts[0]) : null;
-    const endYear = parts.length === 2 ? Number(parts[1]) : null;
+    // Validate format
+    const match = name.match(/^(\d{4})\/(\d{4})$/);
+    if (!match) {
+      toast.error("Session name must be in format YYYY/YYYY (e.g. 2027/2028)");
+      return;
+    }
+
+    // Check for duplicate
+    if (academicPeriods.sessions.some((s) => s.name === name)) {
+      toast.error(`Session ${name} already exists`);
+      return;
+    }
+
+    setCreatingSession(true);
+    const startYear = Number(match[1]);
+    const endYear = Number(match[2]);
 
     const { data: newSession, error: sessionError } = await supabase
       .from("academic_sessions")
-      .insert({ school_id: school.id, name: newSessionName.trim(), start_year: startYear, end_year: endYear } as any)
+      .insert({ school_id: school.id, name, start_year: startYear, end_year: endYear } as any)
       .select()
       .single();
 
     if (sessionError || !newSession) {
-      toast.error("Failed to create session");
+      toast.error(sessionError?.message || "Failed to create session");
       setCreatingSession(false);
       return;
     }
@@ -366,7 +379,7 @@ const SchoolAdminDashboard = () => {
       { session_id: newSession.id, school_id: school.id, name: "Term 3", term_number: 3 },
     ] as any);
 
-    toast.success(`Session ${newSessionName.trim()} created!`);
+    toast.success(`Session ${name} created!`);
     setNewSessionOpen(false);
     setNewSessionName("");
     setCreatingSession(false);
