@@ -233,8 +233,8 @@ const SchoolStudentDashboard = () => {
             <CardTitle className="text-lg flex items-center gap-2"><History className="w-5 h-5" /> Payment History</CardTitle>
           </CardHeader>
           <CardContent>
-            {payments.length === 0 ? (
-              <p className="text-muted-foreground text-sm text-center py-4">No payments yet.</p>
+            {filteredPayments.length === 0 ? (
+              <p className="text-muted-foreground text-sm text-center py-4">No payments for this period.</p>
             ) : (
               <Table>
                 <TableHeader>
@@ -247,7 +247,7 @@ const SchoolStudentDashboard = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {payments.map((p) => {
+                  {filteredPayments.map((p) => {
                     const displayItems = p.items.map((item: string) => {
                       const pipeIdx = item.lastIndexOf("|");
                       return pipeIdx > 0 ? item.substring(0, pipeIdx) : item;
@@ -278,7 +278,9 @@ const SchoolStudentDashboard = () => {
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Select Fees to Pay</DialogTitle>
-            <DialogDescription>Tick fees and adjust amounts for partial payments.</DialogDescription>
+            <DialogDescription>
+              Payment for {academicPeriods.selectedSession?.name || "—"} — {academicPeriods.selectedTerm?.name || "—"}
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 max-h-[50vh] overflow-y-auto">
             {unpaidFees.length === 0 ? (

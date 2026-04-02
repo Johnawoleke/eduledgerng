@@ -18,29 +18,32 @@ export type Database = {
         Row: {
           created_at: string
           end_date: string | null
+          end_year: number | null
           id: string
-          is_current: boolean
           name: string
           school_id: string
           start_date: string | null
+          start_year: number | null
         }
         Insert: {
           created_at?: string
           end_date?: string | null
+          end_year?: number | null
           id?: string
-          is_current?: boolean
           name: string
           school_id: string
           start_date?: string | null
+          start_year?: number | null
         }
         Update: {
           created_at?: string
           end_date?: string | null
+          end_year?: number | null
           id?: string
-          is_current?: boolean
           name?: string
           school_id?: string
           start_date?: string | null
+          start_year?: number | null
         }
         Relationships: [
           {
@@ -57,31 +60,31 @@ export type Database = {
           created_at: string
           end_date: string | null
           id: string
-          is_current: boolean
           name: string
           school_id: string
           session_id: string
           start_date: string | null
+          term_number: number | null
         }
         Insert: {
           created_at?: string
           end_date?: string | null
           id?: string
-          is_current?: boolean
           name: string
           school_id: string
           session_id: string
           start_date?: string | null
+          term_number?: number | null
         }
         Update: {
           created_at?: string
           end_date?: string | null
           id?: string
-          is_current?: boolean
           name?: string
           school_id?: string
           session_id?: string
           start_date?: string | null
+          term_number?: number | null
         }
         Relationships: [
           {
