@@ -7,7 +7,8 @@ export interface AcademicSession {
   name: string;
   start_date: string | null;
   end_date: string | null;
-  is_current: boolean;
+  start_year: number | null;
+  end_year: number | null;
   created_at: string;
 }
 
@@ -18,7 +19,7 @@ export interface AcademicTerm {
   name: string;
   start_date: string | null;
   end_date: string | null;
-  is_current: boolean;
+  term_number: number | null;
   created_at: string;
 }
 
@@ -47,17 +48,18 @@ export const useAcademicPeriods = (schoolId: string | undefined) => {
     // Auto-create default sessions if none exist
     if (allSessions.length === 0) {
       for (const name of DEFAULT_SESSIONS) {
+        const parts = name.split("/");
         const { data: newSession } = await supabase
           .from("academic_sessions")
-          .insert({ school_id: schoolId, name, is_current: false } as any)
+          .insert({ school_id: schoolId, name, start_year: Number(parts[0]), end_year: Number(parts[1]) } as any)
           .select()
           .single();
 
         if (newSession) {
           await supabase.from("academic_terms").insert([
-            { session_id: newSession.id, school_id: schoolId, name: "Term 1", is_current: false },
-            { session_id: newSession.id, school_id: schoolId, name: "Term 2", is_current: false },
-            { session_id: newSession.id, school_id: schoolId, name: "Term 3", is_current: false },
+            { session_id: newSession.id, school_id: schoolId, name: "Term 1", term_number: 1 },
+            { session_id: newSession.id, school_id: schoolId, name: "Term 2", term_number: 2 },
+            { session_id: newSession.id, school_id: schoolId, name: "Term 3", term_number: 3 },
           ] as any);
         }
       }
@@ -74,7 +76,6 @@ export const useAcademicPeriods = (schoolId: string | undefined) => {
 
     // Default selection: latest session (by name descending) and Term 1
     if (!selectedSessionId && allSessions.length > 0) {
-      // Pick the latest session by name (e.g. 2025/2026 > 2024/2025)
       const sorted = [...allSessions].sort((a, b) => b.name.localeCompare(a.name));
       setSelectedSessionId(sorted[0].id);
     }

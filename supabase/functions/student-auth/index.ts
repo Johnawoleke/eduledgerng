@@ -13,7 +13,7 @@ serve(async (req) => {
   }
 
   try {
-    const { school_slug, student_id, pin } = await req.json();
+    const { school_slug, student_id, pin, session_id, term_id } = await req.json();
 
     if (!school_slug || !student_id || !pin) {
       return new Response(
@@ -67,23 +67,32 @@ serve(async (req) => {
 
     const student = students[0];
 
-    // Get class-level fees for this student's class (matching exact class OR "ALL")
-    const { data: classFees } = await supabaseAdmin
+    // Build fee query - filter by session_id and term_id if provided
+    let feeQuery = supabaseAdmin
       .from("class_fees")
       .select("*")
       .eq("school_id", school.id)
       .in("class_target", [student.class, "ALL"]);
 
-    // Get payments for this student
-    const { data: payments } = await supabaseAdmin
+    if (session_id) feeQuery = feeQuery.eq("session_id", session_id);
+    if (term_id) feeQuery = feeQuery.eq("term_id", term_id);
+
+    const { data: classFees } = await feeQuery;
+
+    // Build payments query - filter by session_id and term_id if provided
+    let paymentQuery = supabaseAdmin
       .from("payments")
       .select("*")
       .eq("student_id", student.id)
       .order("date", { ascending: false });
 
-    // Build fee items with paid amounts calculated from payments
+    if (session_id) paymentQuery = paymentQuery.eq("session_id", session_id);
+    if (term_id) paymentQuery = paymentQuery.eq("term_id", term_id);
+
+    const { data: payments } = await paymentQuery;
+
+    // Build fee items with paid amounts calculated from filtered payments
     const feeItems = (classFees || []).map((cf: any) => {
-      // Sum paid amounts from payment items matching this fee name
       let totalPaid = 0;
       (payments || []).forEach((p: any) => {
         (p.items || []).forEach((item: string) => {
@@ -110,12 +119,27 @@ serve(async (req) => {
       };
     });
 
+    // Load sessions and terms for the school
+    const { data: sessions } = await supabaseAdmin
+      .from("academic_sessions")
+      .select("id, name, start_year, end_year")
+      .eq("school_id", school.id)
+      .order("name", { ascending: true });
+
+    const { data: terms } = await supabaseAdmin
+      .from("academic_terms")
+      .select("id, session_id, name, term_number")
+      .eq("school_id", school.id)
+      .order("term_number", { ascending: true });
+
     return new Response(
       JSON.stringify({
         student,
         school,
         feeItems,
         payments: payments || [],
+        sessions: sessions || [],
+        terms: terms || [],
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
