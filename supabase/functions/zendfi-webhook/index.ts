@@ -106,28 +106,51 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    // Insert into payment_events for realtime tracking
-    const eventType = payload?.event;
+    // Zendfi payload shape (per docs):
+    //   { event: "PaymentConfirmed", payment: { id, status, amount_usd, metadata, ... }, ... }
+    // Older/alternate shapes may nest under data.payment — we check both just in case.
+    const eventName: string | undefined = payload?.event;
     const paymentObj = payload?.payment || payload?.data?.payment;
+    const paymentStatus: string | undefined = paymentObj?.status;
+
+    // Insert into payment_events for realtime tracking
     await supabaseAdmin.from("payment_events").insert({
-      event_type: eventType || null,
+      event_type: eventName || null,
       payment_id: paymentObj?.id || null,
-      status: paymentObj?.status || null,
+      status: paymentStatus || null,
       amount_usd: paymentObj?.amount_usd || null,
       payload: payload,
     });
 
-    // --- Existing payment processing logic ---
-    const status = payload?.status || payload?.data?.status || payload?.event;
-    if (status !== "completed" && status !== "successful" && status !== "payment.successful") {
-      return new Response(JSON.stringify({ received: true }), {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    // --- Payment processing logic ---
+    // Zendfi's success signal is event="PaymentConfirmed" with payment.status="confirmed".
+    // We also accept a few related success events and a couple of legacy/alternate status strings
+    // so the handler is resilient to minor payload changes.
+    const isSuccessEvent =
+      eventName === "PaymentConfirmed" ||
+      eventName === "PaymentIntentSucceeded" ||
+      eventName === "InvoicePaid" ||
+      paymentStatus === "confirmed" ||
+      paymentStatus === "succeeded" ||
+      paymentStatus === "successful" ||
+      paymentStatus === "completed";
+
+    if (!isSuccessEvent) {
+      console.log("Ignoring non-success webhook:", eventName, paymentStatus);
+      return new Response(
+        JSON.stringify({ received: true, ignored: eventName || paymentStatus || "unknown" }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
-    const metadata = payload?.metadata || payload?.data?.metadata;
+    // Metadata is echoed back nested under payment (per Zendfi docs). Fall back to older paths.
+    const metadata =
+      paymentObj?.metadata ||
+      payload?.metadata ||
+      payload?.data?.metadata;
+
     if (!metadata?.reference || !metadata?.school_id || !metadata?.student_db_id || !metadata?.items) {
+      console.warn("Webhook success event missing required metadata:", metadata);
       return new Response(JSON.stringify({ received: true, note: "no_metadata" }), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
