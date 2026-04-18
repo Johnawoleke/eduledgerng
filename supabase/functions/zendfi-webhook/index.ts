@@ -9,36 +9,16 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-async function verifySignature(body: string, signatureHeader: string | null): Promise<{ valid: boolean; reason: string }> {
-  const secret = Deno.env.get("ZENDFI_WEBHOOK_SECRET");
+const REPLAY_TOLERANCE_SECONDS = 300; // per Zendfi security docs
 
-  if (!secret) {
-    console.warn("ZENDFI_WEBHOOK_SECRET not set - skipping verification");
-    return { valid: true, reason: "no_secret_configured" };
-  }
+function constantTimeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let mismatch = 0;
+  for (let i = 0; i < a.length; i++) mismatch |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return mismatch === 0;
+}
 
-  if (!signatureHeader) {
-    console.warn("No X-Zendfi-Signature header present - rejecting");
-    return { valid: false, reason: "missing_signature" };
-  }
-
-  // Parse t=timestamp,v1=signature format
-  const parts: Record<string, string> = {};
-  for (const part of signatureHeader.split(",")) {
-    const eqIdx = part.indexOf("=");
-    if (eqIdx > 0) {
-      parts[part.substring(0, eqIdx).trim()] = part.substring(eqIdx + 1).trim();
-    }
-  }
-
-  const timestamp = parts["t"];
-  const signature = parts["v1"];
-
-  if (!timestamp || !signature) {
-    return { valid: false, reason: "malformed_signature_header" };
-  }
-
-  const signedPayload = `${timestamp}.${body}`;
+async function hmacHex(secret: string, payload: string): Promise<string> {
   const encoder = new TextEncoder();
   const key = await crypto.subtle.importKey(
     "raw",
@@ -47,21 +27,74 @@ async function verifySignature(body: string, signatureHeader: string | null): Pr
     false,
     ["sign"]
   );
-  const signatureBuffer = await crypto.subtle.sign("HMAC", key, encoder.encode(signedPayload));
-  const expectedSignature = new TextDecoder().decode(hexEncode(new Uint8Array(signatureBuffer)));
+  const buf = await crypto.subtle.sign("HMAC", key, encoder.encode(payload));
+  return new TextDecoder().decode(hexEncode(new Uint8Array(buf)));
+}
 
-  if (expectedSignature.length !== signature.length) {
-    return { valid: false, reason: "signature_mismatch" };
+// Zendfi's two docs pages describe two different signature formats. We accept both.
+//   Format A (api-reference/webhooks): header = "t=<unix>,v1=<hex>", signed payload = "<timestamp>.<body>"
+//   Format B (security/webhooks):      header = "<hex>", timestamp in separate X-ZendFi-Timestamp header,
+//                                      signed payload = "<body>" (or "<timestamp>.<body>" as fallback)
+async function verifySignature(body: string, req: Request): Promise<{ valid: boolean; reason: string }> {
+  const secret = Deno.env.get("ZENDFI_WEBHOOK_SECRET");
+  if (!secret) {
+    console.error("ZENDFI_WEBHOOK_SECRET not set - rejecting webhook");
+    return { valid: false, reason: "no_secret_configured" };
   }
 
-  let mismatch = 0;
-  for (let i = 0; i < expectedSignature.length; i++) {
-    mismatch |= expectedSignature.charCodeAt(i) ^ signature.charCodeAt(i);
+  const sigHeader = req.headers.get("x-zendfi-signature");
+  const tsHeader = req.headers.get("x-zendfi-timestamp");
+  if (!sigHeader) {
+    return { valid: false, reason: "missing_signature" };
   }
 
-  return mismatch === 0
-    ? { valid: true, reason: "signature_verified" }
-    : { valid: false, reason: "signature_mismatch" };
+  // Detect format A (contains "t=" and/or "v1=") vs format B (bare hex)
+  const looksLikeFormatA = /(^|,)\s*(t|v1)\s*=/.test(sigHeader);
+
+  let providedSig: string;
+  let timestamp: string | undefined;
+
+  if (looksLikeFormatA) {
+    const parts: Record<string, string> = {};
+    for (const part of sigHeader.split(",")) {
+      const eq = part.indexOf("=");
+      if (eq > 0) parts[part.substring(0, eq).trim()] = part.substring(eq + 1).trim();
+    }
+    timestamp = parts["t"] || tsHeader?.trim();
+    providedSig = parts["v1"] || "";
+    if (!providedSig) return { valid: false, reason: "malformed_signature_header" };
+  } else {
+    providedSig = sigHeader.trim();
+    timestamp = tsHeader?.trim();
+  }
+
+  // Replay protection — if a timestamp is provided, enforce the 5-min tolerance window
+  if (timestamp) {
+    const tsNum = Number(timestamp);
+    if (!Number.isFinite(tsNum)) {
+      return { valid: false, reason: "invalid_timestamp" };
+    }
+    // Accept both seconds and milliseconds unix timestamps
+    const tsSeconds = tsNum > 1e12 ? tsNum / 1000 : tsNum;
+    const nowSeconds = Date.now() / 1000;
+    if (Math.abs(nowSeconds - tsSeconds) > REPLAY_TOLERANCE_SECONDS) {
+      return { valid: false, reason: "timestamp_outside_tolerance" };
+    }
+  }
+
+  // Try both possible signed-payload forms; accept if either matches
+  const candidates: string[] = [];
+  if (timestamp) candidates.push(`${timestamp}.${body}`);
+  candidates.push(body);
+
+  for (const candidate of candidates) {
+    const expected = await hmacHex(secret, candidate);
+    if (constantTimeEqual(expected, providedSig)) {
+      return { valid: true, reason: "signature_verified" };
+    }
+  }
+
+  return { valid: false, reason: "signature_mismatch" };
 }
 
 serve(async (req) => {
@@ -70,7 +103,6 @@ serve(async (req) => {
   }
 
   try {
-    const signatureHeader = req.headers.get("x-zendfi-signature");
     const bodyText = await req.text();
 
     if (!bodyText || bodyText.trim().length === 0) {
@@ -80,7 +112,7 @@ serve(async (req) => {
       });
     }
 
-    const verification = await verifySignature(bodyText, signatureHeader);
+    const verification = await verifySignature(bodyText, req);
     console.log("Signature verification:", verification.reason);
     if (!verification.valid) {
       return new Response(JSON.stringify({ error: "Invalid signature" }), {
@@ -109,7 +141,8 @@ serve(async (req) => {
     // Zendfi payload shape (per docs):
     //   { event: "PaymentConfirmed", payment: { id, status, amount_usd, metadata, ... }, ... }
     // Older/alternate shapes may nest under data.payment — we check both just in case.
-    const eventName: string | undefined = payload?.event;
+    // Prefer the X-ZendFi-Event header when present (security/webhooks docs say it's authoritative).
+    const eventName: string | undefined = req.headers.get("x-zendfi-event") || payload?.event;
     const paymentObj = payload?.payment || payload?.data?.payment;
     const paymentStatus: string | undefined = paymentObj?.status;
 
@@ -124,12 +157,16 @@ serve(async (req) => {
 
     // --- Payment processing logic ---
     // Zendfi's success signal is event="PaymentConfirmed" with payment.status="confirmed".
-    // We also accept a few related success events and a couple of legacy/alternate status strings
-    // so the handler is resilient to minor payload changes.
+    // The two docs pages disagree on event-name casing ("PaymentConfirmed" vs "payment.confirmed"),
+    // so we accept both plus a few related success events and alternate status strings.
+    const normalizedEvent = (eventName || "").toLowerCase().replace(/[._-]/g, "");
     const isSuccessEvent =
-      eventName === "PaymentConfirmed" ||
-      eventName === "PaymentIntentSucceeded" ||
-      eventName === "InvoicePaid" ||
+      normalizedEvent === "paymentconfirmed" ||
+      normalizedEvent === "paymentintentsucceeded" ||
+      normalizedEvent === "paymentsucceeded" ||
+      normalizedEvent === "paymentsuccessful" ||
+      normalizedEvent === "paymentcompleted" ||
+      normalizedEvent === "invoicepaid" ||
       paymentStatus === "confirmed" ||
       paymentStatus === "succeeded" ||
       paymentStatus === "successful" ||
