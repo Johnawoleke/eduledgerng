@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -9,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { GraduationCap, LogOut, Users, Wallet, TrendingUp, Search, Plus, UserPlus, Copy, Link as LinkIcon, KeyRound, Trash2, ChevronLeft, Download, Settings } from "lucide-react";
+import { GraduationCap, LogOut, Users, Wallet, TrendingUp, Search, Plus, UserPlus, Copy, Link as LinkIcon, KeyRound, Trash2, ChevronLeft, Download, Settings, Upload } from "lucide-react";
 import { generateReceiptPdf, parsePaymentItems } from "@/lib/generateReceiptPdf";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -59,6 +59,61 @@ const generateStudentCode = (surname: string, firstName: string, middleName: str
   return `${initials}-${num}`;
 };
 
+const normalizeHeader = (value: string) => value.toLowerCase().replace(/[\s_-]+/g, "");
+
+const parseCsvRows = (text: string): Record<string, string>[] => {
+  const rows: string[][] = [];
+  let currentRow: string[] = [];
+  let currentCell = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < text.length; i += 1) {
+    const char = text[i];
+    const nextChar = text[i + 1];
+
+    if (char === '"' && inQuotes && nextChar === '"') {
+      currentCell += '"';
+      i += 1;
+      continue;
+    }
+
+    if (char === '"') {
+      inQuotes = !inQuotes;
+      continue;
+    }
+
+    if (char === "," && !inQuotes) {
+      currentRow.push(currentCell.trim());
+      currentCell = "";
+      continue;
+    }
+
+    if ((char === "\n" || char === "\r") && !inQuotes) {
+      if (char === "\r" && nextChar === "\n") i += 1;
+      currentRow.push(currentCell.trim());
+      if (currentRow.some((cell) => cell.length > 0)) rows.push(currentRow);
+      currentRow = [];
+      currentCell = "";
+      continue;
+    }
+
+    currentCell += char;
+  }
+
+  currentRow.push(currentCell.trim());
+  if (currentRow.some((cell) => cell.length > 0)) rows.push(currentRow);
+  if (rows.length === 0) return [];
+
+  const headers = rows[0].map((h) => normalizeHeader(h));
+  return rows.slice(1).map((row) => {
+    const item: Record<string, string> = {};
+    headers.forEach((header, idx) => {
+      if (header) item[header] = row[idx]?.trim() || "";
+    });
+    return item;
+  });
+};
+
 const SchoolAdminDashboard = () => {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
@@ -82,6 +137,8 @@ const SchoolAdminDashboard = () => {
   const [newStudentClass, setNewStudentClass] = useState("");
   const [newParentEmail, setNewParentEmail] = useState("");
   const [addingStudent, setAddingStudent] = useState(false);
+  const [uploadingStudents, setUploadingStudents] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Add fee dialog
   const [addFeeOpen, setAddFeeOpen] = useState(false);
@@ -279,6 +336,112 @@ const SchoolAdminDashboard = () => {
     } else {
       toast.success(`Password reset for ${studentName}. Default: password`);
       loadData();
+    }
+  };
+
+  const toStudentNameParts = (fullName: string) => {
+    const cleaned = fullName.trim().replace(/\s+/g, " ");
+    const parts = cleaned.split(" ").filter(Boolean);
+    return {
+      surname: parts[0] || "STUDENT",
+      firstName: parts[1] || "USER",
+      middleName: parts.slice(2).join(" "),
+      fullName: cleaned,
+    };
+  };
+
+  const downloadStudentTemplate = () => {
+    const csv = ["name,class", "Okafor Chinedu,JSS1", "Adebayo Kemi,SSS2"].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "students-template.csv";
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleBulkStudentUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !school?.id) return;
+    setUploadingStudents(true);
+
+    try {
+      const extension = file.name.toLowerCase().split(".").pop();
+      let normalizedRows: Record<string, string>[] = [];
+
+      if (extension === "csv") {
+        const text = await file.text();
+        normalizedRows = parseCsvRows(text);
+      } else if (extension === "xlsx" || extension === "xls") {
+        const arrayBuffer = await file.arrayBuffer();
+        const moduleName = "xlsx";
+        const xlsxModule = await import(/* @vite-ignore */ moduleName);
+        const workbook = xlsxModule.read(arrayBuffer, { type: "array" });
+        const firstSheetName = workbook.SheetNames[0];
+        if (!firstSheetName) {
+          toast.error("No worksheet found in the uploaded file");
+          return;
+        }
+
+        const sheet = workbook.Sheets[firstSheetName];
+        const rows = xlsxModule.utils.sheet_to_json<Record<string, string | number>>(sheet, { defval: "" });
+        normalizedRows = rows.map((row) => {
+          const mapped: Record<string, string> = {};
+          Object.entries(row).forEach(([key, value]) => {
+            mapped[normalizeHeader(key)] = String(value ?? "").trim();
+          });
+          return mapped;
+        });
+      } else {
+        toast.error("Please upload a CSV, XLSX, or XLS file");
+        return;
+      }
+
+      const inserts = normalizedRows
+        .map((row) => {
+          const rawName = row.name || row.fullname || row.studentname || row.student;
+          const rawClass = row.class || row.studentclass || row.level;
+          const className = rawClass?.toUpperCase().trim();
+          if (!rawName || !className || !NIGERIAN_CLASSES.includes(className)) return null;
+
+          const nameParts = toStudentNameParts(rawName);
+          return {
+            school_id: school.id,
+            student_id: generateStudentCode(nameParts.surname, nameParts.firstName, nameParts.middleName),
+            name: nameParts.fullName,
+            class: className,
+            pin: "password",
+            default_pin: "password",
+            must_change_pin: true,
+          };
+        })
+        .filter(Boolean) as any[];
+
+      if (inserts.length === 0) {
+        toast.error("No valid rows found. Use columns: name and class (JSS1-SSS3).");
+        return;
+      }
+
+      const { error } = await supabase.from("students").insert(inserts);
+      if (error) {
+        toast.error(error.message);
+        return;
+      }
+
+      toast.success(`${inserts.length} student(s) uploaded successfully`);
+      loadData();
+    } catch (error: any) {
+      if (String(error?.message || "").includes("Failed to resolve module specifier")) {
+        toast.error("Excel upload dependency is missing. Use CSV for now, or install 'xlsx'.");
+      } else {
+        toast.error("Upload failed. Please check the file format and try again.");
+      }
+    } finally {
+      setUploadingStudents(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
 
@@ -535,6 +698,24 @@ const SchoolAdminDashboard = () => {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input placeholder="Search students or references..." className="pl-9" value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".csv,.xlsx,.xls"
+            className="hidden"
+            onChange={handleBulkStudentUpload}
+          />
+          <Button
+            variant="outline"
+            onClick={() => fileInputRef.current?.click()}
+            className="gap-2"
+            disabled={uploadingStudents}
+          >
+            <Upload className="w-4 h-4" /> {uploadingStudents ? "Uploading..." : "Upload CSV/Excel"}
+          </Button>
+          <Button variant="outline" onClick={downloadStudentTemplate} className="gap-2">
+            <Download className="w-4 h-4" /> Download Template
+          </Button>
           <Button onClick={() => setAddStudentOpen(true)} className="gap-2">
             <UserPlus className="w-4 h-4" /> Add Student
           </Button>
