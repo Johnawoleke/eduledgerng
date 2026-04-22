@@ -121,13 +121,13 @@ serve(async (req) => {
 
     // Load sessions and terms for the school
     const { data: sessions } = await supabaseAdmin
-      .from("academic_sessions")
+      .from("sessions")
       .select("id, name, start_year, end_year")
       .eq("school_id", school.id)
       .order("name", { ascending: true });
 
     const { data: terms } = await supabaseAdmin
-      .from("academic_terms")
+      .from("terms")
       .select("id, session_id, name, term_number")
       .eq("school_id", school.id)
       .order("term_number", { ascending: true });
