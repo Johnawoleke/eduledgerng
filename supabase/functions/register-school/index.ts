@@ -11,6 +11,16 @@ Deno.serve(async (req) => {
   }
 
   try {
+    const buildInitialSession = () => {
+      const startYear = new Date().getFullYear();
+      const endYear = startYear + 1;
+      return {
+        name: `${startYear}/${endYear}`,
+        startYear,
+        endYear,
+      };
+    };
+
     const { schoolName, slug, address, phone, schoolEmail, email, password, fullName, schoolCode, bankName, accountNumber, accountName } = await req.json();
 
     if (!schoolName?.trim() || !slug?.trim() || !email?.trim() || !password?.trim()) {
@@ -103,6 +113,36 @@ Deno.serve(async (req) => {
         school_id: schoolData.id,
         user_id: authData.user.id,
       });
+
+      // Fallback initializer in case DB trigger is missing/disabled.
+      const { data: existingSessions } = await supabaseAdmin
+        .from("sessions")
+        .select("id")
+        .eq("school_id", schoolData.id)
+        .limit(1);
+
+      if (!existingSessions || existingSessions.length === 0) {
+        const initial = buildInitialSession();
+        const { data: firstSession } = await supabaseAdmin
+          .from("sessions")
+          .insert({
+            school_id: schoolData.id,
+            name: initial.name,
+            start_year: initial.startYear,
+            end_year: initial.endYear,
+            is_current: true,
+          })
+          .select("id")
+          .single();
+
+        if (firstSession?.id) {
+          await supabaseAdmin.from("terms").insert([
+            { session_id: firstSession.id, school_id: schoolData.id, name: "Term 1", term_number: 1, is_current: true },
+            { session_id: firstSession.id, school_id: schoolData.id, name: "Term 2", term_number: 2, is_current: false },
+            { session_id: firstSession.id, school_id: schoolData.id, name: "Term 3", term_number: 3, is_current: false },
+          ]);
+        }
+      }
     }
 
     return new Response(JSON.stringify({ success: true, slug }), {

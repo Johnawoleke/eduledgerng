@@ -525,7 +525,7 @@ const SchoolAdminDashboard = () => {
     const endYear = Number(match[2]);
 
     const { data: newSession, error: sessionError } = await supabase
-      .from("academic_sessions")
+      .from("sessions" as any)
       .insert({ school_id: school.id, name, start_year: startYear, end_year: endYear } as any)
       .select()
       .single();
@@ -535,12 +535,6 @@ const SchoolAdminDashboard = () => {
       setCreatingSession(false);
       return;
     }
-
-    await supabase.from("academic_terms").insert([
-      { session_id: newSession.id, school_id: school.id, name: "Term 1", term_number: 1 },
-      { session_id: newSession.id, school_id: school.id, name: "Term 2", term_number: 2 },
-      { session_id: newSession.id, school_id: school.id, name: "Term 3", term_number: 3 },
-    ] as any);
 
     toast.success(`Session ${name} created!`);
     setNewSessionOpen(false);
