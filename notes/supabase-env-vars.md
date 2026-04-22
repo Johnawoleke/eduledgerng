@@ -1,9 +1,13 @@
 # Supabase Client — Hardcoded Public Keys
 
-## What we did (2026-04-10)
+## What we did (2026-04-10, updated 2026-04-22)
 
 Hardcoded the Supabase anon key and URL directly in `src/integrations/supabase/client.ts`
 instead of reading from `VITE_SUPABASE_URL` / `VITE_SUPABASE_PUBLISHABLE_KEY` env vars.
+
+On 2026-04-22 the project was migrated off the Lovable-managed Supabase Cloud tenant
+(`eymbfxjnmvrhdxaorwcq` — not owned by the team, data abandoned) onto the owner's personal
+Supabase project (`ifonivphhfplntzshtsb`). The hardcoded URL + anon key were updated to match.
 
 ## Why
 
