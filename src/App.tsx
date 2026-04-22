@@ -14,6 +14,8 @@ import ChangePinPage from "./pages/ChangePinPage";
 import ReceiptPage from "./pages/ReceiptPage";
 import SchoolSettingsPage from "./pages/SchoolSettingsPage";
 import NotFound from "./pages/NotFound";
+import Sessions from "./pages/Sessions";
+import Terms from "./pages/Terms";
 
 const queryClient = new QueryClient();
 
@@ -25,6 +27,8 @@ const App = () => (
         <Sonner />
         <BrowserRouter>
           <Routes>
+            <Route path="/sessions" element={<Sessions />} />
+<Route path="/terms" element={<Terms />} />
             {/* Main site - for school owners only */}
             <Route path="/" element={<LandingPage />} />
             <Route path="/register" element={<RegisterSchool />} />
