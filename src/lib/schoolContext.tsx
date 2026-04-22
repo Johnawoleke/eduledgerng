@@ -77,6 +77,7 @@ export const SchoolProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const logoutStudent = () => {
+    setSchool(null);
     setStudent(null);
     setFeeItems([]);
     setPayments([]);
