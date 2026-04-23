@@ -117,7 +117,9 @@ serve(async (req) => {
 
     const reference = `EDU-${Date.now().toString(36).toUpperCase()}`;
 
-    const zendfiKey = Deno.env.get("ZENDFI_TEST_KEY");
+    // Accept either ZENDFI_API_KEY (current) or ZENDFI_TEST_KEY (legacy name).
+    // The key value itself determines test vs live mode (zfi_test_… vs zfi_live_…).
+    const zendfiKey = Deno.env.get("ZENDFI_API_KEY") || Deno.env.get("ZENDFI_TEST_KEY");
     if (!zendfiKey) {
       return new Response(
         JSON.stringify({ error: "Payment provider not configured" }),
