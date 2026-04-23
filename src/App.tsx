@@ -15,7 +15,6 @@ import ReceiptPage from "./pages/ReceiptPage";
 import SchoolSettingsPage from "./pages/SchoolSettingsPage";
 import NotFound from "./pages/NotFound";
 
-
 const queryClient = new QueryClient();
 
 const App = () => (
@@ -26,20 +25,15 @@ const App = () => (
         <Sonner />
         <BrowserRouter>
           <Routes>
-            <Route path="/sessions" element={<Sessions />} />
-
             <Route path="/" element={<LandingPage />} />
             <Route path="/register" element={<RegisterSchool />} />
             <Route path="/login" element={<OwnerLogin />} />
-
-            {/* School portals - for students and school admins */}
             <Route path="/school/:slug" element={<SchoolPortal />} />
-            <Route path="/school/:slug/student" element={<SchoolStudentDashboard />} />
-            <Route path="/school/:slug/admin" element={<SchoolAdminDashboard />} />
+            <Route path="/school/:slug/student/*" element={<SchoolStudentDashboard />} />
+            <Route path="/school/:slug/admin/*" element={<SchoolAdminDashboard />} />
             <Route path="/school/:slug/change-pin" element={<ChangePinPage />} />
             <Route path="/school/:slug/settings" element={<SchoolSettingsPage />} />
-            <Route path="/school/:slug/receipt/:paymentId" element={<ReceiptPage />} />
-
+            <Route path="/receipt/:id" element={<ReceiptPage />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
