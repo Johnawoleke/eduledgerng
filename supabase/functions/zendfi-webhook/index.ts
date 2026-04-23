@@ -115,7 +115,12 @@ serve(async (req) => {
     const verification = await verifySignature(bodyText, req);
     console.log("Signature verification:", verification.reason);
     if (!verification.valid) {
-      return new Response(JSON.stringify({ error: "Invalid signature" }), {
+      // Debug: when signature is missing or mismatched, dump all request headers so we can
+      // see what Zendfi is actually sending and confirm signing is enabled on their side.
+      const headerDump: Record<string, string> = {};
+      req.headers.forEach((v, k) => { headerDump[k] = v; });
+      console.warn("Webhook rejected. Headers received:", JSON.stringify(headerDump));
+      return new Response(JSON.stringify({ error: "Invalid signature", reason: verification.reason }), {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
