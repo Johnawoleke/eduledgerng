@@ -14,8 +14,8 @@ import ChangePinPage from "./pages/ChangePinPage";
 import ReceiptPage from "./pages/ReceiptPage";
 import SchoolSettingsPage from "./pages/SchoolSettingsPage";
 import NotFound from "./pages/NotFound";
-import Sessions from "./pages/Sessions";
-import Terms from "./pages/Terms";
+import Sessions from "./pages/sessions";
+import Terms from "./pages/terms";
 
 const queryClient = new QueryClient();
 
