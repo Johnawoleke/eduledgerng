@@ -4,6 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { SchoolProvider } from "@/lib/schoolContext";
+import { AcademicPeriodSelector } from "./components/AcademicPeriodSelector";
 import LandingPage from "./pages/LandingPage";
 import RegisterSchool from "./pages/RegisterSchool";
 import OwnerLogin from "./pages/OwnerLogin";
@@ -24,6 +25,11 @@ const App = () => (
         <Toaster />
         <Sonner />
         <BrowserRouter>
+          {/* This adds the Term Switcher to the top of your app */}
+          <div className="bg-white border-b p-2 flex justify-end sticky top-0 z-50">
+            <AcademicPeriodSelector />
+          </div>
+          
           <Routes>
             <Route path="/" element={<LandingPage />} />
             <Route path="/register" element={<RegisterSchool />} />
