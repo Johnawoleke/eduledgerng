@@ -18,34 +18,34 @@ import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
 
-const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <SchoolProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-          {/* This adds the Term Switcher to the top of your app */}
-          <div className="bg-white border-b p-2 flex justify-end sticky top-0 z-50">
-            <AcademicPeriodSelector />
-          </div>
-          
-          <Routes>
-            <Route path="/" element={<LandingPage />} />
-            <Route path="/register" element={<RegisterSchool />} />
-            <Route path="/login" element={<OwnerLogin />} />
-            <Route path="/school/:slug" element={<SchoolPortal />} />
-            <Route path="/school/:slug/student/*" element={<SchoolStudentDashboard />} />
-            <Route path="/school/:slug/admin/*" element={<SchoolAdminDashboard />} />
-            <Route path="/school/:slug/change-pin" element={<ChangePinPage />} />
-            <Route path="/school/:slug/settings" element={<SchoolSettingsPage />} />
-            <Route path="/receipt/:id" element={<ReceiptPage />} />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </BrowserRouter>
-      </SchoolProvider>
-    </TooltipProvider>
-  </QueryClientProvider>
-);
+const App = () => {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider>
+        <SchoolProvider>
+          <Toaster />
+          <Sonner />
+          <BrowserRouter>
+            <div className="bg-white border-b p-2 flex justify-end sticky top-0 z-50">
+              <AcademicPeriodSelector />
+            </div>
+            <Routes>
+              <Route path="/" element={<LandingPage />} />
+              <Route path="/register" element={<RegisterSchool />} />
+              <Route path="/login" element={<OwnerLogin />} />
+              <Route path="/school/:slug" element={<SchoolPortal />} />
+              <Route path="/school/:slug/student/*" element={<SchoolStudentDashboard />} />
+              <Route path="/school/:slug/admin/*" element={<SchoolAdminDashboard />} />
+              <Route path="/school/:slug/change-pin" element={<ChangePinPage />} />
+              <Route path="/school/:slug/settings" element={<SchoolSettingsPage />} />
+              <Route path="/receipt/:id" element={<ReceiptPage />} />
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </BrowserRouter>
+        </SchoolProvider>
+      </TooltipProvider>
+    </QueryClientProvider>
+  );
+};
 
 export default App;
