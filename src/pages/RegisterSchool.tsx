@@ -1,11 +1,28 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { GraduationCap, ArrowRight, CheckCircle2, Link as LinkIcon } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  GraduationCap,
+  ArrowRight,
+  CheckCircle2,
+  Link as LinkIcon,
+} from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { NIGERIAN_BANKS } from "@/lib/nigerianBanks";
@@ -39,13 +56,21 @@ const RegisterSchool = () => {
     setSlug(slugify(val));
     // Generate school code from initials
     const words = val.trim().split(/\s+/);
-    const code = words.map(w => w[0]?.toUpperCase() || "").join("").substring(0, 4);
+    const code = words
+      .map((w) => w[0]?.toUpperCase() || "")
+      .join("")
+      .substring(0, 4);
     setSchoolCode(code);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!schoolName.trim() || !slug.trim() || !email.trim() || !password.trim()) {
+    if (
+      !schoolName.trim() ||
+      !slug.trim() ||
+      !email.trim() ||
+      !password.trim()
+    ) {
       toast.error("Please fill in all required fields");
       return;
     }
@@ -62,7 +87,20 @@ const RegisterSchool = () => {
 
     try {
       const response = await supabase.functions.invoke("register-school", {
-        body: { schoolName, slug, address, phone, schoolEmail, email, password, fullName, schoolCode, bankName: (bankName && bankName !== "none") ? bankName : null, accountNumber: accountNumber || null, accountName: accountName || null },
+        body: {
+          schoolName,
+          slug,
+          address,
+          phone,
+          schoolEmail,
+          email,
+          password,
+          fullName,
+          schoolCode,
+          bankName: bankName && bankName !== "none" ? bankName : null,
+          accountNumber: accountNumber || null,
+          accountName: accountName || null,
+        },
       });
 
       if (response.error) {
@@ -79,9 +117,14 @@ const RegisterSchool = () => {
       }
 
       // Auto-login the newly registered user
-      const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
       if (signInError) {
-        toast.error("Registration succeeded but auto-login failed. Please sign in manually.");
+        toast.error(
+          "Registration succeeded but auto-login failed. Please sign in manually.",
+        );
         navigate("/login");
         return;
       }
@@ -112,13 +155,18 @@ const RegisterSchool = () => {
               <p className="text-sm font-medium">Your school portal link:</p>
               <div className="flex items-center gap-2 bg-background rounded-md border p-2">
                 <LinkIcon className="w-4 h-4 text-primary shrink-0" />
-                <code className="text-sm text-primary break-all">{portalUrl}</code>
+                <code className="text-sm text-primary break-all">
+                  {portalUrl}
+                </code>
               </div>
               <p className="text-xs text-muted-foreground">
                 Share this link with your students and staff.
               </p>
             </div>
-            <Button className="w-full" onClick={() => navigate(`/school/${createdSlug}`)}>
+            <Button
+              className="w-full"
+              onClick={() => navigate(`/school/${createdSlug}`)}
+            >
               Go to Your Portal <ArrowRight className="w-4 h-4 ml-2" />
             </Button>
           </CardContent>
@@ -196,12 +244,20 @@ const RegisterSchool = () => {
                   <Input
                     placeholder="e.g. FA, BHA"
                     value={schoolCode}
-                    onChange={(e) => setSchoolCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").substring(0, 5))}
+                    onChange={(e) =>
+                      setSchoolCode(
+                        e.target.value
+                          .toUpperCase()
+                          .replace(/[^A-Z0-9]/g, "")
+                          .substring(0, 5),
+                      )
+                    }
                     maxLength={5}
                     required
                   />
                   <p className="text-xs text-muted-foreground">
-                    Used to generate student IDs like {schoolCode || "FA"}/JSS1/001
+                    Used to generate student IDs like {schoolCode || "FA"}
+                    /JSS1/001
                   </p>
                 </div>
                 <div className="space-y-2">
@@ -234,48 +290,58 @@ const RegisterSchool = () => {
                     />
                   </div>
                 </div>
-                 {/* Optional Bank Details */}
-                 <div className="border-t pt-4 mt-2">
-                   <p className="text-sm font-medium text-muted-foreground mb-3">Bank Details (Optional)</p>
-                   <div className="space-y-3">
-                     <div className="space-y-2">
-                       <Label>Bank Name</Label>
-                       <Select value={bankName} onValueChange={setBankName}>
-                         <SelectTrigger><SelectValue placeholder="Select bank" /></SelectTrigger>
-                         <SelectContent>
-                           <SelectItem value="none">— Skip —</SelectItem>
-                           {NIGERIAN_BANKS.map((b) => (
-                             <SelectItem key={b} value={b}>{b}</SelectItem>
-                           ))}
-                         </SelectContent>
-                       </Select>
-                     </div>
-                     <div className="space-y-2">
-                       <Label>Account Number</Label>
-                       <Input
-                         placeholder="10-digit account number"
-                         value={accountNumber}
-                         onChange={(e) => setAccountNumber(e.target.value.replace(/\D/g, "").substring(0, 10))}
-                         maxLength={10}
-                         inputMode="numeric"
-                       />
-                     </div>
-                     <div className="space-y-2">
-                       <Label>Account Name</Label>
-                       <Input
-                         placeholder="Account holder name"
-                         value={accountName}
-                         onChange={(e) => setAccountName(e.target.value)}
-                         maxLength={100}
-                       />
-                     </div>
-                   </div>
-                 </div>
+                {/* Optional Bank Details */}
+                <div className="border-t pt-4 mt-2">
+                  <p className="text-sm font-medium text-muted-foreground mb-3">
+                    Bank Details (Optional)
+                  </p>
+                  <div className="space-y-3">
+                    <div className="space-y-2">
+                      <Label>Bank Name</Label>
+                      <Select value={bankName} onValueChange={setBankName}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select bank" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">— Skip —</SelectItem>
+                          {NIGERIAN_BANKS.map((b) => (
+                            <SelectItem key={b} value={b}>
+                              {b}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Account Number</Label>
+                      <Input
+                        placeholder="10-digit account number"
+                        value={accountNumber}
+                        onChange={(e) =>
+                          setAccountNumber(
+                            e.target.value.replace(/\D/g, "").substring(0, 10),
+                          )
+                        }
+                        maxLength={10}
+                        inputMode="numeric"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Account Name</Label>
+                      <Input
+                        placeholder="Account holder name"
+                        value={accountName}
+                        onChange={(e) => setAccountName(e.target.value)}
+                        maxLength={100}
+                      />
+                    </div>
+                  </div>
+                </div>
 
-                 <Button type="submit" className="w-full">
-                   Next <ArrowRight className="w-4 h-4 ml-2" />
-                 </Button>
-               </form>
+                <Button type="submit" className="w-full">
+                  Next <ArrowRight className="w-4 h-4 ml-2" />
+                </Button>
+              </form>
             ) : (
               <form className="space-y-4" onSubmit={handleSubmit}>
                 <div className="space-y-2">
