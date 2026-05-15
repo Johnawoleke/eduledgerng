@@ -162,6 +162,8 @@ const SchoolAdminDashboard = () => {
   const [addingFee, setAddingFee] = useState(false);
   const [feeSessionId, setFeeSessionId] = useState("");
   const [feeTermId, setFeeTermId] = useState("");
+  const [loadingExistingFees, setLoadingExistingFees] = useState(false);
+  const [hasExistingFees, setHasExistingFees] = useState(false);
 
   const academicPeriods = useAcademicPeriods(school?.id);
 
@@ -182,6 +184,57 @@ const SchoolAdminDashboard = () => {
     const term1 = sessionTerms.find((t) => t.name === "Term 1") || sessionTerms[0];
     if (term1) setFeeTermId(term1.id);
   }, [feeSessionId, academicPeriods.terms]);
+
+  // Fetch existing fees when session, term, and class are selected
+  useEffect(() => {
+    const fetchExistingFees = async () => {
+      if (!feeSessionId || !feeTermId || !feeClass || !school?.id) {
+        setHasExistingFees(false);
+        return;
+      }
+
+      setLoadingExistingFees(true);
+      try {
+        const { data, error } = await supabase
+          .from("class_fees")
+          .select("*")
+          .eq("school_id", school.id)
+          .eq("class_target", feeClass)
+          .eq("session_id", feeSessionId)
+          .eq("term_id", feeTermId);
+
+        if (error) {
+          console.error("Error fetching existing fees:", error);
+          setHasExistingFees(false);
+          return;
+        }
+
+        if (data && data.length > 0) {
+          // Populate the form with existing fees
+          const populated = DEFAULT_FEE_TEMPLATES.map((template) => {
+            const existing = data.find((f) => f.name === template);
+            return {
+              name: template,
+              amount: existing ? String(existing.amount) : "",
+            };
+          });
+          setFeeEntries(populated);
+          setHasExistingFees(true);
+        } else {
+          // Reset to default empty template
+          setFeeEntries(DEFAULT_FEE_TEMPLATES.map((name) => ({ name, amount: "" })));
+          setHasExistingFees(false);
+        }
+      } catch (error) {
+        console.error("Error fetching fees:", error);
+        setHasExistingFees(false);
+      } finally {
+        setLoadingExistingFees(false);
+      }
+    };
+
+    fetchExistingFees();
+  }, [feeSessionId, feeTermId, feeClass, school?.id]);
 
   // Filter fees by selected term only
   const filteredClassFees = classFees.filter((f) => {
@@ -338,6 +391,21 @@ const SchoolAdminDashboard = () => {
     setAddingStudent(false);
   };
 
+  const handleDeleteStudent = async (studentDbId: string, studentName: string) => {
+    if (!confirm(`Are you sure you want to delete ${studentName}? This action cannot be undone.`)) {
+      return;
+    }
+
+    const { error } = await supabase.from("students").delete().eq("id", studentDbId);
+
+    if (error) {
+      toast.error("Failed to delete student");
+    } else {
+      toast.success(`Student ${studentName} has been deleted`);
+      loadData();
+    }
+  };
+
   const handleResetPin = async (studentDbId: string, studentName: string) => {
     const { error } = await supabase.from("students").update({
       pin: "password", default_pin: "password", must_change_pin: true,
@@ -468,27 +536,38 @@ const SchoolAdminDashboard = () => {
 
     setAddingFee(true);
 
-    const inserts = validFees.map((f) => ({
-      school_id: school.id,
-      class_target: feeClass,
-      name: f.name.trim(),
-      amount: Number(f.amount),
-      session_id: feeSessionId,
-      term_id: feeTermId,
-    }));
+    try {
+      const upserts = validFees.map((f) => ({
+        school_id: school.id,
+        class_target: feeClass,
+        name: f.name.trim(),
+        amount: Number(f.amount),
+        session_id: feeSessionId,
+        term_id: feeTermId,
+      }));
 
-    const { error } = await supabase.from("class_fees").insert(inserts);
+      // Use upsert to update existing records or insert new ones
+      const { error } = await supabase.from("class_fees").upsert(upserts, {
+        onConflict: "school_id,class_target,name,session_id,term_id",
+      });
 
-    if (error) {
-      toast.error(error.message);
-    } else {
-      toast.success(`${validFees.length} fee(s) added for ${feeClass === "ALL" ? "All Classes" : feeClass}!`);
-      setAddFeeOpen(false);
-      setFeeClass("");
-      setFeeEntries(DEFAULT_FEE_TEMPLATES.map((name) => ({ name, amount: "" })));
-      loadData();
+      if (error) {
+        toast.error(error.message);
+      } else {
+        const actionWord = hasExistingFees ? "updated" : "added";
+        toast.success(`${validFees.length} fee(s) ${actionWord} for ${feeClass === "ALL" ? "All Classes" : feeClass}!`);
+        setAddFeeOpen(false);
+        setFeeClass("");
+        setFeeEntries(DEFAULT_FEE_TEMPLATES.map((name) => ({ name, amount: "" })));
+        setHasExistingFees(false);
+        loadData();
+      }
+    } catch (error) {
+      console.error("Error upserting fees:", error);
+      toast.error("An error occurred while saving fees");
+    } finally {
+      setAddingFee(false);
     }
-    setAddingFee(false);
   };
 
   const handleLogout = async () => {
@@ -684,7 +763,7 @@ const SchoolAdminDashboard = () => {
             <UserPlus className="w-4 h-4" /> Add Student
           </Button>
           <Button variant="outline" onClick={() => setAddFeeOpen(true)} className="gap-2">
-            <Plus className="w-4 h-4" /> Add Fee
+            <Plus className="w-4 h-4" /> {hasExistingFees ? "Update Fee" : "Add Fee"}
           </Button>
         </div>
 
@@ -775,28 +854,40 @@ const SchoolAdminDashboard = () => {
                           <TableHead className="hidden sm:table-cell">Parent Email</TableHead>
                           <TableHead className="text-right">Paid</TableHead>
                           <TableHead>Status</TableHead>
+                          <TableHead className="text-right">Actions</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {filteredStudents.map((s) => {
                           const status = s.totalFees > 0 && s.totalPaid >= s.totalFees ? "Cleared" : s.totalPaid > 0 ? "Partial" : "Unpaid";
                           return (
-                            <TableRow key={s.id} className="cursor-pointer" onClick={() => handleViewStudent(s)}>
-                              <TableCell className="font-medium">{s.name}</TableCell>
-                              <TableCell className="font-mono text-xs">{s.student_id}</TableCell>
+                            <TableRow key={s.id}>
+                              <TableCell className="font-medium cursor-pointer" onClick={() => handleViewStudent(s)}>{s.name}</TableCell>
+                              <TableCell className="font-mono text-xs cursor-pointer" onClick={() => handleViewStudent(s)}>{s.student_id}</TableCell>
                               <TableCell className="hidden sm:table-cell text-xs text-muted-foreground">{s.parent_email || "—"}</TableCell>
-                              <TableCell className="text-right">{formatNaira(s.totalPaid)}</TableCell>
-                              <TableCell>
+                              <TableCell className="text-right cursor-pointer" onClick={() => handleViewStudent(s)}>{formatNaira(s.totalPaid)}</TableCell>
+                              <TableCell onClick={() => handleViewStudent(s)} className="cursor-pointer">
                                 <Badge variant="outline" className={status === "Cleared" ? "bg-primary/15 text-primary" : status === "Partial" ? "bg-accent/15 text-accent-foreground" : ""}>
                                   {status}
                                 </Badge>
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8"
+                                  onClick={() => handleDeleteStudent(s.id, s.name)}
+                                  title="Delete student"
+                                >
+                                  <Trash2 className="w-4 h-4 text-destructive" />
+                                </Button>
                               </TableCell>
                             </TableRow>
                           );
                         })}
                         {filteredStudents.length === 0 && (
                           <TableRow>
-                            <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
+                            <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
                               No students in {studentsClassFilter}.
                             </TableCell>
                           </TableRow>
@@ -938,7 +1029,7 @@ const SchoolAdminDashboard = () => {
       <Dialog open={addFeeOpen} onOpenChange={setAddFeeOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Add Fees</DialogTitle>
+            <DialogTitle>{hasExistingFees ? "Update Fees" : "Add Fees"}</DialogTitle>
             <DialogDescription>Select session, term, and fill in amounts for applicable fees.</DialogDescription>
           </DialogHeader>
           <form onSubmit={handleAddFee} className="space-y-4">
@@ -979,44 +1070,55 @@ const SchoolAdminDashboard = () => {
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2 max-h-[40vh] overflow-y-auto">
-              {feeEntries.map((entry, i) => (
-                <div key={i} className="flex items-center gap-2">
-                  <Input
-                    placeholder="Fee name"
-                    value={entry.name}
-                    onChange={(e) => {
-                      const updated = [...feeEntries];
-                      updated[i] = { ...updated[i], name: e.target.value };
-                      setFeeEntries(updated);
-                    }}
-                    className="flex-1"
-                    maxLength={100}
-                  />
-                  <Input
-                    type="number"
-                    placeholder="₦ Amount"
-                    value={entry.amount}
-                    onChange={(e) => {
-                      const updated = [...feeEntries];
-                      updated[i] = { ...updated[i], amount: e.target.value };
-                      setFeeEntries(updated);
-                    }}
-                    className="w-32"
-                    min={0}
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="shrink-0"
-                    onClick={() => setFeeEntries(feeEntries.filter((_, idx) => idx !== i))}
-                  >
-                    <Trash2 className="w-4 h-4 text-destructive" />
-                  </Button>
-                </div>
-              ))}
-            </div>
+
+            {loadingExistingFees && (
+              <div className="flex justify-center py-4">
+                <div className="w-5 h-5 border-3 border-primary border-t-transparent rounded-full animate-spin" />
+              </div>
+            )}
+
+            {!loadingExistingFees && (
+              <div className="space-y-2 max-h-[40vh] overflow-y-auto">
+                {feeEntries.map((entry, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <Input
+                      placeholder="Fee name"
+                      value={entry.name}
+                      onChange={(e) => {
+                        const updated = [...feeEntries];
+                        updated[i] = { ...updated[i], name: e.target.value };
+                        setFeeEntries(updated);
+                      }}
+                      className="flex-1"
+                      maxLength={100}
+                      disabled
+                    />
+                    <Input
+                      type="number"
+                      placeholder="₦ Amount"
+                      value={entry.amount}
+                      onChange={(e) => {
+                        const updated = [...feeEntries];
+                        updated[i] = { ...updated[i], amount: e.target.value };
+                        setFeeEntries(updated);
+                      }}
+                      className="w-32"
+                      min={0}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="shrink-0"
+                      onClick={() => setFeeEntries(feeEntries.filter((_, idx) => idx !== i))}
+                    >
+                      <Trash2 className="w-4 h-4 text-destructive" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+
             <Button
               type="button"
               variant="outline"
@@ -1027,8 +1129,8 @@ const SchoolAdminDashboard = () => {
               <Plus className="w-3 h-3" /> Add More
             </Button>
             <DialogFooter>
-              <Button type="submit" disabled={addingFee}>
-                {addingFee ? "Adding..." : "Add Fees"}
+              <Button type="submit" disabled={addingFee || loadingExistingFees}>
+                {addingFee ? "Saving..." : hasExistingFees ? "Update Fees" : "Add Fees"}
               </Button>
             </DialogFooter>
           </form>
