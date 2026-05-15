@@ -26,6 +26,18 @@ const DEFAULT_FEE_TEMPLATES = [
   "Library Fee", "Laboratory Fee", "Books and Materials", "Uniform Fee", "Development Levy",
 ];
 
+// Generate academic years from 2025/2026 through 2035/2036
+const generateAcademicYears = () => {
+  const years = [];
+  for (let year = 2025; year <= 2035; year++) {
+    years.push({
+      value: `${year}/${year + 1}`,
+      label: `${year}/${year + 1}`,
+    });
+  }
+  return years;
+};
+
 interface StudentRow {
   id: string;
   student_id: string;
@@ -36,6 +48,7 @@ interface StudentRow {
   default_pin: string | null;
   must_change_pin: boolean;
   parent_email: string | null;
+  status: string;
   totalFees: number;
   totalPaid: number;
 }
@@ -150,11 +163,6 @@ const SchoolAdminDashboard = () => {
   const [feeSessionId, setFeeSessionId] = useState("");
   const [feeTermId, setFeeTermId] = useState("");
 
-  // New session dialog
-  const [newSessionOpen, setNewSessionOpen] = useState(false);
-  const [newSessionName, setNewSessionName] = useState("");
-  const [creatingSession, setCreatingSession] = useState(false);
-
   const academicPeriods = useAcademicPeriods(school?.id);
 
   // Set fee dialog defaults to match dashboard selection
@@ -175,18 +183,16 @@ const SchoolAdminDashboard = () => {
     if (term1) setFeeTermId(term1.id);
   }, [feeSessionId, academicPeriods.terms]);
 
-  // Filter fees by selected session+term
+  // Filter fees by selected term only
   const filteredClassFees = classFees.filter((f) => {
     if (!academicPeriods.selectedTermId) return true;
-    // Show fees matching selected term, or legacy fees without term_id
-    return f.term_id === academicPeriods.selectedTermId || (!f.term_id && !f.session_id);
+    return f.term_id === academicPeriods.selectedTermId;
   });
 
-  // Filter payments by selected session+term
+  // Filter payments by selected term only
   const filteredPaymentsByPeriod = payments.filter((p) => {
     if (!academicPeriods.selectedTermId) return true;
-    // Show payments matching selected term, or legacy payments without term_id
-    return p.term_id === academicPeriods.selectedTermId || (!p.term_id && !p.session_id);
+    return p.term_id === academicPeriods.selectedTermId;
   });
 
   // Helper: get class fees applicable to a student class for the selected term
@@ -236,16 +242,19 @@ const SchoolAdminDashboard = () => {
 
     setSchool(schoolData);
 
+    // Fetch all students but filter to only active ones
     const { data: studentsData } = await supabase
       .from("students")
-      .select("id, student_id, name, class, term, session, default_pin, must_change_pin, parent_email")
+      .select("id, student_id, name, class, term, session, default_pin, must_change_pin, parent_email, status")
       .eq("school_id", schoolData.id);
 
+    // Fetch class fees for the selected term
     const { data: classFeesData } = await supabase
       .from("class_fees")
       .select("*")
       .eq("school_id", schoolData.id);
 
+    // Fetch payments for the selected term
     const { data: paymentsData } = await supabase
       .from("payments")
       .select("*, students(name, student_id, class)")
@@ -256,10 +265,12 @@ const SchoolAdminDashboard = () => {
     setClassFees(allClassFees);
     setPayments(paymentsData || []);
 
-    // Student rows - totals will be recalculated in render based on period filter
-    const studentRows: StudentRow[] = (studentsData || []).map((s: any) => {
-      return { ...s, totalFees: 0, totalPaid: 0 };
-    });
+    // Student rows - only include active students
+    const studentRows: StudentRow[] = (studentsData || [])
+      .filter((s: any) => s.status !== "inactive")
+      .map((s: any) => {
+        return { ...s, totalFees: 0, totalPaid: 0 };
+      });
 
     studentRows.sort((a, b) => a.name.localeCompare(b.name));
     setStudents(studentRows);
@@ -270,7 +281,7 @@ const SchoolAdminDashboard = () => {
     loadData();
   }, [slug]);
 
-  // Recalculate student totals when period filter changes
+  // Recalculate student totals when period filter changes (term-specific)
   const studentsWithTotals = students.map((s) => {
     const applicableFees = filteredClassFees.filter(
       (f) => f.class_target === s.class || f.class_target === "ALL"
@@ -312,6 +323,7 @@ const SchoolAdminDashboard = () => {
       default_pin: "password",
       must_change_pin: true,
       parent_email: newParentEmail.trim().toLowerCase(),
+      status: "active",
     } as any);
 
     if (error) {
@@ -416,6 +428,7 @@ const SchoolAdminDashboard = () => {
             pin: "password",
             default_pin: "password",
             must_change_pin: true,
+            status: "active",
           };
         })
         .filter(Boolean) as any[];
@@ -503,46 +516,6 @@ const SchoolAdminDashboard = () => {
     setLoadingFees(false);
   };
 
-  const handleCreateSession = async () => {
-    const name = newSessionName.trim();
-    if (!name || !school?.id) return;
-
-    // Validate format
-    const match = name.match(/^(\d{4})\/(\d{4})$/);
-    if (!match) {
-      toast.error("Session name must be in format YYYY/YYYY (e.g. 2027/2028)");
-      return;
-    }
-
-    // Check for duplicate
-    if (academicPeriods.sessions.some((s) => s.name === name)) {
-      toast.error(`Session ${name} already exists`);
-      return;
-    }
-
-    setCreatingSession(true);
-    const startYear = Number(match[1]);
-    const endYear = Number(match[2]);
-
-    const { data: newSession, error: sessionError } = await supabase
-      .from("sessions" as any)
-      .insert({ school_id: school.id, name, start_year: startYear, end_year: endYear } as any)
-      .select()
-      .single();
-
-    if (sessionError || !newSession) {
-      toast.error(sessionError?.message || "Failed to create session");
-      setCreatingSession(false);
-      return;
-    }
-
-    toast.success(`Session ${name} created!`);
-    setNewSessionOpen(false);
-    setNewSessionName("");
-    setCreatingSession(false);
-    academicPeriods.reload();
-  };
-
   const portalUrl = `${window.location.origin}/school/${slug}`;
   const copyPortalLink = () => { navigator.clipboard.writeText(portalUrl); toast.success("Portal link copied!"); };
 
@@ -554,7 +527,7 @@ const SchoolAdminDashboard = () => {
     );
   }
 
-  // Stats based on filtered period
+  // Stats based on filtered period (term-specific)
   const totalStudents = studentsWithTotals.length;
   const totalCollected = filteredPaymentsByPeriod.reduce((s, p) => s + Number(p.amount), 0);
   const totalFees = studentsWithTotals.reduce((s, st) => s + st.totalFees, 0);
@@ -632,7 +605,7 @@ const SchoolAdminDashboard = () => {
           </CardContent>
         </Card>
 
-        {/* Session & Term Filter */}
+        {/* Session & Term Filter with Smart Year Generation */}
         <div className="flex flex-col sm:flex-row items-end gap-3">
           <div className="flex-1 w-full">
             <AcademicPeriodSelector
@@ -644,12 +617,9 @@ const SchoolAdminDashboard = () => {
               onTermChange={academicPeriods.setSelectedTermId}
             />
           </div>
-          <Button variant="outline" size="sm" onClick={() => setNewSessionOpen(true)} className="gap-1 shrink-0">
-            <Plus className="w-3 h-3" /> New Session
-          </Button>
         </div>
 
-        {/* Stats */}
+        {/* Stats - Term-Specific Calculations */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <Card>
             <CardContent className="pt-6">
@@ -732,13 +702,13 @@ const SchoolAdminDashboard = () => {
                     <Button variant="ghost" size="icon" onClick={() => setSelectedStudent(null)}>
                       <ChevronLeft className="w-5 h-5" />
                     </Button>
-                     <div>
-                       <CardTitle className="text-lg">{selectedStudent.name}</CardTitle>
-                       <p className="text-sm text-muted-foreground">{selectedStudent.student_id} · {selectedStudent.class}</p>
-                       {selectedStudent.parent_email && (
-                         <p className="text-xs text-muted-foreground mt-0.5">Parent: {selectedStudent.parent_email}</p>
-                       )}
-                     </div>
+                    <div>
+                      <CardTitle className="text-lg">{selectedStudent.name}</CardTitle>
+                      <p className="text-sm text-muted-foreground">{selectedStudent.student_id} · {selectedStudent.class}</p>
+                      {selectedStudent.parent_email && (
+                        <p className="text-xs text-muted-foreground mt-0.5">Parent: {selectedStudent.parent_email}</p>
+                      )}
+                    </div>
                   </div>
                 </CardHeader>
                 <CardContent className="pt-0">
@@ -750,23 +720,29 @@ const SchoolAdminDashboard = () => {
                     <p className="text-center text-muted-foreground py-8">No fees set for this period yet.</p>
                   ) : (
                     <div className="space-y-3">
-                      {studentFees.map((fee: any) => (
-                        <div key={fee.id} className="flex items-center justify-between p-3 rounded-lg border">
-                          <div>
-                            <p className="font-medium">{fee.name}</p>
-                            <p className="text-sm text-muted-foreground">
-                              {formatNaira(Number(fee.amount))}
-                              {fee.sessionName && fee.termName && (
-                                <span className="ml-2 text-xs">· {fee.termName} {fee.sessionName}</span>
-                              )}
-                            </p>
+                      {studentFees.map((fee: any) => {
+                        const progressPercent = fee.amount > 0 ? (fee.paid / fee.amount) * 100 : 0;
+                        return (
+                          <div key={fee.id} className="flex items-center justify-between p-3 rounded-lg border">
+                            <div>
+                              <p className="font-medium">{fee.name}</p>
+                              <p className="text-sm text-muted-foreground">
+                                {formatNaira(Number(fee.amount))}
+                                {fee.sessionName && fee.termName && (
+                                  <span className="ml-2 text-xs">· {fee.termName} {fee.sessionName}</span>
+                                )}
+                              </p>
+                              <div className="w-48 h-2 bg-gray-100 rounded-full mt-1">
+                                <div className="h-full bg-primary rounded-full" style={{ width: `${progressPercent}%` }} />
+                              </div>
+                            </div>
+                            <Badge variant="outline" className={fee.status === "Cleared" ? "bg-primary/15 text-primary" : fee.status === "Partial" ? "bg-accent/15 text-accent-foreground" : ""}>
+                              {fee.status}
+                              {fee.status === "Partial" && ` — ${formatNaira(Number(fee.paid))} paid`}
+                            </Badge>
                           </div>
-                          <Badge variant="outline" className={fee.status === "Cleared" ? "bg-primary/15 text-primary" : fee.status === "Partial" ? "bg-accent/15 text-accent-foreground" : "bg-destructive/15 text-destructive"}>
-                            {fee.status}
-                            {fee.status === "Partial" && ` — ${formatNaira(Number(fee.paid))} paid`}
-                          </Badge>
-                        </div>
-                      ))}
+                        );
+                      })}
                       <div className="flex justify-between pt-3 border-t font-medium">
                         <span>Total</span>
                         <span>{formatNaira(studentFees.reduce((a: number, f: any) => a + Number(f.amount), 0))}</span>
@@ -792,14 +768,14 @@ const SchoolAdminDashboard = () => {
                 <Card>
                   <CardContent className="pt-6 overflow-x-auto">
                     <Table>
-                     <TableHeader>
-                       <TableRow>
-                         <TableHead>Name</TableHead>
-                         <TableHead>Student ID</TableHead>
-                         <TableHead className="hidden sm:table-cell">Parent Email</TableHead>
-                         <TableHead className="text-right">Paid</TableHead>
-                         <TableHead>Status</TableHead>
-                       </TableRow>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Name</TableHead>
+                          <TableHead>Student ID</TableHead>
+                          <TableHead className="hidden sm:table-cell">Parent Email</TableHead>
+                          <TableHead className="text-right">Paid</TableHead>
+                          <TableHead>Status</TableHead>
+                        </TableRow>
                       </TableHeader>
                       <TableBody>
                         {filteredStudents.map((s) => {
@@ -811,7 +787,7 @@ const SchoolAdminDashboard = () => {
                               <TableCell className="hidden sm:table-cell text-xs text-muted-foreground">{s.parent_email || "—"}</TableCell>
                               <TableCell className="text-right">{formatNaira(s.totalPaid)}</TableCell>
                               <TableCell>
-                                <Badge variant="outline" className={status === "Cleared" ? "bg-primary/15 text-primary" : status === "Partial" ? "bg-accent/15 text-accent-foreground" : "bg-destructive/15 text-destructive"}>
+                                <Badge variant="outline" className={status === "Cleared" ? "bg-primary/15 text-primary" : status === "Partial" ? "bg-accent/15 text-accent-foreground" : ""}>
                                   {status}
                                 </Badge>
                               </TableCell>
@@ -1056,28 +1032,6 @@ const SchoolAdminDashboard = () => {
               </Button>
             </DialogFooter>
           </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* Create New Session Dialog */}
-      <Dialog open={newSessionOpen} onOpenChange={setNewSessionOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Create New Academic Session</DialogTitle>
-            <DialogDescription>This will create a new session with 3 terms (Term 1, Term 2, Term 3).</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>Session Name</Label>
-              <Input placeholder="e.g. 2027/2028" value={newSessionName} onChange={(e) => setNewSessionName(e.target.value)} maxLength={20} />
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setNewSessionOpen(false)}>Cancel</Button>
-              <Button onClick={handleCreateSession} disabled={creatingSession || !newSessionName.trim()}>
-                {creatingSession ? "Creating..." : "Create Session"}
-              </Button>
-            </DialogFooter>
-          </div>
         </DialogContent>
       </Dialog>
     </div>
