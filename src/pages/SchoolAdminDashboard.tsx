@@ -210,7 +210,7 @@ const SchoolAdminDashboard = () => {
         }
 
         if (data && data.length > 0) {
-          // Populate the form with existing fees
+          // Populate the form with existing fees - allow editing of amounts
           const populated = DEFAULT_FEE_TEMPLATES.map((template) => {
             const existing = data.find((f) => f.name === template);
             return {
@@ -547,6 +547,7 @@ const SchoolAdminDashboard = () => {
       }));
 
       // Use upsert to update existing records or insert new ones
+      // This will overwrite fees with the same school_id, class_target, name, session_id, and term_id
       const { error } = await supabase.from("class_fees").upsert(upserts, {
         onConflict: "school_id,class_target,name,session_id,term_id",
       });
@@ -1025,12 +1026,12 @@ const SchoolAdminDashboard = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Add Fee Dialog */}
+      {/* Add/Update Fee Dialog */}
       <Dialog open={addFeeOpen} onOpenChange={setAddFeeOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>{hasExistingFees ? "Update Fees" : "Add Fees"}</DialogTitle>
-            <DialogDescription>Select session, term, and fill in amounts for applicable fees.</DialogDescription>
+            <DialogDescription>Select session, term, and class, then enter amounts for applicable fees.</DialogDescription>
           </DialogHeader>
           <form onSubmit={handleAddFee} className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
@@ -1091,7 +1092,6 @@ const SchoolAdminDashboard = () => {
                       }}
                       className="flex-1"
                       maxLength={100}
-                      disabled
                     />
                     <Input
                       type="number"
@@ -1109,8 +1109,9 @@ const SchoolAdminDashboard = () => {
                       type="button"
                       variant="ghost"
                       size="icon"
-                      className="shrink-0"
+                      className="shrink-0 h-8 w-8"
                       onClick={() => setFeeEntries(feeEntries.filter((_, idx) => idx !== i))}
+                      title="Delete this row"
                     >
                       <Trash2 className="w-4 h-4 text-destructive" />
                     </Button>
@@ -1125,6 +1126,7 @@ const SchoolAdminDashboard = () => {
               size="sm"
               onClick={() => setFeeEntries([...feeEntries, { name: "", amount: "" }])}
               className="gap-1"
+              disabled={loadingExistingFees}
             >
               <Plus className="w-3 h-3" /> Add More
             </Button>
