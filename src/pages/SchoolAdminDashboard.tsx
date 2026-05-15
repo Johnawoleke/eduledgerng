@@ -165,9 +165,9 @@ const SchoolAdminDashboard = () => {
   const syncSessions = async (schoolId: string) => {
     const expectedYears = generateAcademicYears();
     
-    // Check what we already have
+   // Check what we already have in the 'sessions' table
     const { data: existing } = await supabase
-      .from("academic_sessions")
+      .from("sessions")
       .select("name")
       .eq("school_id", schoolId);
 
@@ -177,7 +177,7 @@ const SchoolAdminDashboard = () => {
     if (missingYears.length > 0) {
       for (const year of missingYears) {
         const { data: newSession } = await supabase
-          .from("academic_sessions")
+          .from("sessions")
           .insert({ school_id: schoolId, name: year, is_current: year === "2025/2026" })
           .select()
           .single();
