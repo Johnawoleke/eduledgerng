@@ -50,7 +50,7 @@ const LoginPage = () => {
       }
 
       // Verify PIN matches exactly
-      if (students.pin !== pin) {
+     if (!student || student.pin !== pin)
         toast.error("Invalid School ID or PIN");
         setIsLoading(false);
         return;
