@@ -53,27 +53,27 @@ const SchoolPortal = () => {
 
     try {
       // Query students table directly
-      const { data: student, error } = await supabase
+      const { data: student, error: dbError } = await supabase
         .from("students")
         .select("*")
         .eq("student_id", studentId.trim())
         .maybeSingle();
 
-      if (error) {
-        console.error("Database error:", error);
+      if (dbError) {
+        console.error("Database error:", dbError);
         toast.error("An error occurred. Please try again.");
         setStudentLoading(false);
         return;
       }
 
-      // Verify PIN matches (case-insensitive)
+      // Verify PIN matches (case-insensitive and trimmed)
       if (!student || student.pin.toLowerCase().trim() !== pin.toLowerCase().trim()) {
         toast.error("Invalid Student ID or PIN");
         setStudentLoading(false);
         return;
       }
 
-      // PIN matched - sign the student in
+      // PIN matched - sign the student in with database row properties
       loginStudent(
         { id: student.id, student_id: student.student_id, name: student.name, role: "student" },
         [],
