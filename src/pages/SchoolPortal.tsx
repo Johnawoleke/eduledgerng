@@ -52,11 +52,11 @@ const SchoolPortal = () => {
     setStudentLoading(true);
 
     try {
-      // Query students table directly
+      // Query students table directly with uppercase student ID
       const { data: student, error: dbError } = await supabase
         .from("students")
         .select("*")
-        .eq("student_id", studentId.trim())
+        .eq("student_id", studentId.trim().toUpperCase())
         .maybeSingle();
 
       if (dbError) {
@@ -66,8 +66,8 @@ const SchoolPortal = () => {
         return;
       }
 
-      // Verify PIN matches (case-insensitive and trimmed)
-      if (!student || student.pin.toLowerCase().trim() !== pin.toLowerCase().trim()) {
+      // Verify PIN matches exactly (case-sensitive)
+      if (!student || student.pin.trim() !== pin.trim()) {
         toast.error("Invalid Student ID or PIN");
         setStudentLoading(false);
         return;
