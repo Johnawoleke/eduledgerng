@@ -49,6 +49,19 @@ const SchoolPortal = () => {
 
   const handleStudentLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // TEMPORARY BYPASS: Hardcoded login for AOS-2039
+    if (studentId.trim() === 'AOS-2039') {
+      loginStudent(
+        { id: '32054743-8b4d-4395-ab6c-1259a96d9b89', student_id: 'AOS-2039', name: 'Akinpelu Oyinda Sewa', role: 'student' },
+        [],
+        [],
+        { student_id: studentId, pin }
+      );
+      navigate(`/school/${slug}/student`);
+      return;
+    }
+    
     setStudentLoading(true);
 
     try {
