@@ -66,34 +66,37 @@ const SchoolPortal = () => {
         return;
       }
 
-      // Verify PIN matches exactly (case-sensitive) using default_pin column
-      if (!student || student.default_pin.trim() !== pin.trim()) {
+      // Verify PIN matches exactly (case-sensitive) using pin column
+      if (!student || student.pin.trim() !== pin.trim()) {
         toast.error("Invalid Student ID or PIN");
         setStudentLoading(false);
         return;
       }
 
       // Check if student is logging in for the first time
-      if (student.is_first_login) {
+      if (student.is_first_login === true) {
         toast.info("First-time login detected. Redirecting to set your new password...");
         navigate(`/school/${slug}/reset-password`, { state: { studentId: student.student_id } });
         setStudentLoading(false);
         return;
       }
 
+      // Clear stale local storage auth states to prevent loops
+      localStorage.removeItem("sb-auth-token");
+
       // PIN matched - sign the student in with database row properties
-      loginStudent(
+      await loginStudent(
         {
           id: student.id,
           student_id: student.student_id,
-          name: student.full_name || student.student_id,
+          name: student.name || student.full_name || student.student_id,
           role: "student",
         },
         [],
         []
       );
       
-      toast.success("Login successful!");
+      toast.success("Login successful! Welcome back.");
       navigate(`/school/${slug}/student`);
     } catch (error) {
       console.error("Login error:", error);
