@@ -20,7 +20,7 @@ const formatNaira = (amount: number) =>
 const SchoolStudentDashboard = () => {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
-  const { student, school, feeItems, payments, logoutStudent, studentCredentials, setStudentData } = useSchool();
+  const { student, school, feeItems, payments, logoutStudent, setStudentData } = useSchool();
 
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [selectedFees, setSelectedFees] = useState<Record<string, boolean>>({});
@@ -29,34 +29,48 @@ const SchoolStudentDashboard = () => {
 
   const academicPeriods = useAcademicPeriods(school?.id);
 
-  // Re-fetch fees and payments when session/term changes
+  // Directly fetch live fees & payments from Supabase tables based on active student session details
   useEffect(() => {
-    if (!student || !studentCredentials || !slug) return;
-    if (!academicPeriods.selectedSessionId || !academicPeriods.selectedTermId) return;
+    if (!student?.id) return;
 
-    const fetchPeriodData = async () => {
+    const fetchLiveDashboardData = async () => {
       try {
-        const { data, error } = await supabase.functions.invoke("student-auth", {
-          body: {
-            school_slug: slug,
-            student_id: studentCredentials.student_id,
-            pin: studentCredentials.pin,
-            session_id: academicPeriods.selectedSessionId,
-            term_id: academicPeriods.selectedTermId,
-          },
-        });
-        if (!error && data) {
-          setStudentData(data.feeItems || [], data.payments || []);
+        // Query live student fees table directly
+        let feesQuery = supabase
+          .from("student_fees")
+          .select("*")
+          .eq("student_id", student.id);
+
+        if (academicPeriods.selectedTermId) {
+          feesQuery = feesQuery.eq("term_id", academicPeriods.selectedTermId);
+        }
+
+        const { data: liveFees, error: feesErr } = await feesQuery;
+
+        // Query live payments table directly
+        let paymentsQuery = supabase
+          .from("payments")
+          .select("*")
+          .eq("student_id", student.id);
+
+        if (academicPeriods.selectedTermId) {
+          paymentsQuery = paymentsQuery.eq("term_id", academicPeriods.selectedTermId);
+        }
+
+        const { data: livePayments, error: payErr } = await paymentsQuery;
+
+        if (!feesErr && !payErr) {
+          setStudentData(liveFees || [], livePayments || []);
         }
       } catch (err) {
-        console.error("Failed to reload period data:", err);
+        console.error("Direct table sync failed:", err);
       }
     };
 
-    fetchPeriodData();
-  }, [academicPeriods.selectedSessionId, academicPeriods.selectedTermId]);
+    fetchLiveDashboardData();
+  }, [student?.id, academicPeriods.selectedTermId, setStudentData]);
 
-  // Filter fee items by selected term
+  // Filter fee items by selected term fallback
   const filteredFeeItems = useMemo(() => {
     if (!academicPeriods.selectedTermId) return feeItems;
     return feeItems.filter((f: any) =>
@@ -64,7 +78,7 @@ const SchoolStudentDashboard = () => {
     );
   }, [feeItems, academicPeriods.selectedTermId]);
 
-  // Filter payments by selected term
+  // Filter payments by selected term fallback
   const filteredPayments = useMemo(() => {
     if (!academicPeriods.selectedTermId) return payments;
     return payments.filter((p: any) =>
@@ -145,7 +159,7 @@ const SchoolStudentDashboard = () => {
         <div className="bg-primary rounded-xl p-6 text-primary-foreground">
           <h1 className="text-2xl font-bold">Welcome, {student.name.split(" ")[0]}!</h1>
           <p className="text-primary-foreground/80 mt-1">
-            {student.class} &bull; {academicPeriods.selectedSession?.name || student.session} &bull; {academicPeriods.selectedTerm?.name || student.term}
+            Class: {student.class || "Unassigned"} &bull; {academicPeriods.selectedSession?.name || "Current Session"} &bull; {academicPeriods.selectedTerm?.name || "Current Term"}
           </p>
         </div>
 
@@ -275,10 +289,10 @@ const SchoolStudentDashboard = () => {
                 </TableHeader>
                 <TableBody>
                   {filteredPayments.map((p) => {
-                    const displayItems = p.items.map((item: string) => {
+                    const displayItems = p.items ? p.items.map((item: string) => {
                       const pipeIdx = item.lastIndexOf("|");
                       return pipeIdx > 0 ? item.substring(0, pipeIdx) : item;
-                    });
+                    }) : [];
                     return (
                       <TableRow key={p.id}>
                         <TableCell>{new Date(p.date).toLocaleDateString("en-NG")}</TableCell>
@@ -382,7 +396,6 @@ const SchoolStudentDashboard = () => {
                 className="w-full gap-2"
                 disabled={paymentTotal <= 0 || payingWithZendfi}
                 onClick={async () => {
-                  if (!studentCredentials || !slug) return;
                   setPayingWithZendfi(true);
                   try {
                     const feePayments = unpaidFees
@@ -399,8 +412,7 @@ const SchoolStudentDashboard = () => {
                     const { data, error } = await supabase.functions.invoke("create-zendfi-payment", {
                       body: {
                         school_slug: slug,
-                        student_id: studentCredentials.student_id,
-                        pin: studentCredentials.pin,
+                        student_id: student.student_id,
                         fee_payments: feePayments,
                         session_id: academicPeriods.selectedSessionId,
                         term_id: academicPeriods.selectedTermId,
