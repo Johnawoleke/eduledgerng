@@ -66,8 +66,8 @@ const SchoolPortal = () => {
         return;
       }
 
-      // Verify PIN matches exactly (case-sensitive)
-      if (!student || student.pin.trim() !== pin.trim()) {
+      // Verify PIN matches exactly (case-sensitive) using default_pin column
+      if (!student || student.default_pin.trim() !== pin.trim()) {
         toast.error("Invalid Student ID or PIN");
         setStudentLoading(false);
         return;
@@ -75,10 +75,14 @@ const SchoolPortal = () => {
 
       // PIN matched - sign the student in with database row properties
       loginStudent(
-        { id: student.id, student_id: student.student_id, name: student.name, role: "student" },
+        {
+          id: student.id,
+          student_id: student.student_id,
+          name: student.full_name || student.student_id,
+          role: "student",
+        },
         [],
-        [],
-        { student_id: studentId.trim(), pin }
+        []
       );
       
       toast.success("Login successful!");
