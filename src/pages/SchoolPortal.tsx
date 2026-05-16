@@ -73,6 +73,14 @@ const SchoolPortal = () => {
         return;
       }
 
+      // Check if student is logging in for the first time
+      if (student.is_first_login) {
+        toast.info("First-time login detected. Redirecting to set your new password...");
+        navigate(`/school/${slug}/reset-password`, { state: { studentId: student.student_id } });
+        setStudentLoading(false);
+        return;
+      }
+
       // PIN matched - sign the student in with database row properties
       loginStudent(
         {
