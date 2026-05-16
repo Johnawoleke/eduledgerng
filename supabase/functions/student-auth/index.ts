@@ -15,6 +15,7 @@ serve(async (req) => {
   try {
     const { school_slug, student_id, pin, session_id, term_id } = await req.json();
 
+    // Validate required fields
     if (!school_slug || !student_id || !pin) {
       return new Response(
         JSON.stringify({ error: "Missing required fields" }),
@@ -22,6 +23,7 @@ serve(async (req) => {
       );
     }
 
+    // Validate input types and lengths
     if (typeof student_id !== "string" || student_id.length > 30 ||
         typeof pin !== "string" || pin.length > 10 ||
         typeof school_slug !== "string" || school_slug.length > 100) {
@@ -43,14 +45,21 @@ serve(async (req) => {
       .eq("slug", school_slug)
       .maybeSingle();
 
-    if (schoolError || !school) {
+    if (schoolError) {
+      return new Response(
+        JSON.stringify({ error: "Database connection error", details: schoolError.message }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    if (!school) {
       return new Response(
         JSON.stringify({ error: "School not found" }),
         { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Verify student PIN
+    // Verify student PIN using RPC
     const { data: students, error: verifyError } = await supabaseAdmin
       .rpc("verify_student_pin", {
         p_school_id: school.id,
@@ -58,7 +67,14 @@ serve(async (req) => {
         p_pin: pin,
       });
 
-    if (verifyError || !students || students.length === 0) {
+    if (verifyError) {
+      return new Response(
+        JSON.stringify({ error: "Database connection error", details: verifyError.message }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    if (!students || students.length === 0) {
       return new Response(
         JSON.stringify({ error: "Invalid Student ID or PIN" }),
         { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -77,7 +93,14 @@ serve(async (req) => {
     if (session_id) feeQuery = feeQuery.eq("session_id", session_id);
     if (term_id) feeQuery = feeQuery.eq("term_id", term_id);
 
-    const { data: classFees } = await feeQuery;
+    const { data: classFees, error: feesError } = await feeQuery;
+
+    if (feesError) {
+      return new Response(
+        JSON.stringify({ error: "Database connection error", details: feesError.message }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
     // Build payments query - filter by session_id and term_id if provided
     let paymentQuery = supabaseAdmin
@@ -89,7 +112,14 @@ serve(async (req) => {
     if (session_id) paymentQuery = paymentQuery.eq("session_id", session_id);
     if (term_id) paymentQuery = paymentQuery.eq("term_id", term_id);
 
-    const { data: payments } = await paymentQuery;
+    const { data: payments, error: paymentsError } = await paymentQuery;
+
+    if (paymentsError) {
+      return new Response(
+        JSON.stringify({ error: "Database connection error", details: paymentsError.message }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
     // Build fee items with paid amounts calculated from filtered payments
     const feeItems = (classFees || []).map((cf: any) => {
@@ -119,18 +149,33 @@ serve(async (req) => {
       };
     });
 
-    // Load sessions and terms for the school
-    const { data: sessions } = await supabaseAdmin
+    // Load sessions for the school
+    const { data: sessions, error: sessionsError } = await supabaseAdmin
       .from("sessions")
       .select("id, name, start_year, end_year")
       .eq("school_id", school.id)
       .order("name", { ascending: true });
 
-    const { data: terms } = await supabaseAdmin
+    if (sessionsError) {
+      return new Response(
+        JSON.stringify({ error: "Database connection error", details: sessionsError.message }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Load terms for the school
+    const { data: terms, error: termsError } = await supabaseAdmin
       .from("terms")
       .select("id, session_id, name, term_number")
       .eq("school_id", school.id)
       .order("term_number", { ascending: true });
+
+    if (termsError) {
+      return new Response(
+        JSON.stringify({ error: "Database connection error", details: termsError.message }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
     return new Response(
       JSON.stringify({
@@ -144,8 +189,9 @@ serve(async (req) => {
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
     return new Response(
-      JSON.stringify({ error: "Internal server error" }),
+      JSON.stringify({ error: "Internal server error", details: errorMessage }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
