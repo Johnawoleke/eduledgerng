@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/lib/authContext";
-import { students } from "@/lib/mockData";
+import { supabase } from "@/lib/supabaseClient";
 import { GraduationCap, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 
@@ -15,17 +15,56 @@ const LoginPage = () => {
   const [pin, setPin] = useState("");
   const [adminUser, setAdminUser] = useState("");
   const [adminPass, setAdminPass] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
   const { login, loginAdmin } = useAuth();
   const navigate = useNavigate();
 
-  const handleStudentLogin = (e: React.FormEvent) => {
+  const handleStudentLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    const student = students.find((s) => s.id === studentId && s.pin === pin);
-    if (student) {
-      login(student);
+    
+    if (!studentId.trim() || !pin.trim()) {
+      toast.error("Please enter both School ID and PIN");
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      // Query students table directly using Supabase client
+      const { data: students, error } = await supabase
+        .from("students")
+        .select("*")
+        .eq("id", studentId)
+        .maybeSingle();
+
+      if (error) {
+        console.error("Database error:", error);
+        toast.error("An error occurred. Please try again.");
+        setIsLoading(false);
+        return;
+      }
+
+      if (!students) {
+        toast.error("Invalid School ID or PIN");
+        setIsLoading(false);
+        return;
+      }
+
+      // Verify PIN matches exactly
+      if (students.pin !== pin) {
+        toast.error("Invalid School ID or PIN");
+        setIsLoading(false);
+        return;
+      }
+
+      // PIN matched - sign the student in
+      login(students);
+      toast.success("Login successful!");
       navigate("/student");
-    } else {
-      toast.error("Invalid School ID or PIN");
+    } catch (error) {
+      console.error("Login error:", error);
+      toast.error("An unexpected error occurred");
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -69,14 +108,29 @@ const LoginPage = () => {
                 <form onSubmit={handleStudentLogin} className="space-y-4">
                   <div className="space-y-2">
                     <Label htmlFor="studentId">School ID</Label>
-                    <Input id="studentId" placeholder="e.g. EDU/2024/001" value={studentId} onChange={(e) => setStudentId(e.target.value)} />
+                    <Input 
+                      id="studentId" 
+                      placeholder="e.g. EDU/2024/001" 
+                      value={studentId} 
+                      onChange={(e) => setStudentId(e.target.value)}
+                      disabled={isLoading}
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="pin">PIN</Label>
-                    <Input id="pin" type="password" placeholder="Enter your PIN" value={pin} onChange={(e) => setPin(e.target.value)} maxLength={4} />
+                    <Input 
+                      id="pin" 
+                      type="password" 
+                      placeholder="Enter your PIN" 
+                      value={pin} 
+                      onChange={(e) => setPin(e.target.value)} 
+                      maxLength={10}
+                      disabled={isLoading}
+                    />
                   </div>
-                  <Button type="submit" className="w-full">Sign In</Button>
-                  <p className="text-xs text-muted-foreground text-center">Demo: EDU/2024/001 / PIN: 1234</p>
+                  <Button type="submit" className="w-full" disabled={isLoading}>
+                    {isLoading ? "Signing in..." : "Sign In"}
+                  </Button>
                 </form>
               </TabsContent>
 
