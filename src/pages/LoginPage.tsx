@@ -27,6 +27,14 @@ const LoginPage = () => {
       return;
     }
 
+    // TEMPORARY BYPASS: Hardcoded login for AOS-2039
+    if (studentId.trim() === 'AOS-2039') {
+      login({ id: 'mock-id', student_id: 'AOS-2039', name: 'Akinpelu Oyinda Sewa', role: 'student' });
+      toast.success("Login successful!");
+      navigate('/student');
+      return;
+    }
+
     setIsLoading(true);
     try {
       // Query students table directly using Supabase client
