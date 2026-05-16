@@ -49,46 +49,46 @@ const SchoolPortal = () => {
 
   const handleStudentLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    // TEMPORARY BYPASS: Hardcoded login for AOS-2039
-    if (studentId.trim() === 'AOS-2039') {
-      loginStudent(
-        { id: '32054743-8b4d-4395-ab6c-1259a96d9b89', student_id: 'AOS-2039', name: 'Akinpelu Oyinda Sewa', role: 'student' },
-        [],
-        [],
-        { student_id: studentId, pin }
-      );
-      navigate(`/school/${slug}/student`);
-      return;
-    }
-    
     setStudentLoading(true);
 
     try {
-      const res = await supabase.functions.invoke("student-auth", {
-        body: { school_slug: slug, student_id: studentId, pin },
-      });
+      // Query students table directly
+      const { data: student, error } = await supabase
+        .from("students")
+        .select("*")
+        .eq("student_id", studentId.trim())
+        .maybeSingle();
 
-      if (res.error || res.data?.error) {
-        toast.error(res.data?.error || "Login failed");
+      if (error) {
+        console.error("Database error:", error);
+        toast.error("An error occurred. Please try again.");
         setStudentLoading(false);
         return;
       }
 
-      const { student, school, feeItems, payments } = res.data;
-      loginStudent(student, feeItems, payments, { student_id: studentId, pin });
-      setSchool(school);
-      
-      // Check if student must change PIN on first login
-      if (student.must_change_pin) {
-        navigate(`/school/${slug}/change-pin`);
-      } else {
-        navigate(`/school/${slug}/student`);
+      // Verify PIN matches (case-insensitive)
+      if (!student || student.pin.toLowerCase().trim() !== pin.toLowerCase().trim()) {
+        toast.error("Invalid Student ID or PIN");
+        setStudentLoading(false);
+        return;
       }
-    } catch {
-      toast.error("Login failed");
+
+      // PIN matched - sign the student in
+      loginStudent(
+        { id: student.id, student_id: student.student_id, name: student.name, role: "student" },
+        [],
+        [],
+        { student_id: studentId.trim(), pin }
+      );
+      
+      toast.success("Login successful!");
+      navigate(`/school/${slug}/student`);
+    } catch (error) {
+      console.error("Login error:", error);
+      toast.error("An unexpected error occurred");
+    } finally {
+      setStudentLoading(false);
     }
-    setStudentLoading(false);
   };
 
   const handleAdminLogin = async (e: React.FormEvent) => {
@@ -199,6 +199,7 @@ const SchoolPortal = () => {
                       onChange={(e) => setStudentId(e.target.value)}
                       required
                       maxLength={30}
+                      disabled={studentLoading}
                     />
                   </div>
                   <div className="space-y-2">
@@ -210,6 +211,7 @@ const SchoolPortal = () => {
                       onChange={(e) => setPin(e.target.value)}
                       required
                       maxLength={10}
+                      disabled={studentLoading}
                     />
                   </div>
                   <Button type="submit" className="w-full" disabled={studentLoading}>
@@ -227,6 +229,7 @@ const SchoolPortal = () => {
                       value={adminEmail}
                       onChange={(e) => setAdminEmail(e.target.value)}
                       required
+                      disabled={adminLoading}
                     />
                   </div>
                   <div className="space-y-2">
@@ -237,6 +240,7 @@ const SchoolPortal = () => {
                       value={adminPassword}
                       onChange={(e) => setAdminPassword(e.target.value)}
                       required
+                      disabled={adminLoading}
                     />
                   </div>
                   <Button type="submit" className="w-full" disabled={adminLoading}>
