@@ -33,7 +33,7 @@ const LoginPage = () => {
       const { data: students, error } = await supabase
         .from("students")
         .select("*")
-        .eq("id", studentId)
+      .eq("student_id", studentId)
         .maybeSingle();
 
       if (error) {
