@@ -9,6 +9,7 @@ import LandingPage from "./pages/LandingPage";
 import RegisterSchool from "./pages/RegisterSchool";
 import OwnerLogin from "./pages/OwnerLogin";
 import SchoolPortal from "./pages/SchoolPortal";
+import ResetPassword from "./pages/ResetPassword";
 import SchoolStudentDashboard from "./pages/SchoolStudentDashboard";
 import SchoolAdminDashboard from "./pages/SchoolAdminDashboard";
 import ChangePinPage from "./pages/ChangePinPage";
@@ -31,6 +32,10 @@ const App = () => {
               <Route path="/register" element={<RegisterSchool />} />
               <Route path="/login" element={<OwnerLogin />} />
               <Route path="/school/:slug" element={<SchoolPortal />} />
+              <Route
+                path="/school/:slug/reset-password"
+                element={<ResetPassword />}
+              />
               <Route
                 path="/school/:slug/student/*"
                 element={<SchoolStudentDashboard />}
