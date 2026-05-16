@@ -52,7 +52,7 @@ const SchoolPortal = () => {
     setStudentLoading(true);
 
     try {
-      // Query students table directly with uppercase student ID
+      // 1. Query students table directly with uppercase student ID
       const { data: student, error: dbError } = await supabase
         .from("students")
         .select("*")
@@ -66,14 +66,14 @@ const SchoolPortal = () => {
         return;
       }
 
-      // Verify PIN matches exactly (case-sensitive) using pin column
+      // 2. Verify PIN matches exactly (case-sensitive) using master pin column
       if (!student || student.pin.trim() !== pin.trim()) {
         toast.error("Invalid Student ID or PIN");
         setStudentLoading(false);
         return;
       }
 
-      // Check if student is logging in for the first time
+      // 3. Check if student is logging in for the first time
       if (student.is_first_login === true) {
         toast.info("First-time login detected. Redirecting to set your new password...");
         navigate(`/school/${slug}/reset-password`, { state: { studentId: student.student_id } });
@@ -81,19 +81,40 @@ const SchoolPortal = () => {
         return;
       }
 
-      // Clear stale local storage auth states to prevent loops
+      // 4. DYNAMIC FETCH: Pull this student's real-time fees from the database
+      const { data: feeItems, error: feesError } = await supabase
+        .from("student_fees")
+        .select("*")
+        .eq("student_id", student.id);
+
+      if (feesError) {
+        console.error("Error fetching student fees:", feesError);
+      }
+
+      // 5. DYNAMIC FETCH: Pull this student's payment history from the database
+      const { data: payments, error: paymentsError } = await supabase
+        .from("payments")
+        .select("*")
+        .eq("student_id", student.id);
+
+      if (paymentsError) {
+        console.error("Error fetching student payments:", paymentsError);
+      }
+
+      // Clear stale local storage auth states to prevent rendering drops
       localStorage.removeItem("sb-auth-token");
 
-      // PIN matched - sign the student in with database row properties
+      // 6. Complete Handshake: Pass real name, class, fees, and payments to the app context
       await loginStudent(
         {
           id: student.id,
           student_id: student.student_id,
           name: student.name || student.full_name || student.student_id,
+          class: student.class || student.class_name || "Unassigned", // Pass class directly
           role: "student",
         },
-        [],
-        []
+        feeItems || [], // Injects the real database fees
+        payments || []  // Injects the real database payments
       );
       
       toast.success("Login successful! Welcome back.");
