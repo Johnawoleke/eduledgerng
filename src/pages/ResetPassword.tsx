@@ -1,0 +1,145 @@
+import React, { useState } from "react";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { GraduationCap } from "lucide-react";
+import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
+
+const ResetPassword = () => {
+  const { slug } = useParams<{ slug: string }>();
+  const location = useLocation();
+  const navigate = useNavigate();
+  
+  const studentId = location.state?.studentId;
+  
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+
+  // Redirect to login if no studentId is provided
+  React.useEffect(() => {
+    if (!studentId) {
+      toast.error("Invalid session. Please log in again.");
+      navigate(`/school/${slug}`);
+    }
+  }, [studentId, slug, navigate]);
+
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    // Validation
+    if (!newPassword.trim() || !confirmPassword.trim()) {
+      toast.error("Please fill in all fields");
+      return;
+    }
+
+    if (newPassword.length < 4) {
+      toast.error("Password must be at least 4 characters long");
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      toast.error("Passwords do not match");
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      // Update the student record with new password and reset first-login flag
+      const { error } = await supabase
+        .from("students")
+        .update({
+          pin: newPassword,
+          default_pin: newPassword,
+          is_first_login: false,
+          must_change_pin: false,
+        })
+        .eq("student_id", studentId);
+
+      if (error) {
+        console.error("Password reset error:", error);
+        toast.error("Failed to update password. Please try again.");
+        setIsLoading(false);
+        return;
+      }
+
+      toast.success("Password updated successfully! Please log in with your new password.");
+      navigate(`/school/${slug}`);
+    } catch (error) {
+      console.error("Unexpected error:", error);
+      toast.error("An unexpected error occurred");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  if (!studentId) {
+    return null;
+  }
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-primary/5 p-4">
+      <div className="w-full max-w-md">
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary mb-4">
+            <GraduationCap className="w-8 h-8 text-primary-foreground" />
+          </div>
+          <h1 className="text-3xl font-bold text-foreground">EduLedger<span className="text-primary font-bold">NG</span></h1>
+          <p className="text-muted-foreground mt-1">Set Your New Password</p>
+        </div>
+
+        <Card className="shadow-lg border-primary/10">
+          <CardHeader>
+            <CardTitle>First-Time Password Reset</CardTitle>
+            <CardDescription>
+              Please set a new password to secure your account. Use this password for all future logins.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleResetPassword} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="newPassword">New Password</Label>
+                <Input
+                  id="newPassword"
+                  type="password"
+                  placeholder="Enter your new password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  required
+                  disabled={isLoading}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="confirmPassword">Confirm New Password</Label>
+                <Input
+                  id="confirmPassword"
+                  type="password"
+                  placeholder="Confirm your new password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  required
+                  disabled={isLoading}
+                />
+              </div>
+
+              <Button type="submit" className="w-full" disabled={isLoading}>
+                {isLoading ? "Updating..." : "Update Password"}
+              </Button>
+
+              <p className="text-xs text-muted-foreground text-center mt-4">
+                Student ID: {studentId}
+              </p>
+            </form>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+};
+
+export default ResetPassword;
