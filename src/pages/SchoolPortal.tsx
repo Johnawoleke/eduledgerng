@@ -213,7 +213,7 @@ const SchoolPortal = () => {
                       value={studentId}
                       onChange={(e) => setStudentId(e.target.value)}
                       required
-                      maxLength={30}
+                      maxLength={50}
                       disabled={studentLoading}
                     />
                   </div>
@@ -225,7 +225,7 @@ const SchoolPortal = () => {
                       value={pin}
                       onChange={(e) => setPin(e.target.value)}
                       required
-                      maxLength={10}
+                      maxLength={50}
                       disabled={studentLoading}
                     />
                   </div>
