@@ -15,12 +15,12 @@ import AcademicPeriodSelector from "@/components/AcademicPeriodSelector";
 import { useAcademicPeriods } from "@/hooks/useAcademicPeriods";
 
 const formatNaira = (amount: number) =>
-  new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN", minimumFractionDigits: 0 }).format(amount);
+  new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN", minimumFractionDigits: 0 }).format(amount || 0);
 
 const SchoolStudentDashboard = () => {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
-  const { student, school, feeItems, payments, logoutStudent, setStudentData } = useSchool();
+  const { student, school, feeItems = [], payments = [], logoutStudent, setStudentData } = useSchool();
 
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [selectedFees, setSelectedFees] = useState<Record<string, boolean>>({});
@@ -70,27 +70,30 @@ const SchoolStudentDashboard = () => {
     fetchLiveDashboardData();
   }, [student?.id, academicPeriods.selectedTermId, setStudentData]);
 
-  // Filter fee items by selected term fallback
+  // Filter fee items safely fallback
   const filteredFeeItems = useMemo(() => {
-    if (!academicPeriods.selectedTermId) return feeItems;
-    return feeItems.filter((f: any) =>
-      f.term_id === academicPeriods.selectedTermId || (!f.term_id && !f.session_id)
+    const items = feeItems || [];
+    if (!academicPeriods.selectedTermId) return items;
+    return items.filter((f: any) =>
+      f && (f.term_id === academicPeriods.selectedTermId || (!f.term_id && !f.session_id))
     );
   }, [feeItems, academicPeriods.selectedTermId]);
 
-  // Filter payments by selected term fallback
+  // Filter payments safely fallback
   const filteredPayments = useMemo(() => {
-    if (!academicPeriods.selectedTermId) return payments;
-    return payments.filter((p: any) =>
-      p.term_id === academicPeriods.selectedTermId || (!p.term_id && !p.session_id)
+    const pays = payments || [];
+    if (!academicPeriods.selectedTermId) return pays;
+    return pays.filter((p: any) =>
+      p && (p.term_id === academicPeriods.selectedTermId || (!p.term_id && !p.session_id))
     );
   }, [payments, academicPeriods.selectedTermId]);
 
-  const totalFees = filteredFeeItems.reduce((s, f) => s + Number(f.amount), 0);
-  const totalPaid = filteredFeeItems.reduce((s, f) => s + Number(f.paid), 0);
-  const balance = totalFees - totalPaid;
+  // SAFE MATH PROTECTION: Fallback to 0 if values are missing
+  const totalFees = filteredFeeItems.reduce((s, f) => s + Number(f?.amount || 0), 0);
+  const totalPaid = filteredFeeItems.reduce((s, f) => s + Number(f?.paid || 0), 0);
+  const balance = Math.max(totalFees - totalPaid, 0);
 
-  const unpaidFees = filteredFeeItems.filter((f) => f.status !== "paid");
+  const unpaidFees = filteredFeeItems.filter((f) => f && f.status !== "paid");
 
   const toggleFee = (feeId: string) => {
     setSelectedFees((prev) => {
@@ -98,8 +101,8 @@ const SchoolStudentDashboard = () => {
       if (!next[feeId]) {
         setFeeAmounts((a) => { const copy = { ...a }; delete copy[feeId]; return copy; });
       } else {
-        const fee = unpaidFees.find((f) => f.id === feeId);
-        if (fee) setFeeAmounts((a) => ({ ...a, [feeId]: String(Number(fee.amount) - Number(fee.paid)) }));
+        const fee = unpaidFees.find((f) => f && f.id === feeId);
+        if (fee) setFeeAmounts((a) => ({ ...a, [feeId]: String(Number(fee.amount || 0) - Number(fee.paid || 0)) }));
       }
       return next;
     });
@@ -107,8 +110,8 @@ const SchoolStudentDashboard = () => {
 
   const basePaymentTotal = useMemo(() => {
     return unpaidFees.reduce((sum, fee) => {
-      if (!selectedFees[fee.id]) return sum;
-      const owing = Number(fee.amount) - Number(fee.paid);
+      if (!fee || !selectedFees[fee.id]) return sum;
+      const owing = Number(fee.amount || 0) - Number(fee.paid || 0);
       const val = Number(feeAmounts[fee.id] || 0);
       return sum + Math.min(Math.max(val, 0), owing);
     }, 0);
@@ -157,17 +160,17 @@ const SchoolStudentDashboard = () => {
 
       <main className="container mx-auto px-4 py-6 space-y-6 max-w-4xl">
         <div className="bg-primary rounded-xl p-6 text-primary-foreground">
-          <h1 className="text-2xl font-bold">Welcome, {student.name.split(" ")[0]}!</h1>
+          <h1 className="text-2xl font-bold">Welcome, {student.name ? student.name.split(" ")[0] : "Student"}!</h1>
           <p className="text-primary-foreground/80 mt-1">
             Class: {student.class || "Unassigned"} &bull; {academicPeriods.selectedSession?.name || "Current Session"} &bull; {academicPeriods.selectedTerm?.name || "Current Term"}
           </p>
         </div>
 
         {/* Session & Term Selector */}
-        {academicPeriods.sessions.length > 0 && (
+        {academicPeriods.sessions && academicPeriods.sessions.length > 0 && (
           <AcademicPeriodSelector
             sessions={academicPeriods.sessions}
-            termsForSelectedSession={academicPeriods.termsForSelectedSession}
+            termsForSelectedSession={academicPeriods.termsForSelectedSession || []}
             selectedSessionId={academicPeriods.selectedSessionId}
             selectedTermId={academicPeriods.selectedTermId}
             onSessionChange={academicPeriods.setSelectedSessionId}
@@ -239,13 +242,13 @@ const SchoolStudentDashboard = () => {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filteredFeeItems.map((fee) => (
+                  filteredFeeItems.map((fee) => fee && (
                     <TableRow key={fee.id}>
-                      <TableCell className="font-medium">{fee.name}</TableCell>
-                      <TableCell className="text-right">{formatNaira(Number(fee.amount))}</TableCell>
-                      <TableCell className="text-right">{formatNaira(Number(fee.paid))}</TableCell>
+                      <TableCell className="font-medium">{fee.name || "Unnamed Fee"}</TableCell>
+                      <TableCell className="text-right">{formatNaira(Number(fee.amount || 0))}</TableCell>
+                      <TableCell className="text-right">{formatNaira(Number(fee.paid || 0))}</TableCell>
                       <TableCell className="text-right">
-                        <Badge variant="outline" className={statusColor(fee.status)}>{fee.status}</Badge>
+                        <Badge variant="outline" className={statusColor(fee.status || "unpaid")}>{fee.status || "unpaid"}</Badge>
                       </TableCell>
                     </TableRow>
                   ))
@@ -289,16 +292,18 @@ const SchoolStudentDashboard = () => {
                 </TableHeader>
                 <TableBody>
                   {filteredPayments.map((p) => {
+                    if (!p) return null;
                     const displayItems = p.items ? p.items.map((item: string) => {
+                      if (!item) return "";
                       const pipeIdx = item.lastIndexOf("|");
                       return pipeIdx > 0 ? item.substring(0, pipeIdx) : item;
                     }) : [];
                     return (
                       <TableRow key={p.id}>
-                        <TableCell>{new Date(p.date).toLocaleDateString("en-NG")}</TableCell>
-                        <TableCell className="font-mono text-xs">{p.reference}</TableCell>
-                        <TableCell className="text-xs">{displayItems.join(", ")}</TableCell>
-                        <TableCell className="text-right font-medium">{formatNaira(Number(p.amount))}</TableCell>
+                        <TableCell>{p.date ? new Date(p.date).toLocaleDateString("en-NG") : "—"}</TableCell>
+                        <TableCell className="font-mono text-xs">{p.reference || "—"}</TableCell>
+                        <TableCell className="text-xs">{displayItems.filter(Boolean).join(", ")}</TableCell>
+                        <TableCell className="text-right font-medium">{formatNaira(Number(p.amount || 0))}</TableCell>
                         <TableCell className="text-right">
                           <Button variant="ghost" size="sm" onClick={() => navigate(`/school/${slug}/receipt/${p.id}`)} className="gap-1 h-7 text-xs">
                             <Eye className="w-3 h-3" /> View
@@ -328,18 +333,19 @@ const SchoolStudentDashboard = () => {
               <p className="text-sm text-muted-foreground text-center py-4">All fees are paid!</p>
             ) : (
               unpaidFees.map((fee) => {
-                const owing = Number(fee.amount) - Number(fee.paid);
+                if (!fee) return null;
+                const owing = Number(fee.amount || 0) - Number(fee.paid || 0);
                 const isSelected = !!selectedFees[fee.id];
                 return (
                   <div key={fee.id} className={`flex items-start gap-3 p-3 rounded-lg border transition-colors ${isSelected ? "border-primary/40 bg-primary/5" : "border-border"}`}>
                     <Checkbox checked={isSelected} onCheckedChange={() => toggleFee(fee.id)} className="mt-0.5" />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-2">
-                        <span className="text-sm font-medium">{fee.name}</span>
-                        <Badge variant="outline" className={statusColor(fee.status)}>{fee.status}</Badge>
+                        <span className="text-sm font-medium">{fee.name || "Unnamed Fee"}</span>
+                        <Badge variant="outline" className={statusColor(fee.status || "unpaid")}>{fee.status || "unpaid"}</Badge>
                       </div>
                       <p className="text-xs text-muted-foreground mt-0.5">
-                        Total: {formatNaira(Number(fee.amount))} &bull; Paid: {formatNaira(Number(fee.paid))} &bull; Owing: {formatNaira(owing)}
+                        Total: {formatNaira(Number(fee.amount || 0))} &bull; Paid: {formatNaira(Number(fee.paid || 0))} &bull; Owing: {formatNaira(owing)}
                       </p>
                       {isSelected && (
                         <div className="mt-2 flex items-center gap-2">
@@ -399,12 +405,12 @@ const SchoolStudentDashboard = () => {
                   setPayingWithZendfi(true);
                   try {
                     const feePayments = unpaidFees
-                      .filter((f) => selectedFees[f.id])
+                      .filter((f) => f && selectedFees[f.id])
                       .map((f) => ({
                         fee_item_id: f.id,
                         amount: Math.min(
                           Math.max(Number(feeAmounts[f.id] || 0), 0),
-                          Number(f.amount) - Number(f.paid)
+                          Number(f.amount || 0) - Number(f.paid || 0)
                         ),
                       }))
                       .filter((fp) => fp.amount > 0);
