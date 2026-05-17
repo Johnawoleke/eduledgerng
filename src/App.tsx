@@ -4,7 +4,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { SchoolProvider } from "@/lib/schoolContext";
-import AcademicPeriodSelector from "@/components/AcademicPeriodSelector";
+import { SupabaseAuthProvider } from "@/lib/supabaseAuthContext";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import LandingPage from "./pages/LandingPage";
 import RegisterSchool from "./pages/RegisterSchool";
 import OwnerLogin from "./pages/OwnerLogin";
@@ -21,44 +22,33 @@ const queryClient = new QueryClient();
 
 const App = () => {
   return (
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <SchoolProvider>
-          <Toaster />
-          <Sonner />
-          <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }} >
-            <Routes>
-              <Route path="/" element={<LandingPage />} />
-              <Route path="/register" element={<RegisterSchool />} />
-              <Route path="/login" element={<OwnerLogin />} />
-              <Route path="/school/:slug" element={<SchoolPortal />} />
-              <Route
-                path="/school/:slug/reset-password"
-                element={<ResetPassword />}
-              />
-              <Route
-                path="/school/:slug/student/*"
-                element={<SchoolStudentDashboard />}
-              />
-              <Route
-                path="/school/:slug/admin/*"
-                element={<SchoolAdminDashboard />}
-              />
-              <Route
-                path="/school/:slug/change-pin"
-                element={<ChangePinPage />}
-              />
-              <Route
-                path="/school/:slug/settings"
-                element={<SchoolSettingsPage />}
-              />
-              <Route path="/receipt/:id" element={<ReceiptPage />} />
-              <Route path="*" element={<NotFound />} />
-            </Routes>
-          </BrowserRouter>
-        </SchoolProvider>
-      </TooltipProvider>
-    </QueryClientProvider>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <SupabaseAuthProvider>
+          <TooltipProvider>
+            <SchoolProvider>
+              <Toaster />
+              <Sonner />
+              <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+                <Routes>
+                  <Route path="/" element={<LandingPage />} />
+                  <Route path="/register" element={<RegisterSchool />} />
+                  <Route path="/login" element={<OwnerLogin />} />
+                  <Route path="/school/:slug" element={<SchoolPortal />} />
+                  <Route path="/school/:slug/reset-password" element={<ResetPassword />} />
+                  <Route path="/school/:slug/student/*" element={<SchoolStudentDashboard />} />
+                  <Route path="/school/:slug/admin/*" element={<SchoolAdminDashboard />} />
+                  <Route path="/school/:slug/change-pin" element={<ChangePinPage />} />
+                  <Route path="/school/:slug/settings" element={<SchoolSettingsPage />} />
+                  <Route path="/receipt/:id" element={<ReceiptPage />} />
+                  <Route path="*" element={<NotFound />} />
+                </Routes>
+              </BrowserRouter>
+            </SchoolProvider>
+          </TooltipProvider>
+        </SupabaseAuthProvider>
+      </QueryClientProvider>
+    </ErrorBoundary>
   );
 };
 
