@@ -24,11 +24,11 @@ export const SupabaseAuthProvider = ({ children }: { children: ReactNode }) => {
 
   const clearAuthState = () => {
     try {
-      // Clear Supabase auth tokens safely
+      // Clear Supabase session tokens
       localStorage.removeItem("sb-auth-token");
       localStorage.removeItem("sb-refresh-token");
       
-      // Clear app-specific state data
+      // Clear app-specific data safely
       localStorage.removeItem("pity_student");
       localStorage.removeItem("pity_fees");
       localStorage.removeItem("pity_payments");
@@ -41,14 +41,14 @@ export const SupabaseAuthProvider = ({ children }: { children: ReactNode }) => {
       
       setIsSignedIn(false);
       
-      // Determine destination
+      // Figure out where we want to drop the user
       const redirectUrl = pendingRedirectRef.current || "/";
       
-      // 🛑 THE LOOP BREAK SHIELD: Only reload the window if we are NOT already sitting on the target page!
+      // 🛡️ THE INF-LOOP SHIELD: Only reload the window if we are NOT already there!
       if (window.location.pathname !== redirectUrl) {
         window.location.href = redirectUrl;
       } else {
-        // We are already exactly where we want to be! Clear the ref tracker and stay put safely.
+        // We have arrived at the portal page! Clear the tracker and do absolutely nothing else.
         pendingRedirectRef.current = null;
       }
     } catch (err) {
@@ -64,7 +64,7 @@ export const SupabaseAuthProvider = ({ children }: { children: ReactNode }) => {
       const { data, error } = await supabase.auth.getSession();
       
       if (error || !data?.session) {
-        // Safety: Only clear state if we aren't already sitting on a clean school layout portal page
+        // Safety check: Don't trigger a destructive clear if the logged-out user is just viewing a public portal
         if (!window.location.pathname.startsWith("/school/")) {
           clearAuthState();
         }
