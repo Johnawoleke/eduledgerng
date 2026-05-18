@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, ReactNode } from "react";
+import React, { createContext, useContext, useEffect, ReactNode, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
 interface SupabaseAuthContextType {
@@ -15,18 +15,53 @@ const SupabaseAuthContext = createContext<SupabaseAuthContextType>({
 
 /**
  * SupabaseAuthProvider manages Supabase auth state lifecycle.
- * 
- * Key responsibilities:
- * 1. Monitors auth.onAuthStateChange() events
- * 2. Clears corrupted localStorage on sign-out/invalid session
- * 3. Respects pendingRedirect URL instead of hard-redirecting to home
- * 4. Breaks infinite auth loops by redirecting
- * 5. Prevents blank screens from auth state mismatches
  */
 export const SupabaseAuthProvider = ({ children }: { children: ReactNode }) => {
   const [isReady, setIsReady] = React.useState(false);
   const [isSignedIn, setIsSignedIn] = React.useState(false);
-  const [pendingRedirect, setPendingRedirect] = React.useState<string | null>(null);
+  
+  // Use a mutable ref to hold the redirect target. 
+  // This bypasses closure issues so background auth listeners always see the fresh value instantly!
+  const pendingRedirectRef = useRef<string | null>(null);
+
+  const setPendingRedirect = (url: string) => {
+    pendingRedirectRef.current = url;
+  };
+
+  /**
+   * Clears all auth-related state from localStorage and redirects.
+   */
+  const clearAuthState = () => {
+    try {
+      // Clear Supabase auth tokens
+      localStorage.removeItem("sb-auth-token");
+      localStorage.removeItem("sb-refresh-token");
+      
+      // Clear app-specific auth/session data (from SchoolContext)
+      localStorage.removeItem("pity_student");
+      localStorage.removeItem("pity_fees");
+      localStorage.removeItem("pity_payments");
+      localStorage.removeItem("pity_credentials");
+      localStorage.removeItem("pity_school");
+      localStorage.removeItem("pity_slug");
+      
+      // Clear legacy auth tokens if they exist
+      localStorage.removeItem("supabase.auth.token");
+      localStorage.removeItem("supabase.auth.expires_at");
+      
+      // Update React state
+      setIsSignedIn(false);
+      
+      // Pull destination from ref tracker, fallback to active route or home base
+      const redirectUrl = pendingRedirectRef.current || window.location.pathname || "/";
+      
+      // Force window redirect to completely dump current memory space
+      window.location.href = redirectUrl;
+    } catch (err) {
+      console.error("Error clearing auth state:", err);
+      window.location.href = pendingRedirectRef.current || "/";
+    }
+  };
 
   useEffect(() => {
     // Check current session on mount
@@ -48,17 +83,11 @@ export const SupabaseAuthProvider = ({ children }: { children: ReactNode }) => {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === "SIGNED_OUT" || !session) {
-        // Clear everything and redirect on sign-out or session loss
         clearAuthState();
         return;
       }
 
-      if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
-        setIsSignedIn(true);
-      }
-
-      if (event === "USER_UPDATED") {
-        // Session is still valid, just user data changed
+      if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED" || event === "USER_UPDATED") {
         setIsSignedIn(true);
       }
     });
@@ -67,46 +96,6 @@ export const SupabaseAuthProvider = ({ children }: { children: ReactNode }) => {
       subscription?.unsubscribe();
     };
   }, []);
-
-  /**
-   * Clears all auth-related state from localStorage and redirects.
-   * Uses pendingRedirect if set, otherwise defaults to "/".
-   * This prevents infinite loops when session tokens are invalid/expired.
-   */
-  const clearAuthState = () => {
-    try {
-      // Clear Supabase auth tokens
-      localStorage.removeItem("sb-auth-token");
-      localStorage.removeItem("sb-refresh-token");
-      
-      // Clear app-specific auth/session data (from SchoolContext)
-      localStorage.removeItem("pity_student");
-      localStorage.removeItem("pity_fees");
-      localStorage.removeItem("pity_payments");
-      localStorage.removeItem("pity_credentials");
-      localStorage.removeItem("pity_school");
-      localStorage.removeItem("pity_slug");
-      
-      // Clear legacy auth tokens if they exist
-      localStorage.removeItem("supabase.auth.token");
-      localStorage.removeItem("supabase.auth.expires_at");
-      
-      // Update state
-      setIsSignedIn(false);
-      
-      // Determine redirect URL: use pending redirect if set, otherwise go to "/"
-      const redirectUrl = pendingRedirect || "/";
-      
-      // Hard redirect to avoid infinite loops
-      if (window.location.pathname !== redirectUrl) {
-        window.location.href = redirectUrl;
-      }
-    } catch (err) {
-      console.error("Error clearing auth state:", err);
-      // Fallback: still redirect even if cleanup fails
-      window.location.href = pendingRedirect || "/";
-    }
-  };
 
   return (
     <SupabaseAuthContext.Provider value={{ isReady, isSignedIn, setPendingRedirect }}>
