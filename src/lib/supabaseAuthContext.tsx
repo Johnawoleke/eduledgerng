@@ -13,31 +13,22 @@ const SupabaseAuthContext = createContext<SupabaseAuthContextType>({
   setPendingRedirect: () => {},
 });
 
-/**
- * SupabaseAuthProvider manages Supabase auth state lifecycle.
- */
 export const SupabaseAuthProvider = ({ children }: { children: ReactNode }) => {
   const [isReady, setIsReady] = React.useState(false);
   const [isSignedIn, setIsSignedIn] = React.useState(false);
-  
-  // Use a mutable ref to hold the redirect target. 
-  // This bypasses closure issues so background auth listeners always see the fresh value instantly!
   const pendingRedirectRef = useRef<string | null>(null);
 
   const setPendingRedirect = (url: string) => {
     pendingRedirectRef.current = url;
   };
 
-  /**
-   * Clears all auth-related state from localStorage and redirects.
-   */
   const clearAuthState = () => {
     try {
-      // Clear Supabase auth tokens
+      // Clear Supabase auth tokens safely
       localStorage.removeItem("sb-auth-token");
       localStorage.removeItem("sb-refresh-token");
       
-      // Clear app-specific auth/session data (from SchoolContext)
+      // Clear app-specific state data
       localStorage.removeItem("pity_student");
       localStorage.removeItem("pity_fees");
       localStorage.removeItem("pity_payments");
@@ -45,31 +36,38 @@ export const SupabaseAuthProvider = ({ children }: { children: ReactNode }) => {
       localStorage.removeItem("pity_school");
       localStorage.removeItem("pity_slug");
       
-      // Clear legacy auth tokens if they exist
       localStorage.removeItem("supabase.auth.token");
       localStorage.removeItem("supabase.auth.expires_at");
       
-      // Update React state
       setIsSignedIn(false);
       
-      // Pull destination from ref tracker, fallback to active route or home base
-      const redirectUrl = pendingRedirectRef.current || window.location.pathname || "/";
+      // Determine destination
+      const redirectUrl = pendingRedirectRef.current || "/";
       
-      // Force window redirect to completely dump current memory space
-      window.location.href = redirectUrl;
+      // 🛑 THE LOOP BREAK SHIELD: Only reload the window if we are NOT already sitting on the target page!
+      if (window.location.pathname !== redirectUrl) {
+        window.location.href = redirectUrl;
+      } else {
+        // We are already exactly where we want to be! Clear the ref tracker and stay put safely.
+        pendingRedirectRef.current = null;
+      }
     } catch (err) {
       console.error("Error clearing auth state:", err);
-      window.location.href = pendingRedirectRef.current || "/";
+      if (window.location.pathname !== "/") {
+        window.location.href = "/";
+      }
     }
   };
 
   useEffect(() => {
-    // Check current session on mount
     const checkSession = async () => {
       const { data, error } = await supabase.auth.getSession();
       
       if (error || !data?.session) {
-        clearAuthState();
+        // Safety: Only clear state if we aren't already sitting on a clean school layout portal page
+        if (!window.location.pathname.startsWith("/school/")) {
+          clearAuthState();
+        }
       } else {
         setIsSignedIn(true);
       }
@@ -78,7 +76,6 @@ export const SupabaseAuthProvider = ({ children }: { children: ReactNode }) => {
 
     checkSession();
 
-    // Subscribe to auth state changes
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
