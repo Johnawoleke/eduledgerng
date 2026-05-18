@@ -4,9 +4,14 @@ import { supabase } from "@/integrations/supabase/client";
 interface SupabaseAuthContextType {
   isReady: boolean;
   isSignedIn: boolean;
+  setPendingRedirect: (url: string) => void;
 }
 
-const SupabaseAuthContext = createContext<SupabaseAuthContextType>({ isReady: false, isSignedIn: false });
+const SupabaseAuthContext = createContext<SupabaseAuthContextType>({ 
+  isReady: false, 
+  isSignedIn: false,
+  setPendingRedirect: () => {},
+});
 
 /**
  * SupabaseAuthProvider manages Supabase auth state lifecycle.
@@ -14,12 +19,14 @@ const SupabaseAuthContext = createContext<SupabaseAuthContextType>({ isReady: fa
  * Key responsibilities:
  * 1. Monitors auth.onAuthStateChange() events
  * 2. Clears corrupted localStorage on sign-out/invalid session
- * 3. Breaks infinite auth loops by hard-redirecting to home
- * 4. Prevents blank screens from auth state mismatches
+ * 3. Respects pendingRedirect URL instead of hard-redirecting to home
+ * 4. Breaks infinite auth loops by redirecting
+ * 5. Prevents blank screens from auth state mismatches
  */
 export const SupabaseAuthProvider = ({ children }: { children: ReactNode }) => {
   const [isReady, setIsReady] = React.useState(false);
   const [isSignedIn, setIsSignedIn] = React.useState(false);
+  const [pendingRedirect, setPendingRedirect] = React.useState<string | null>(null);
 
   useEffect(() => {
     // Check current session on mount
@@ -62,7 +69,8 @@ export const SupabaseAuthProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   /**
-   * Clears all auth-related state from localStorage and redirects to home.
+   * Clears all auth-related state from localStorage and redirects.
+   * Uses pendingRedirect if set, otherwise defaults to "/".
    * This prevents infinite loops when session tokens are invalid/expired.
    */
   const clearAuthState = () => {
@@ -86,19 +94,22 @@ export const SupabaseAuthProvider = ({ children }: { children: ReactNode }) => {
       // Update state
       setIsSignedIn(false);
       
-      // Hard redirect to home to break any redirect loops
-      if (window.location.pathname !== "/") {
-        window.location.href = "/";
+      // Determine redirect URL: use pending redirect if set, otherwise go to "/"
+      const redirectUrl = pendingRedirect || "/";
+      
+      // Hard redirect to avoid infinite loops
+      if (window.location.pathname !== redirectUrl) {
+        window.location.href = redirectUrl;
       }
     } catch (err) {
       console.error("Error clearing auth state:", err);
       // Fallback: still redirect even if cleanup fails
-      window.location.href = "/";
+      window.location.href = pendingRedirect || "/";
     }
   };
 
   return (
-    <SupabaseAuthContext.Provider value={{ isReady, isSignedIn }}>
+    <SupabaseAuthContext.Provider value={{ isReady, isSignedIn, setPendingRedirect }}>
       {children}
     </SupabaseAuthContext.Provider>
   );
