@@ -14,6 +14,7 @@ import { generateReceiptPdf, parsePaymentItems } from "@/lib/generateReceiptPdf"
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAcademicPeriods } from "@/hooks/useAcademicPeriods";
+import { useSupabaseAuth } from "@/lib/supabaseAuthContext";
 import AcademicPeriodSelector from "@/components/AcademicPeriodSelector";
 
 const formatNaira = (amount: number) =>
@@ -130,6 +131,7 @@ const parseCsvRows = (text: string): Record<string, string>[] => {
 const SchoolAdminDashboard = () => {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
+  const { setPendingRedirect } = useSupabaseAuth();
   const [school, setSchool] = useState<any>(null);
   const [students, setStudents] = useState<StudentRow[]>([]);
   const [classFees, setClassFees] = useState<ClassFee[]>([]);
@@ -572,8 +574,14 @@ default_pin: "Password1",
   };
 
   const handleLogout = async () => {
+    // Set the pending redirect BEFORE signing out
+    // This tells the SupabaseAuthProvider to redirect here instead of "/"
+    const redirectUrl = `/school/${slug}`;
+    setPendingRedirect(redirectUrl);
+    
     await supabase.auth.signOut();
-    navigate(`/school/${slug}`);
+    // The SupabaseAuthProvider's onAuthStateChange listener will trigger
+    // and use the pendingRedirect to navigate to the school portal
   };
 
   const handleViewStudent = async (student: StudentRow) => {
