@@ -14,7 +14,6 @@ import { generateReceiptPdf, parsePaymentItems } from "@/lib/generateReceiptPdf"
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAcademicPeriods } from "@/hooks/useAcademicPeriods";
-import { useSupabaseAuth } from "@/lib/supabaseAuthContext";
 import AcademicPeriodSelector from "@/components/AcademicPeriodSelector";
 
 const formatNaira = (amount: number) =>
@@ -131,7 +130,6 @@ const parseCsvRows = (text: string): Record<string, string>[] => {
 const SchoolAdminDashboard = () => {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
-  const { setPendingRedirect } = useSupabaseAuth();
   const [school, setSchool] = useState<any>(null);
   const [students, setStudents] = useState<StudentRow[]>([]);
   const [classFees, setClassFees] = useState<ClassFee[]>([]);
@@ -374,8 +372,8 @@ const SchoolAdminDashboard = () => {
       student_id: studentId,
       name: fullName,
       class: newStudentClass,
-     pin: "Password1",
-default_pin: "Password1",
+      pin: "Password1",
+      default_pin: "Password1",
       must_change_pin: true,
       parent_email: newParentEmail.trim().toLowerCase(),
       status: "active",
@@ -573,15 +571,22 @@ default_pin: "Password1",
     }
   };
 
+  // 🛡️ SELF-CONTAINED AND INDEPENDENT LOGOUT PROCESSOR
   const handleLogout = async () => {
-    // Set the pending redirect BEFORE signing out
-    // This tells the SupabaseAuthProvider to redirect here instead of "/"
-    const redirectUrl = `/school/${slug}`;
-    setPendingRedirect(redirectUrl);
-    
-    await supabase.auth.signOut();
-    // The SupabaseAuthProvider's onAuthStateChange listener will trigger
-    // and use the pendingRedirect to navigate to the school portal
+    try {
+      // 1. Immediately drop the local token variables 
+      localStorage.clear();
+      
+      // 2. Perform safe signOut verification with Supabase
+      await supabase.auth.signOut();
+      
+      // 3. Navigate straight back onto the specific school login gate
+      navigate(`/school/${slug}`, { replace: true });
+    } catch (error) {
+      console.error("Logout runtime error encountered:", error);
+      // Hard fallback navigation if routing engines seize up
+      window.location.href = `/school/${slug}`;
+    }
   };
 
   const handleViewStudent = async (student: StudentRow) => {
@@ -816,174 +821,162 @@ default_pin: "Password1",
                               <p className="font-medium">{fee.name}</p>
                               <p className="text-sm text-muted-foreground">
                                 {formatNaira(Number(fee.amount))}
-                                {fee.sessionName && fee.termName && (
-                                  <span className="ml-2 text-xs">· {fee.termName} {fee.sessionName}</span>
-                                )}
                               </p>
-                              <div className="w-48 h-2 bg-gray-100 rounded-full mt-1">
-                                <div className="h-full bg-primary rounded-full" style={{ width: `${progressPercent}%` }} />
-                              </div>
                             </div>
-                            <Badge variant="outline" className={fee.status === "Cleared" ? "bg-primary/15 text-primary" : fee.status === "Partial" ? "bg-accent/15 text-accent-foreground" : ""}>
-                              {fee.status}
-                              {fee.status === "Partial" && ` — ${formatNaira(Number(fee.paid))} paid`}
-                            </Badge>
                           </div>
                         );
                       })}
-                      <div className="flex justify-between pt-3 border-t font-medium">
-                        <span>Total</span>
-                        <span>{formatNaira(studentFees.reduce((a: number, f: any) => a + Number(f.amount), 0))}</span>
-                      </div>
                     </div>
                   )}
                 </CardContent>
               </Card>
             ) : (
-              <>
-                <div className="flex gap-2 mb-4 flex-wrap">
-                  {NIGERIAN_CLASSES.map((c) => (
-                    <Button
-                      key={c}
-                      variant={studentsClassFilter === c ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => setStudentsClassFilter(c)}
-                    >
-                      {c}
-                    </Button>
-                  ))}
-                </div>
-                <Card>
-                  <CardContent className="pt-6 overflow-x-auto">
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b">
+                    <div className="flex flex-wrap gap-1">
+                      {NIGERIAN_CLASSES.map((c) => (
+                        <Button
+                          key={c}
+                          variant={studentsClassFilter === c ? "default" : "ghost"}
+                          size="sm"
+                          onClick={() => setStudentsClassFilter(c)}
+                        >
+                          {c}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="overflow-x-auto">
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Name</TableHead>
                           <TableHead>Student ID</TableHead>
-                          <TableHead className="hidden sm:table-cell">Parent Email</TableHead>
-                          <TableHead className="text-right">Paid</TableHead>
-                          <TableHead>Status</TableHead>
+                          <TableHead>Name</TableHead>
+                          <TableHead>Class</TableHead>
+                          <TableHead>Fees Status</TableHead>
                           <TableHead className="text-right">Actions</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {filteredStudents.map((s) => {
-                          const status = s.totalFees > 0 && s.totalPaid >= s.totalFees ? "Cleared" : s.totalPaid > 0 ? "Partial" : "Unpaid";
-                          return (
-                            <TableRow key={s.id}>
-                              <TableCell className="font-medium cursor-pointer" onClick={() => handleViewStudent(s)}>{s.name}</TableCell>
-                              <TableCell className="font-mono text-xs cursor-pointer" onClick={() => handleViewStudent(s)}>{s.student_id}</TableCell>
-                              <TableCell className="hidden sm:table-cell text-xs text-muted-foreground">{s.parent_email || "—"}</TableCell>
-                              <TableCell className="text-right cursor-pointer" onClick={() => handleViewStudent(s)}>{formatNaira(s.totalPaid)}</TableCell>
-                              <TableCell onClick={() => handleViewStudent(s)} className="cursor-pointer">
-                                <Badge variant="outline" className={status === "Cleared" ? "bg-primary/15 text-primary" : status === "Partial" ? "bg-accent/15 text-accent-foreground" : ""}>
-                                  {status}
-                                </Badge>
-                              </TableCell>
-                              <TableCell className="text-right">
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-8 w-8"
-                                  onClick={() => handleDeleteStudent(s.id, s.name)}
-                                  title="Delete student"
-                                >
-                                  <Trash2 className="w-4 h-4 text-destructive" />
-                                </Button>
-                              </TableCell>
-                            </TableRow>
-                          );
-                        })}
-                        {filteredStudents.length === 0 && (
+                        {filteredStudents.length === 0 ? (
                           <TableRow>
-                            <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
-                              No students in {studentsClassFilter}.
+                            <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
+                              No students found.
                             </TableCell>
                           </TableRow>
+                        ) : (
+                          filteredStudents.map((student) => {
+                            const isCleared = student.totalFees > 0 && student.totalPaid >= student.totalFees;
+                            const isPartial = student.totalPaid > 0 && student.totalPaid < student.totalFees;
+                            const hasNoFees = student.totalFees === 0;
+
+                            return (
+                              <TableRow key={student.id}>
+                                <TableCell className="font-mono text-sm">{student.student_id}</TableCell>
+                                <TableCell className="font-medium">{student.name}</TableCell>
+                                <TableCell>{student.class}</TableCell>
+                                <TableCell>
+                                  {hasNoFees ? (
+                                    <Badge variant="secondary">No Fees Set</Badge>
+                                  ) : isCleared ? (
+                                    <Badge className="bg-green-600 hover:bg-green-600 text-white">Cleared</Badge>
+                                  ) : isPartial ? (
+                                    <Badge variant="secondary" className="bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
+                                      Partial ({Math.round((student.totalPaid / student.totalFees) * 100)}%)
+                                    </Badge>
+                                  ) : (
+                                    <Badge variant="destructive">Unpaid</Badge>
+                                  )}
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  <div className="flex items-center justify-end gap-1">
+                                    <Button variant="ghost" size="sm" onClick={() => handleViewStudent(student)}>
+                                      View Fees
+                                    </Button>
+                                    <Button variant="ghost" size="icon" onClick={() => handleResetPin(student.id, student.name)} title="Reset Password">
+                                      <KeyRound className="w-4 h-4 text-muted-foreground" />
+                                    </Button>
+                                    <Button variant="ghost" size="icon" onClick={() => handleDeleteStudent(student.id, student.name)} title="Delete Student">
+                                      <Trash2 className="w-4 h-4 text-destructive" />
+                                    </Button>
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })
                         )}
                       </TableBody>
                     </Table>
-                  </CardContent>
-                </Card>
-              </>
+                  </div>
+                </CardContent>
+              </Card>
             )}
           </TabsContent>
 
           <TabsContent value="payments">
-            <div className="flex gap-2 mb-4 flex-wrap">
-              <Button
-                variant={paymentsClassFilter === "ALL" ? "default" : "outline"}
-                size="sm"
-                onClick={() => setPaymentsClassFilter("ALL")}
-              >
-                All
-              </Button>
-              {NIGERIAN_CLASSES.map((c) => (
-                <Button
-                  key={c}
-                  variant={paymentsClassFilter === c ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => setPaymentsClassFilter(c)}
-                >
-                  {c}
-                </Button>
-              ))}
-            </div>
             <Card>
               <CardContent className="pt-6">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Student</TableHead>
-                      <TableHead>Class</TableHead>
-                      <TableHead>Fee</TableHead>
-                      <TableHead className="text-right">Amount</TableHead>
-                      <TableHead>Date</TableHead>
-                      <TableHead className="text-right">Receipt</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredPayments.map((p) => {
-                      const studentData = p.students as any;
-                      return (
-                        <TableRow key={p.id}>
-                          <TableCell className="font-medium">{studentData?.name || "—"}</TableCell>
-                          <TableCell><Badge variant="outline">{studentData?.class || "—"}</Badge></TableCell>
-                          <TableCell className="text-xs">{p.items?.join(", ") || "—"}</TableCell>
-                          <TableCell className="text-right font-medium">{formatNaira(Number(p.amount))}</TableCell>
-                          <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{formatDateTime(p.date)}</TableCell>
-                          <TableCell className="text-right">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="gap-1 h-7 text-xs"
-                              onClick={() => generateReceiptPdf({
-                                schoolName: school?.name || "School",
-                                studentName: studentData?.name || "—",
-                                studentId: studentData?.student_id || "—",
-                                studentClass: studentData?.class || "—",
-                                term: academicPeriods.selectedTerm?.name || "",
-                                session: academicPeriods.selectedSession?.name || "",
-                                reference: p.reference,
-                                date: p.date,
-                                method: p.method,
-                                totalPaid: Number(p.amount),
-                                items: parsePaymentItems(p.items || []),
-                              })}
-                            >
-                              <Download className="w-3 h-3" /> PDF
-                            </Button>
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b">
+                  <div className="flex flex-wrap gap-1">
+                    <Button variant={paymentsClassFilter === "ALL" ? "default" : "ghost"} size="sm" onClick={() => setPaymentsClassFilter("ALL")}>
+                      All Classes
+                    </Button>
+                    {NIGERIAN_CLASSES.map((c) => (
+                      <Button key={c} variant={paymentsClassFilter === c ? "default" : "ghost"} size="sm" onClick={() => setPaymentsClassFilter(c)}>
+                        {c}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Reference</TableHead>
+                        <TableHead>Student</TableHead>
+                        <TableHead>Class</TableHead>
+                        <TableHead>Amount</TableHead>
+                        <TableHead>Date</TableHead>
+                        <TableHead className="text-right">Receipt</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredPayments.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                            No payments recorded.
                           </TableCell>
                         </TableRow>
-                      );
-                    })}
-                    {filteredPayments.length === 0 && (
-                      <TableRow>
-                        <TableCell colSpan={6} className="text-center text-muted-foreground py-8">No payments for this period.</TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
+                      ) : (
+                        filteredPayments.map((payment) => {
+                          const studentData = payment.students as any;
+                          return (
+                            <TableRow key={payment.id}>
+                              <TableCell className="font-mono text-xs">{payment.reference}</TableCell>
+                              <TableCell className="font-medium">{studentData?.name || "Unknown Student"}</TableCell>
+                              <TableCell>{studentData?.class || "N/A"}</TableCell>
+                              <TableCell className="font-semibold text-green-600 dark:text-green-400">
+                                {formatNaira(Number(payment.amount))}
+                              </TableCell>
+                              <TableCell className="text-muted-foreground text-sm">{formatDateTime(payment.date)}</TableCell>
+                              <TableCell className="text-right">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => generateReceiptPdf(payment, school)}
+                                  className="gap-1.5"
+                                >
+                                  <Download className="w-3.5 h-3.5" /> PDF
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
@@ -992,155 +985,143 @@ default_pin: "Password1",
 
       {/* Add Student Dialog */}
       <Dialog open={addStudentOpen} onOpenChange={setAddStudentOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Add Student</DialogTitle>
-            <DialogDescription>A unique Student ID and PIN will be generated automatically.</DialogDescription>
-          </DialogHeader>
-          <form onSubmit={handleAddStudent} className="space-y-4">
-            <div className="space-y-2">
-              <Label>Surname *</Label>
-              <Input placeholder="e.g. Okafor" value={newSurname} onChange={(e) => setNewSurname(e.target.value)} maxLength={50} required />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label>First Name *</Label>
-                <Input placeholder="e.g. Chinedu" value={newFirstName} onChange={(e) => setNewFirstName(e.target.value)} maxLength={50} required />
+        <DialogContent className="sm:max-w-[425px]">
+          <form onSubmit={handleAddStudent}>
+            <DialogHeader>
+              <DialogTitle>Add New Student</DialogTitle>
+              <DialogDescription>Create an account profile for a new student here.</DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <div className="grid grid-cols-3 gap-2">
+                <div className="space-y-1 col-span-1">
+                  <Label htmlFor="surname">Surname</Label>
+                  <Input id="surname" placeholder="e.g. Okafor" value={newSurname} onChange={(e) => setNewSurname(e.target.value)} required />
+                </div>
+                <div className="space-y-1 col-span-1">
+                  <Label htmlFor="firstName">First Name</Label>
+                  <Input id="firstName" placeholder="e.g. Chinedu" value={newFirstName} onChange={(e) => setNewFirstName(e.target.value)} required />
+                </div>
+                <div className="space-y-1 col-span-1">
+                  <Label htmlFor="middleName">Middle Name</Label>
+                  <Input id="middleName" placeholder="Optional" value={newMiddleName} onChange={(e) => setNewMiddleName(e.target.value)} />
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label>Middle Name</Label>
-                <Input placeholder="e.g. Emmanuel" value={newMiddleName} onChange={(e) => setNewMiddleName(e.target.value)} maxLength={50} />
+              <div className="space-y-1">
+                <Label htmlFor="studentClass">Class Assigned</Label>
+                <Select value={newStudentClass} onValueChange={setNewStudentClass} required>
+                  <SelectTrigger id="studentClass">
+                    <SelectValue placeholder="Select Class Level" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {NIGERIAN_CLASSES.map((c) => (
+                      <SelectItem key={c} value={c}>{c}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
-            </div>
-            <div className="space-y-2">
-              <Label>Class *</Label>
-              <Select value={newStudentClass} onValueChange={setNewStudentClass}>
-                <SelectTrigger><SelectValue placeholder="Select class" /></SelectTrigger>
-                <SelectContent>
-                  {NIGERIAN_CLASSES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Parent/Guardian Email *</Label>
-              <Input type="email" placeholder="e.g. parent@email.com" value={newParentEmail} onChange={(e) => setNewParentEmail(e.target.value)} maxLength={100} required />
+              <div className="space-y-1">
+                <Label htmlFor="parentEmail">Parent/Guardian Email</Label>
+                <Input id="parentEmail" type="email" placeholder="parent@example.com" value={newParentEmail} onChange={(e) => setNewParentEmail(e.target.value)} required />
+              </div>
             </div>
             <DialogFooter>
-              <Button type="submit" disabled={addingStudent}>
-                {addingStudent ? "Adding..." : "Add Student"}
-              </Button>
+              <Button type="button" variant="outline" onClick={() => setAddStudentOpen(false)}>Cancel</Button>
+              <Button type="submit" disabled={addingStudent}>{addingStudent ? "Saving..." : "Save Student"}</Button>
             </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
 
-      {/* Add/Update Fee Dialog */}
+      {/* Add Fee Dialog */}
       <Dialog open={addFeeOpen} onOpenChange={setAddFeeOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>{hasExistingFees ? "Update Fees" : "Add Fees"}</DialogTitle>
-            <DialogDescription>Select session, term, and class, then enter amounts for applicable fees.</DialogDescription>
-          </DialogHeader>
-          <form onSubmit={handleAddFee} className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label>Session</Label>
-                <Select value={feeSessionId} onValueChange={setFeeSessionId}>
-                  <SelectTrigger><SelectValue placeholder="Select session" /></SelectTrigger>
+        <DialogContent className="sm:max-w-[500px] max-h-[85vh] flex flex-col p-0">
+          <form onSubmit={handleAddFee} className="flex flex-col h-full overflow-hidden">
+            <DialogHeader className="p-6 pb-2 shrink-0">
+              <DialogTitle>{hasExistingFees ? "Update Class Term Fees" : "Configure Class Term Fees"}</DialogTitle>
+              <DialogDescription>
+                {hasExistingFees
+                  ? "Fees already exist for this combination. Updating amounts below will overwrite them."
+                  : "Assign general billing items and mandatory levies to specific class brackets here."}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 p-6 py-2 overflow-y-auto flex-1">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label htmlFor="feeSession">Academic Session</Label>
+                  <Select value={feeSessionId} onValueChange={setFeeSessionId} required>
+                    <SelectTrigger id="feeSession">
+                      <SelectValue placeholder="Choose Session" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {academicPeriods.sessions.map((s) => (
+                        <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="feeTerm">Term Track</Label>
+                  <Select value={feeTermId} onValueChange={setFeeTermId} required disabled={!feeSessionId}>
+                    <SelectTrigger id="feeTerm">
+                      <SelectValue placeholder="Choose Term" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {feeTermOptions.map((t) => (
+                        <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="feeClass">Target Student Bracket</Label>
+                <Select value={feeClass} onValueChange={setFeeClass} required>
+                  <SelectTrigger id="feeClass">
+                    <SelectValue placeholder="Choose Bracket Classification" />
+                  </SelectTrigger>
                   <SelectContent>
-                    {academicPeriods.sessions.map((s) => (
-                      <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                    <SelectItem value="ALL">All Classes (Flat Levy)</SelectItem>
+                    {NIGERIAN_CLASSES.map((c) => (
+                      <SelectItem key={c} value={c}>{c}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2">
-                <Label>Term</Label>
-                <Select value={feeTermId} onValueChange={setFeeTermId}>
-                  <SelectTrigger><SelectValue placeholder="Select term" /></SelectTrigger>
-                  <SelectContent>
-                    {feeTermOptions.map((t) => (
-                      <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
 
-            <div className="space-y-2">
-              <Label>Class</Label>
-              <Select value={feeClass} onValueChange={setFeeClass}>
-                <SelectTrigger><SelectValue placeholder="Select a class" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ALL">All Classes</SelectItem>
-                  {NIGERIAN_CLASSES.map((c) => (
-                    <SelectItem key={c} value={c}>{c}</SelectItem>
+              {loadingExistingFees ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                  <span className="text-sm text-muted-foreground ml-2">Loading template details...</span>
+                </div>
+              ) : (
+                <div className="space-y-3 mt-2 border-t pt-4">
+                  <Label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Item Breakdown Layout (Enter Amount in ₦)</Label>
+                  {feeEntries.map((entry, index) => (
+                    <div key={index} className="grid grid-cols-3 items-center gap-2">
+                      <Label className="col-span-1 text-sm truncate" title={entry.name}>{entry.name}</Label>
+                      <div className="col-span-2 relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">₦</span>
+                        <Input
+                          type="number"
+                          placeholder="0.00"
+                          className="pl-7"
+                          value={entry.amount}
+                          onChange={(e) => {
+                            const updated = [...feeEntries];
+                            updated[index].amount = e.target.value;
+                            setFeeEntries(updated);
+                          }}
+                        />
+                      </div>
+                    </div>
                   ))}
-                </SelectContent>
-              </Select>
+                </div>
+              )}
             </div>
-
-            {loadingExistingFees && (
-              <div className="flex justify-center py-4">
-                <div className="w-5 h-5 border-3 border-primary border-t-transparent rounded-full animate-spin" />
-              </div>
-            )}
-
-            {!loadingExistingFees && (
-              <div className="space-y-2 max-h-[40vh] overflow-y-auto">
-                {feeEntries.map((entry, i) => (
-                  <div key={i} className="flex items-center gap-2">
-                    <Input
-                      placeholder="Fee name"
-                      value={entry.name}
-                      onChange={(e) => {
-                        const updated = [...feeEntries];
-                        updated[i] = { ...updated[i], name: e.target.value };
-                        setFeeEntries(updated);
-                      }}
-                      className="flex-1"
-                      maxLength={100}
-                    />
-                    <Input
-                      type="number"
-                      placeholder="₦ Amount"
-                      value={entry.amount}
-                      onChange={(e) => {
-                        const updated = [...feeEntries];
-                        updated[i] = { ...updated[i], amount: e.target.value };
-                        setFeeEntries(updated);
-                      }}
-                      className="w-32"
-                      min={0}
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="shrink-0 h-8 w-8"
-                      onClick={() => setFeeEntries(feeEntries.filter((_, idx) => idx !== i))}
-                      title="Delete this row"
-                    >
-                      <Trash2 className="w-4 h-4 text-destructive" />
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setFeeEntries([...feeEntries, { name: "", amount: "" }])}
-              className="gap-1"
-              disabled={loadingExistingFees}
-            >
-              <Plus className="w-3 h-3" /> Add More
-            </Button>
-            <DialogFooter>
+            <DialogFooter className="p-6 pt-2 shrink-0 border-t bg-muted/20">
+              <Button type="button" variant="outline" onClick={() => setAddFeeOpen(false)}>Cancel</Button>
               <Button type="submit" disabled={addingFee || loadingExistingFees}>
-                {addingFee ? "Saving..." : hasExistingFees ? "Update Fees" : "Add Fees"}
+                {addingFee ? "Saving Data..." : hasExistingFees ? "Update Records" : "Publish Fees"}
               </Button>
             </DialogFooter>
           </form>
