@@ -56,6 +56,16 @@ const ChangePinPage = () => {
         return;
       }
 
+      // 🚀 NEW BACKUP AUTO-UPDATE CODE
+      // This tells the database directly to update the visual data grid and turn off the first-time login flag.
+      await supabase
+        .from('students')
+        .update({ 
+          pin: newPin,
+          is_first_login: false 
+        })
+        .eq('student_id', studentCredentials.student_id);
+
       // Re-login with new PIN to update credentials
       loginStudent(
         { ...student, must_change_pin: false },
