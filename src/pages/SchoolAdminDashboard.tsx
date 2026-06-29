@@ -1,3 +1,4 @@
+// src/pages/SchoolAdminDashboard.tsx
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,7 +10,25 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { GraduationCap, LogOut, Users, Wallet, TrendingUp, Search, Plus, UserPlus, Copy, Link as LinkIcon, KeyRound, Trash2, ChevronLeft, Download, Settings, Upload } from "lucide-react";
+import { 
+  GraduationCap, 
+  LogOut, 
+  Users, 
+  Wallet, 
+  TrendingUp, 
+  Search, 
+  Plus, 
+  UserPlus, 
+  Copy, 
+  Link as LinkIcon, 
+  KeyRound, 
+  Trash2, 
+  ChevronLeft, 
+  Download, 
+  Settings, 
+  Upload,
+  Home
+} from "lucide-react";
 import { generateReceiptPdf, parsePaymentItems } from "@/lib/generateReceiptPdf";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -25,18 +44,6 @@ const DEFAULT_FEE_TEMPLATES = [
   "Tuition Fee", "PTA Levy", "Exam Fee", "Sports Levy", "Computer Fee",
   "Library Fee", "Laboratory Fee", "Books and Materials", "Uniform Fee", "Development Levy",
 ];
-
-// Generate academic years from 2025/2026 through 2035/2036
-const generateAcademicYears = () => {
-  const years = [];
-  for (let year = 2025; year <= 2035; year++) {
-    years.push({
-      value: `${year}/${year + 1}`,
-      label: `${year}/${year + 1}`,
-    });
-  }
-  return years;
-};
 
 interface StudentRow {
   id: string;
@@ -131,6 +138,7 @@ const SchoolAdminDashboard = () => {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
   const [school, setSchool] = useState<any>(null);
+  const [userRole, setUserRole] = useState<string | null>(null);
   const [students, setStudents] = useState<StudentRow[]>([]);
   const [classFees, setClassFees] = useState<ClassFee[]>([]);
   const [payments, setPayments] = useState<any[]>([]);
@@ -210,7 +218,6 @@ const SchoolAdminDashboard = () => {
         }
 
         if (data && data.length > 0) {
-          // Populate the form with existing fees - allow editing of amounts
           const populated = DEFAULT_FEE_TEMPLATES.map((template) => {
             const existing = data.find((f) => f.name === template);
             return {
@@ -221,7 +228,6 @@ const SchoolAdminDashboard = () => {
           setFeeEntries(populated);
           setHasExistingFees(true);
         } else {
-          // Reset to default empty template
           setFeeEntries(DEFAULT_FEE_TEMPLATES.map((name) => ({ name, amount: "" })));
           setHasExistingFees(false);
         }
@@ -294,6 +300,16 @@ const SchoolAdminDashboard = () => {
     }
 
     setSchool(schoolData);
+
+    // Fetch user's role for this school
+    const { data: adminEntry } = await supabase
+      .from("school_admins")
+      .select("role")
+      .eq("school_id", schoolData.id)
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    setUserRole(adminEntry?.role || null);
 
     // Fetch all students but filter to only active ones
     const { data: studentsData } = await supabase
@@ -546,8 +562,6 @@ const SchoolAdminDashboard = () => {
         term_id: feeTermId,
       }));
 
-      // Use upsert to update existing records or insert new ones
-      // This will overwrite fees with the same school_id, class_target, name, session_id, and term_id
       const { error } = await supabase.from("class_fees").upsert(upserts, {
         onConflict: "school_id,class_target,name,session_id,term_id",
       });
@@ -571,20 +585,14 @@ const SchoolAdminDashboard = () => {
     }
   };
 
-  // 🛡️ SELF-CONTAINED AND INDEPENDENT LOGOUT PROCESSOR
+  // Logout handler
   const handleLogout = async () => {
     try {
-      // 1. Immediately drop the local token variables 
       localStorage.clear();
-      
-      // 2. Perform safe signOut verification with Supabase
       await supabase.auth.signOut();
-      
-      // 3. Navigate straight back onto the specific school login gate
       navigate(`/school/${slug}`, { replace: true });
     } catch (error) {
       console.error("Logout runtime error encountered:", error);
-      // Hard fallback navigation if routing engines seize up
       window.location.href = `/school/${slug}`;
     }
   };
@@ -666,12 +674,29 @@ const SchoolAdminDashboard = () => {
               <GraduationCap className="w-4 h-4 text-primary-foreground" />
             </div>
             <span className="font-bold text-lg">{school?.name}</span>
-            <Badge variant="outline" className="ml-2 text-xs">Admin</Badge>
+            <Badge variant="outline" className="ml-2 text-xs capitalize">
+              {userRole || "Admin"}
+            </Badge>
           </div>
           <div className="flex items-center gap-1">
-            <Button variant="ghost" size="sm" onClick={() => navigate(`/school/${slug}/settings`)} title="Settings">
-              <Settings className="w-4 h-4" />
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              onClick={() => navigate("/main-dashboard")} 
+              title="Dashboard"
+            >
+              <Home className="w-4 h-4" />
             </Button>
+            {userRole === "owner" && (
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={() => navigate(`/school/${slug}/settings`)} 
+                title="Settings"
+              >
+                <Settings className="w-4 h-4" />
+              </Button>
+            )}
             <Button variant="ghost" size="sm" onClick={handleLogout}>
               <LogOut className="w-4 h-4" />
             </Button>
@@ -698,7 +723,7 @@ const SchoolAdminDashboard = () => {
           </CardContent>
         </Card>
 
-        {/* Session & Term Filter with Smart Year Generation */}
+        {/* Session & Term Filter */}
         <div className="flex flex-col sm:flex-row items-end gap-3">
           <div className="flex-1 w-full">
             <AcademicPeriodSelector
@@ -712,7 +737,7 @@ const SchoolAdminDashboard = () => {
           </div>
         </div>
 
-        {/* Stats - Term-Specific Calculations */}
+        {/* Stats */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <Card>
             <CardContent className="pt-6">
@@ -776,9 +801,11 @@ const SchoolAdminDashboard = () => {
           <Button onClick={() => setAddStudentOpen(true)} className="gap-2">
             <UserPlus className="w-4 h-4" /> Add Student
           </Button>
-          <Button variant="outline" onClick={() => setAddFeeOpen(true)} className="gap-2">
-            <Plus className="w-4 h-4" /> {hasExistingFees ? "Update Fee" : "Add Fee"}
-          </Button>
+          {userRole === "owner" && (
+            <Button variant="outline" onClick={() => setAddFeeOpen(true)} className="gap-2">
+              <Plus className="w-4 h-4" /> {hasExistingFees ? "Update Fee" : "Add Fee"}
+            </Button>
+          )}
         </div>
 
         <Tabs defaultValue="students">
@@ -1032,7 +1059,7 @@ const SchoolAdminDashboard = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Add Fee Dialog */}
+      {/* Add Fee Dialog – only shown when addFeeOpen is true (button only for owners) */}
       <Dialog open={addFeeOpen} onOpenChange={setAddFeeOpen}>
         <DialogContent className="sm:max-w-[500px] max-h-[85vh] flex flex-col p-0">
           <form onSubmit={handleAddFee} className="flex flex-col h-full overflow-hidden">
