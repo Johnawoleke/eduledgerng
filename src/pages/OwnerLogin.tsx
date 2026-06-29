@@ -29,30 +29,9 @@ const OwnerLogin = () => {
       return;
     }
 
-    // Find school owned by this user
-    const { data: school } = await supabase
-      .from("schools")
-      .select("slug")
-      .eq("owner_id", data.user.id)
-      .maybeSingle();
-
-    if (school) {
-      navigate(`/school/${school.slug}/admin`);
-    } else {
-      // Check if they're an admin of any school
-      const { data: adminEntry } = await supabase
-        .from("school_admins")
-        .select("school_id, schools(slug)")
-        .eq("user_id", data.user.id)
-        .maybeSingle();
-
-      if (adminEntry && (adminEntry as any).schools?.slug) {
-        navigate(`/school/${(adminEntry as any).schools.slug}/admin`);
-      } else {
-        toast.error("No school found for this account");
-        await supabase.auth.signOut();
-      }
-    }
+    // ✅ Always go to the main dashboard after login
+    // The dashboard will show the user's schools or an empty state
+    navigate("/main-dashboard");
     setLoading(false);
   };
 
@@ -110,7 +89,7 @@ const OwnerLogin = () => {
             className="p-0 h-auto text-primary"
             onClick={() => navigate("/register")}
           >
-            Register your school
+            Sign up
           </Button>
         </p>
       </div>
