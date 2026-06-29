@@ -17,6 +17,8 @@ import ChangePinPage from "./pages/ChangePinPage";
 import ReceiptPage from "./pages/ReceiptPage";
 import SchoolSettingsPage from "./pages/SchoolSettingsPage";
 import NotFound from "./pages/NotFound";
+import Dashboard from "./pages/Dashboard";
+import Register from "./pages/RegisterPage";
 
 const queryClient = new QueryClient();
 
@@ -32,7 +34,8 @@ const App = () => {
               <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
                 <Routes>
                   <Route path="/" element={<LandingPage />} />
-                  <Route path="/register" element={<RegisterSchool />} />
+                  <Route path="/register-school" element={<RegisterSchool />} />
+                  <Route path="/register" element={<Register />} />
                   <Route path="/login" element={<OwnerLogin />} />
                   <Route path="/school/:slug" element={<SchoolPortal />} />
                   <Route path="/school/:slug/reset-password" element={<ResetPassword />} />
@@ -40,6 +43,7 @@ const App = () => {
                   <Route path="/school/:slug/admin/*" element={<SchoolAdminDashboard />} />
                   <Route path="/school/:slug/change-pin" element={<ChangePinPage />} />
                   <Route path="/school/:slug/settings" element={<SchoolSettingsPage />} />
+                  <Route path="/main-dashboard" element = {<Dashboard />}></Route>
                   <Route path="/receipt/:id" element={<ReceiptPage />} />
                   <Route path="*" element={<NotFound />} />
                 </Routes>
