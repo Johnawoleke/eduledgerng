@@ -1,10 +1,11 @@
+// src/pages/ChangePinPage.tsx
 import React, { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { KeyRound } from "lucide-react";
+import { KeyRound, Eye, EyeOff } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useSchool } from "@/lib/schoolContext";
@@ -16,6 +17,8 @@ const ChangePinPage = () => {
   const [newPin, setNewPin] = useState("");
   const [confirmPin, setConfirmPin] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showNewPin, setShowNewPin] = useState(false);
+  const [showConfirmPin, setShowConfirmPin] = useState(false);
 
   if (!student || !studentCredentials) {
     navigate(`/school/${slug}`);
@@ -56,8 +59,6 @@ const ChangePinPage = () => {
         return;
       }
 
-      // 🚀 NEW BACKUP AUTO-UPDATE CODE
-      // This tells the database directly to update the visual data grid and turn off the first-time login flag.
       await supabase
         .from('students')
         .update({ 
@@ -66,7 +67,6 @@ const ChangePinPage = () => {
         })
         .eq('student_id', studentCredentials.student_id);
 
-      // Re-login with new PIN to update credentials
       loginStudent(
         { ...student, must_change_pin: false },
         feeItems,
@@ -104,27 +104,59 @@ const ChangePinPage = () => {
             <form onSubmit={handleChangePin} className="space-y-4">
               <div className="space-y-2">
                 <Label>New PIN (4 digits)</Label>
-                <Input
-                  type="password"
-                  placeholder="••••"
-                  value={newPin}
-                  onChange={(e) => setNewPin(e.target.value.replace(/\D/g, "").substring(0, 4))}
-                  maxLength={4}
-                  required
-                  inputMode="numeric"
-                />
+                <div className="relative">
+                  <Input
+                    type={showNewPin ? "text" : "password"}
+                    placeholder="••••"
+                    value={newPin}
+                    onChange={(e) => setNewPin(e.target.value.replace(/\D/g, "").substring(0, 4))}
+                    maxLength={4}
+                    required
+                    inputMode="numeric"
+                    className="pr-10"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 p-0"
+                    onClick={() => setShowNewPin(!showNewPin)}
+                  >
+                    {showNewPin ? (
+                      <EyeOff className="w-4 h-4 text-muted-foreground" />
+                    ) : (
+                      <Eye className="w-4 h-4 text-muted-foreground" />
+                    )}
+                  </Button>
+                </div>
               </div>
               <div className="space-y-2">
                 <Label>Confirm PIN</Label>
-                <Input
-                  type="password"
-                  placeholder="••••"
-                  value={confirmPin}
-                  onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, "").substring(0, 4))}
-                  maxLength={4}
-                  required
-                  inputMode="numeric"
-                />
+                <div className="relative">
+                  <Input
+                    type={showConfirmPin ? "text" : "password"}
+                    placeholder="••••"
+                    value={confirmPin}
+                    onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, "").substring(0, 4))}
+                    maxLength={4}
+                    required
+                    inputMode="numeric"
+                    className="pr-10"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 p-0"
+                    onClick={() => setShowConfirmPin(!showConfirmPin)}
+                  >
+                    {showConfirmPin ? (
+                      <EyeOff className="w-4 h-4 text-muted-foreground" />
+                    ) : (
+                      <Eye className="w-4 h-4 text-muted-foreground" />
+                    )}
+                  </Button>
+                </div>
               </div>
               <Button type="submit" className="w-full" disabled={loading}>
                 {loading ? "Changing..." : "Set New PIN"}

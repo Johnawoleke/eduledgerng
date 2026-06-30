@@ -33,9 +33,9 @@ const LandingPage = () => {
       <section className="py-20 px-4">
         <div className="container mx-auto max-w-3xl text-center">
           <h1 className="text-4xl sm:text-5xl font-bold text-foreground mb-6">
-            School Records,
+            Secure Payments |
             <br />
-            <span className="text-primary">Simplified</span>
+            <span className="text-primary">Simplified Records</span>
           </h1>
           <p className="text-lg text-muted-foreground mb-8 max-w-2xl mx-auto">
             Register your school, manage students, track fees and payments, and give each student a secure portal — all in one place.
