@@ -46,6 +46,8 @@ const App = () => {
                   <Route path="/main-dashboard" element = {<Dashboard />}></Route>
                   <Route path="/receipt/:id" element={<ReceiptPage />} />
                   <Route path="*" element={<NotFound />} />
+                  <Route path="/owner-login" element={<OwnerLogin />} />
+
                 </Routes>
               </BrowserRouter>
             </SchoolProvider>
