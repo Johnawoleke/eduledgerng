@@ -27,7 +27,13 @@ import {
   Download, 
   Settings, 
   Upload,
-  Home
+  Home,
+  UserCog,
+  Eye,
+  EyeOff,
+  Mail,
+  Loader2,
+  FileSpreadsheet
 } from "lucide-react";
 import { generateReceiptPdf, parsePaymentItems } from "@/lib/generateReceiptPdf";
 import { toast } from "sonner";
@@ -161,7 +167,7 @@ const SchoolAdminDashboard = () => {
   const [uploadingStudents, setUploadingStudents] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Add fee dialog
+  // Add fee dialog (only for owners)
   const [addFeeOpen, setAddFeeOpen] = useState(false);
   const [feeClass, setFeeClass] = useState("");
   const [feeEntries, setFeeEntries] = useState<{ name: string; amount: string }[]>(
@@ -172,6 +178,16 @@ const SchoolAdminDashboard = () => {
   const [feeTermId, setFeeTermId] = useState("");
   const [loadingExistingFees, setLoadingExistingFees] = useState(false);
   const [hasExistingFees, setHasExistingFees] = useState(false);
+
+  // Add Bursar dialog (only for owners)
+  const [addBursarOpen, setAddBursarOpen] = useState(false);
+  const [bursarEmail, setBursarEmail] = useState("");
+  const [bursarPassword, setBursarPassword] = useState("");
+  const [bursarConfirmPassword, setBursarConfirmPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [addingBursar, setAddingBursar] = useState(false);
+  const [checkingEmail, setCheckingEmail] = useState(false);
+  const [emailExists, setEmailExists] = useState<boolean | null>(null);
 
   const academicPeriods = useAcademicPeriods(school?.id);
 
@@ -408,6 +424,11 @@ const SchoolAdminDashboard = () => {
   };
 
   const handleDeleteStudent = async (studentDbId: string, studentName: string) => {
+    // Only owners can delete students
+    if (userRole !== "owner") {
+      toast.error("Only owners can delete students");
+      return;
+    }
     if (!confirm(`Are you sure you want to delete ${studentName}? This action cannot be undone.`)) {
       return;
     }
@@ -423,6 +444,11 @@ const SchoolAdminDashboard = () => {
   };
 
   const handleResetPin = async (studentDbId: string, studentName: string) => {
+    // Only owners can reset pins
+    if (userRole !== "owner") {
+      toast.error("Only owners can reset student PINs");
+      return;
+    }
     const { error } = await supabase.from("students").update({
       pin: "password", default_pin: "password", must_change_pin: true,
     }).eq("id", studentDbId);
@@ -585,6 +611,129 @@ const SchoolAdminDashboard = () => {
     }
   };
 
+  // Debounced email check for bursar
+  useEffect(() => {
+    if (!bursarEmail.trim()) {
+      setEmailExists(null);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      setCheckingEmail(true);
+      try {
+        const { data, error } = await supabase.functions.invoke("check-user-exists", {
+          body: { email: bursarEmail.trim().toLowerCase() },
+        });
+        if (error) {
+          console.error("Error checking user:", error);
+          setEmailExists(false);
+        } else {
+          setEmailExists(data?.exists || false);
+        }
+      } catch (err) {
+        console.error("Error:", err);
+        setEmailExists(false);
+      } finally {
+        setCheckingEmail(false);
+      }
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [bursarEmail]);
+
+  const resetBursarForm = () => {
+    setBursarEmail("");
+    setBursarPassword("");
+    setBursarConfirmPassword("");
+    setShowPassword(false);
+    setEmailExists(null);
+  };
+
+  const handleAddBursar = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!bursarEmail.trim()) {
+      toast.error("Please enter an email address");
+      return;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(bursarEmail.trim())) {
+      toast.error("Please enter a valid email address");
+      return;
+    }
+
+    if (!emailExists) {
+      toast.error("User does not exist. Please ask them to sign up first.");
+      return;
+    }
+
+    setAddingBursar(true);
+
+    try {
+      // Get current user ID (who is making the request)
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        toast.error("You must be logged in");
+        setAddingBursar(false);
+        return;
+      }
+
+      const { data: schoolData } = await supabase
+        .from("schools")
+        .select("id")
+        .eq("slug", slug!)
+        .single();
+
+      if (!schoolData) {
+        toast.error("School not found");
+        setAddingBursar(false);
+        return;
+      }
+
+      // Send request via edge function
+      const { data, error } = await supabase.functions.invoke("add-bursar", {
+        body: {
+          email: bursarEmail.trim().toLowerCase(),
+          schoolId: schoolData.id,
+          role: "bursar",
+          requestedById: user.id,
+        },
+      });
+
+      if (error) {
+        let errorMsg = error.message || "Failed to send request";
+        try {
+          const response = (error as any).context;
+          if (response && response.body) {
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let result = "";
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              result += decoder.decode(value, { stream: true });
+            }
+            const parsed = JSON.parse(result);
+            if (parsed.error) errorMsg = parsed.error;
+          }
+        } catch (parseErr) { /* fallback */ }
+        toast.error(errorMsg);
+        setAddingBursar(false);
+        return;
+      }
+
+      toast.success("Request sent! The bursar will be notified.");
+      setAddBursarOpen(false);
+      resetBursarForm();
+    } catch (err) {
+      console.error("Error adding bursar:", err);
+      toast.error("An unexpected error occurred");
+    } finally {
+      setAddingBursar(false);
+    }
+  };
+
   // Logout handler
   const handleLogout = async () => {
     try {
@@ -619,6 +768,12 @@ const SchoolAdminDashboard = () => {
 
   const portalUrl = `${window.location.origin}/school/${slug}`;
   const copyPortalLink = () => { navigator.clipboard.writeText(portalUrl); toast.success("Portal link copied!"); };
+
+  // Export reports function
+  const exportReport = () => {
+    // Placeholder for report generation
+    toast.info("Report generation will be available soon!");
+  };
 
   if (loading) {
     return (
@@ -775,8 +930,8 @@ const SchoolAdminDashboard = () => {
         </div>
 
         {/* Filters & Actions */}
-        <div className="flex flex-col sm:flex-row gap-3">
-          <div className="relative flex-1">
+        <div className="flex flex-col sm:flex-row gap-3 flex-wrap">
+          <div className="relative flex-1 min-w-[200px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input placeholder="Search students or references..." className="pl-9" value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
@@ -801,10 +956,22 @@ const SchoolAdminDashboard = () => {
           <Button onClick={() => setAddStudentOpen(true)} className="gap-2">
             <UserPlus className="w-4 h-4" /> Add Student
           </Button>
+          
+          {/* Export Report - available to both owners and bursars */}
+          <Button variant="outline" onClick={exportReport} className="gap-2">
+            <FileSpreadsheet className="w-4 h-4" /> Export Report
+          </Button>
+
+          {/* Owner-only actions */}
           {userRole === "owner" && (
-            <Button variant="outline" onClick={() => setAddFeeOpen(true)} className="gap-2">
-              <Plus className="w-4 h-4" /> {hasExistingFees ? "Update Fee" : "Add Fee"}
-            </Button>
+            <>
+              <Button variant="outline" onClick={() => setAddBursarOpen(true)} className="gap-2">
+                <UserCog className="w-4 h-4" /> Add Bursar
+              </Button>
+              <Button variant="outline" onClick={() => setAddFeeOpen(true)} className="gap-2">
+                <Plus className="w-4 h-4" /> {hasExistingFees ? "Update Fee" : "Add Fee"}
+              </Button>
+            </>
           )}
         </div>
 
@@ -921,12 +1088,17 @@ const SchoolAdminDashboard = () => {
                                     <Button variant="ghost" size="sm" onClick={() => handleViewStudent(student)}>
                                       View Fees
                                     </Button>
-                                    <Button variant="ghost" size="icon" onClick={() => handleResetPin(student.id, student.name)} title="Reset Password">
-                                      <KeyRound className="w-4 h-4 text-muted-foreground" />
-                                    </Button>
-                                    <Button variant="ghost" size="icon" onClick={() => handleDeleteStudent(student.id, student.name)} title="Delete Student">
-                                      <Trash2 className="w-4 h-4 text-destructive" />
-                                    </Button>
+                                    {/* Only owners can reset PIN and delete */}
+                                    {userRole === "owner" && (
+                                      <>
+                                        <Button variant="ghost" size="icon" onClick={() => handleResetPin(student.id, student.name)} title="Reset Password">
+                                          <KeyRound className="w-4 h-4 text-muted-foreground" />
+                                        </Button>
+                                        <Button variant="ghost" size="icon" onClick={() => handleDeleteStudent(student.id, student.name)} title="Delete Student">
+                                          <Trash2 className="w-4 h-4 text-destructive" />
+                                        </Button>
+                                      </>
+                                    )}
                                   </div>
                                 </TableCell>
                               </TableRow>
@@ -1059,7 +1231,97 @@ const SchoolAdminDashboard = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Add Fee Dialog – only shown when addFeeOpen is true (button only for owners) */}
+      {/* Add Bursar Dialog - Owners Only */}
+      <Dialog open={addBursarOpen} onOpenChange={setAddBursarOpen}>
+        <DialogContent className="sm:max-w-[450px]">
+          <DialogHeader>
+            <DialogTitle>Add Bursar</DialogTitle>
+            <DialogDescription>
+              Enter the bursar's email. They must already have an account on EduLedgerNG.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleAddBursar}>
+            <div className="grid gap-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="bursarEmail">Bursar's Email *</Label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Input
+                    id="bursarEmail"
+                    type="email"
+                    placeholder="bursar@school.com"
+                    className="pl-9"
+                    value={bursarEmail}
+                    onChange={(e) => setBursarEmail(e.target.value)}
+                    required
+                    disabled={addingBursar}
+                  />
+                  {checkingEmail && (
+                    <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-muted-foreground" />
+                  )}
+                  {emailExists !== null && !checkingEmail && (
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                      {emailExists ? (
+                        <Badge variant="outline" className="bg-green-500/10 text-green-600 border-green-500/30">
+                          ✓ Exists
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="bg-destructive/10 text-destructive border-destructive/30">
+                          ✗ Not found
+                        </Badge>
+                      )}
+                    </div>
+                  )}
+                </div>
+                {emailExists === false && (
+                  <p className="text-xs text-destructive">
+                    No account found. Ask the bursar to <Button
+                      variant="link"
+                      className="p-0 h-auto text-destructive underline"
+                      onClick={() => window.open("/register", "_blank")}
+                    >
+                      sign up
+                    </Button> first.
+                  </p>
+                )}
+                {emailExists === true && (
+                  <p className="text-xs text-green-600">
+                    ✅ Account found! This user will be invited to join your school.
+                  </p>
+                )}
+              </div>
+            </div>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setAddBursarOpen(false);
+                  resetBursarForm();
+                }}
+                disabled={addingBursar}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={addingBursar || !emailExists || checkingEmail}
+              >
+                {addingBursar ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Sending...
+                  </>
+                ) : (
+                  "Send Invitation"
+                )}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Fee Dialog - Owners Only */}
       <Dialog open={addFeeOpen} onOpenChange={setAddFeeOpen}>
         <DialogContent className="sm:max-w-[500px] max-h-[85vh] flex flex-col p-0">
           <form onSubmit={handleAddFee} className="flex flex-col h-full overflow-hidden">

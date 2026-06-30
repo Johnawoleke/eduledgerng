@@ -121,7 +121,7 @@ const RegisterPage = () => {
               <Button
                 variant="link"
                 className="p-0 h-auto text-primary"
-                onClick={() => navigate("/owner-login")}
+                onClick={() => navigate("/login")}
               >
                 Sign in
               </Button>
