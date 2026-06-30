@@ -85,7 +85,7 @@ const RegisterSchool = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
         toast.error("Please sign in first");
-        navigate("/owner-login");
+        navigate("/login");
         return;
       }
       setUserId(user.id);
