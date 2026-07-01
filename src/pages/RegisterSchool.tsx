@@ -415,16 +415,7 @@ const RegisterSchool = () => {
           </CardContent>
         </Card>
 
-        <p className="text-center text-sm text-muted-foreground mt-4">
-          Already have a school?{" "}
-          <Button
-            variant="link"
-            className="p-0 h-auto text-primary"
-            onClick={() => navigate("/owner-login")}
-          >
-            Sign in
-          </Button>
-        </p>
+       
       </div>
 
       {/* Welcome Modal */}

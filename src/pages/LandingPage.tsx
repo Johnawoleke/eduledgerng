@@ -33,7 +33,7 @@ const LandingPage = () => {
       <section className="py-20 px-4">
         <div className="container mx-auto max-w-3xl text-center">
           <h1 className="text-4xl sm:text-5xl font-bold text-foreground mb-6">
-            Secure Payments |
+            Secure Payments 
             <br />
             <span className="text-primary">Simplified Records</span>
           </h1>
