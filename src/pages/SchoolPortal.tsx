@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { GraduationCap, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { readFunctionsError } from "@/lib/utils";
 import { useSchool } from "@/lib/schoolContext";
 
 const SchoolPortal = () => {
@@ -52,71 +53,48 @@ const SchoolPortal = () => {
     setStudentLoading(true);
 
     try {
-      // 1. Query students table directly with uppercase student ID
-      const { data: student, error: dbError } = await supabase
-        .from("students")
-        .select("*")
-        .eq("student_id", studentId.trim().toUpperCase())
-        .maybeSingle();
+      const cleanStudentId = studentId.trim().toUpperCase();
+      const cleanPin = pin.trim();
 
-      if (dbError) {
-        console.error("Database error:", dbError);
-        toast.error("An error occurred. Please try again.");
-        setStudentLoading(false);
+      // PIN verification happens server-side (verify_student_pin RPC) so the
+      // pin column is never read from the browser.
+      const { data, error } = await supabase.functions.invoke("student-auth", {
+        body: { school_slug: slug, student_id: cleanStudentId, pin: cleanPin },
+      });
+
+      if (error || data?.error) {
+        toast.error(data?.error || (await readFunctionsError(error, "Invalid Student ID or PIN")));
         return;
       }
 
-      // 2. Verify PIN matches exactly (case-sensitive) using master pin column
-      if (!student || student.pin.trim() !== pin.trim()) {
+      const student = data.student;
+      if (!student) {
         toast.error("Invalid Student ID or PIN");
-        setStudentLoading(false);
         return;
       }
 
-      // 3. Check if student is logging in for the first time
-      if (student.is_first_login === true) {
+      // First-time login: force a password reset before entering the dashboard
+      if (student.must_change_pin) {
         toast.info("First-time login detected. Redirecting to set your new password...");
         navigate(`/school/${slug}/reset-password`, { state: { studentId: student.student_id } });
-        setStudentLoading(false);
         return;
       }
 
-      // 4. DYNAMIC FETCH: Pull this student's real-time fees from the database
-      const { data: feeItems, error: feesError } = await supabase
-        .from("student_fees")
-        .select("*")
-        .eq("student_id", student.id);
-
-      if (feesError) {
-        console.error("Error fetching student fees:", feesError);
-      }
-
-      // 5. DYNAMIC FETCH: Pull this student's payment history from the database
-      const { data: payments, error: paymentsError } = await supabase
-        .from("payments")
-        .select("*")
-        .eq("student_id", student.id);
-
-      if (paymentsError) {
-        console.error("Error fetching student payments:", paymentsError);
-      }
-
-      // Clear stale local storage auth states to prevent rendering drops
-      localStorage.removeItem("sb-auth-token");
-
-      // 6. Complete Handshake: Pass real name, class, fees, and payments to the app context
-      await loginStudent(
+      loginStudent(
         {
           id: student.id,
           student_id: student.student_id,
-          name: student.name || student.full_name || student.student_id,
-          class: student.class || student.class_name || "Unassigned", // Pass class directly
-          role: "student",
+          name: student.name || student.student_id,
+          class: student.class || "Unassigned",
+          term: student.term,
+          session: student.session,
+          school_id: student.school_id,
         },
-        feeItems || [], // Injects the real database fees
-        payments || []  // Injects the real database payments
+        data.feeItems || [],
+        data.payments || [],
+        { student_id: cleanStudentId, pin: cleanPin }
       );
-      
+
       toast.success("Login successful! Welcome back.");
       navigate(`/school/${slug}/student`);
     } catch (error) {

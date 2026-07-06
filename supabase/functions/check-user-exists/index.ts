@@ -26,8 +26,16 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    const { data: allUsers } = await supabaseAdmin.auth.admin.listUsers();
-    const exists = allUsers.users.some((u) => u.email === email);
+    // listUsers is paginated (default 50/page) — scan pages so lookups keep
+    // working past the first 50 accounts.
+    const target = String(email).toLowerCase();
+    let exists = false;
+    for (let page = 1; page <= 20 && !exists; page++) {
+      const { data, error } = await supabaseAdmin.auth.admin.listUsers({ page, perPage: 1000 });
+      if (error) throw error;
+      exists = data.users.some((u) => u.email?.toLowerCase() === target);
+      if (data.users.length < 1000) break;
+    }
 
     return new Response(
       JSON.stringify({ exists }),

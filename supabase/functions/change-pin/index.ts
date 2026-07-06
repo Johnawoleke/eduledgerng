@@ -63,10 +63,10 @@ Deno.serve(async (req) => {
 
     const student = students[0];
 
-    // Update PIN (plain text) and clear must_change_pin
+    // Update PIN (plain text) and clear both first-login flags
     const { error: updateError } = await supabaseAdmin
       .from("students")
-      .update({ pin: new_pin, must_change_pin: false })
+      .update({ pin: new_pin, must_change_pin: false, is_first_login: false })
       .eq("id", student.id);
 
     if (updateError) {

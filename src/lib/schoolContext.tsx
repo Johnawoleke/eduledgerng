@@ -1,13 +1,13 @@
-import React, { createContext, useContext, useState, ReactNode, useEffect } from "react";
+import React, { createContext, useContext, useState, ReactNode, useCallback } from "react";
 
 interface StudentData {
   id: string;
   student_id: string;
   name: string;
   class: string;
-  term: string;
-  session: string;
-  school_id: string;
+  term?: string | null;
+  session?: string | null;
+  school_id?: string;
   must_change_pin?: boolean;
 }
 
@@ -33,6 +33,8 @@ interface PaymentRecord {
   reference: string;
   method: string;
   items: string[];
+  session_id?: string | null;
+  term_id?: string | null;
 }
 
 interface SchoolContextType {
@@ -51,48 +53,48 @@ interface SchoolContextType {
 
 const SchoolContext = createContext<SchoolContextType>({} as SchoolContextType);
 
+// A corrupt value (e.g. the string "undefined") must never crash the provider —
+// that renders as a white screen before the ErrorBoundary can help.
+const readStored = <T,>(key: string, fallback: T): T => {
+  try {
+    const saved = localStorage.getItem(key);
+    return saved ? (JSON.parse(saved) as T) : fallback;
+  } catch {
+    localStorage.removeItem(key);
+    return fallback;
+  }
+};
+
+const writeStored = (key: string, value: unknown) => {
+  try {
+    if (value === undefined || value === null) {
+      localStorage.removeItem(key);
+    } else {
+      localStorage.setItem(key, JSON.stringify(value));
+    }
+  } catch {
+    /* storage full or unavailable — keep in-memory state working */
+  }
+};
+
 export const SchoolProvider = ({ children }: { children: ReactNode }) => {
   // Initialize state from localStorage if available, so data survives refreshes
-  const [school, setSchoolState] = useState<SchoolData | null>(() => {
-    const saved = localStorage.getItem("pity_school");
-    return saved ? JSON.parse(saved) : null;
-  });
-
-  const [student, setStudent] = useState<StudentData | null>(() => {
-    const saved = localStorage.getItem("pity_student");
-    return saved ? JSON.parse(saved) : null;
-  });
-
-  const [feeItems, setFeeItems] = useState<FeeItem[]>(() => {
-    const saved = localStorage.getItem("pity_fees");
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  const [payments, setPayments] = useState<PaymentRecord[]>(() => {
-    const saved = localStorage.getItem("pity_payments");
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  const [schoolSlug, setSchoolSlug] = useState(() => {
-    return localStorage.getItem("pity_slug") || "";
-  });
-
-  const [studentCredentials, setStudentCredentials] = useState<{ student_id: string; pin: string } | null>(() => {
-    const saved = localStorage.getItem("pity_credentials");
-    return saved ? JSON.parse(saved) : null;
-  });
+  const [school, setSchoolState] = useState<SchoolData | null>(() => readStored("pity_school", null));
+  const [student, setStudent] = useState<StudentData | null>(() => readStored("pity_student", null));
+  const [feeItems, setFeeItems] = useState<FeeItem[]>(() => readStored("pity_fees", []));
+  const [payments, setPayments] = useState<PaymentRecord[]>(() => readStored("pity_payments", []));
+  const [schoolSlug] = useState(() => localStorage.getItem("pity_slug") || "");
+  const [studentCredentials, setStudentCredentials] = useState<{ student_id: string; pin: string } | null>(
+    () => readStored("pity_credentials", null)
+  );
 
   // Custom setter for school to update localStorage simultaneously
-  const setSchool = (schoolData: SchoolData | null) => {
+  const setSchool = useCallback((schoolData: SchoolData | null) => {
     setSchoolState(schoolData);
-    if (schoolData) {
-      localStorage.setItem("pity_school", JSON.stringify(schoolData));
-    } else {
-      localStorage.removeItem("pity_school");
-    }
-  };
+    writeStored("pity_school", schoolData);
+  }, []);
 
-  const loginStudent = (
+  const loginStudent = useCallback((
     studentData: StudentData,
     fees: FeeItem[],
     paymentList: PaymentRecord[],
@@ -103,20 +105,20 @@ export const SchoolProvider = ({ children }: { children: ReactNode }) => {
     setPayments(paymentList);
     setStudentCredentials(credentials);
 
-    localStorage.setItem("pity_student", JSON.stringify(studentData));
-    localStorage.setItem("pity_fees", JSON.stringify(fees));
-    localStorage.setItem("pity_payments", JSON.stringify(paymentList));
-    localStorage.setItem("pity_credentials", JSON.stringify(credentials));
-  };
+    writeStored("pity_student", studentData);
+    writeStored("pity_fees", fees);
+    writeStored("pity_payments", paymentList);
+    writeStored("pity_credentials", credentials);
+  }, []);
 
-  const setStudentData = (fees: FeeItem[], paymentList: PaymentRecord[]) => {
+  const setStudentData = useCallback((fees: FeeItem[], paymentList: PaymentRecord[]) => {
     setFeeItems(fees);
     setPayments(paymentList);
-    localStorage.setItem("pity_fees", JSON.stringify(fees));
-    localStorage.setItem("pity_payments", JSON.stringify(paymentList));
-  };
+    writeStored("pity_fees", fees);
+    writeStored("pity_payments", paymentList);
+  }, []);
 
-  const logoutStudent = () => {
+  const logoutStudent = useCallback(() => {
     setSchoolState(null);
     setStudent(null);
     setFeeItems([]);
@@ -129,7 +131,7 @@ export const SchoolProvider = ({ children }: { children: ReactNode }) => {
     localStorage.removeItem("pity_payments");
     localStorage.removeItem("pity_credentials");
     localStorage.removeItem("pity_slug");
-  };
+  }, []);
 
   return (
     <SchoolContext.Provider

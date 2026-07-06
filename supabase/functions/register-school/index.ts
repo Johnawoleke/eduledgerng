@@ -145,9 +145,11 @@ Deno.serve(async (req) => {
         );
       }
       userId = authData.user.id;
-      await supabaseAdmin.from("profiles").insert({
-        user_id: userId,
+      // profiles.id is the auth user id (there is no user_id column)
+      await supabaseAdmin.from("profiles").upsert({
+        id: userId,
         full_name: fullName || null,
+        email: email || null,
       });
     }
 

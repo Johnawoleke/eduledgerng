@@ -509,7 +509,7 @@ const SchoolAdminDashboard = () => {
         }
 
         const sheet = workbook.Sheets[firstSheetName];
-        const rows = xlsxModule.utils.sheet_to_json<Record<string, string | number>>(sheet, { defval: "" });
+        const rows = xlsxModule.utils.sheet_to_json(sheet, { defval: "" }) as Record<string, string | number>[];
         normalizedRows = rows.map((row) => {
           const mapped: Record<string, string> = {};
           Object.entries(row).forEach(([key, value]) => {
@@ -1163,7 +1163,21 @@ const SchoolAdminDashboard = () => {
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  onClick={() => generateReceiptPdf(payment, school)}
+                                  onClick={() =>
+                                    generateReceiptPdf({
+                                      schoolName: school?.name || "School",
+                                      studentName: studentData?.name || "Unknown Student",
+                                      studentId: studentData?.student_id || "",
+                                      studentClass: studentData?.class || "",
+                                      term: academicPeriods.terms.find((t) => t.id === payment.term_id)?.name || "",
+                                      session: academicPeriods.sessions.find((s) => s.id === payment.session_id)?.name || "",
+                                      reference: payment.reference || "",
+                                      date: payment.date,
+                                      method: payment.method || "",
+                                      totalPaid: Number(payment.amount || 0),
+                                      items: parsePaymentItems(payment.items || []),
+                                    })
+                                  }
                                   className="gap-1.5"
                                 >
                                   <Download className="w-3.5 h-3.5" /> PDF

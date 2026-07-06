@@ -43,11 +43,10 @@ const App = () => {
                   <Route path="/school/:slug/admin/*" element={<SchoolAdminDashboard />} />
                   <Route path="/school/:slug/change-pin" element={<ChangePinPage />} />
                   <Route path="/school/:slug/settings" element={<SchoolSettingsPage />} />
-                  <Route path="/main-dashboard" element = {<Dashboard />}></Route>
-                  <Route path="/receipt/:id" element={<ReceiptPage />} />
-                  <Route path="*" element={<NotFound />} />
+                  <Route path="/main-dashboard" element={<Dashboard />} />
+                  <Route path="/school/:slug/receipt/:paymentId" element={<ReceiptPage />} />
                   <Route path="/owner-login" element={<OwnerLogin />} />
-
+                  <Route path="*" element={<NotFound />} />
                 </Routes>
               </BrowserRouter>
             </SchoolProvider>

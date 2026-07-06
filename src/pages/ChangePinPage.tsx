@@ -59,14 +59,6 @@ const ChangePinPage = () => {
         return;
       }
 
-      await supabase
-        .from('students')
-        .update({ 
-          pin: newPin,
-          is_first_login: false 
-        })
-        .eq('student_id', studentCredentials.student_id);
-
       loginStudent(
         { ...student, must_change_pin: false },
         feeItems,
