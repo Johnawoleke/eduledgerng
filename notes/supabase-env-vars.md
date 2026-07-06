@@ -1,5 +1,12 @@
 # Supabase Client — Hardcoded Public Keys
 
+## Update 2026-07-06: staging override
+
+`client.ts` now reads `VITE_SUPABASE_URL` / `VITE_SUPABASE_PUBLISHABLE_KEY` first and
+falls back to the hardcoded production values. This changes nothing for Vercel
+(no env vars set there → prod values used); it exists so local dev can target the
+staging project via the git-ignored `.env.local`.
+
 ## What we did (2026-04-10, updated 2026-04-22)
 
 Hardcoded the Supabase anon key and URL directly in `src/integrations/supabase/client.ts`
