@@ -1,4 +1,5 @@
-project_id = "eymbfxjnmvrhdxaorwcq"
+# Live project (personal Supabase, migrated off the Lovable tenant 2026-04-22)
+project_id = "ifonivphhfplntzshtsb"
 
 [functions.register-school]
 verify_jwt = false
@@ -12,11 +13,17 @@ verify_jwt = false
 [functions.change-pin]
 verify_jwt = false
 
-[functions.verify-payment]
-verify_jwt = false
-
 [functions.create-zendfi-payment]
 verify_jwt = false
 
 [functions.zendfi-webhook]
+verify_jwt = false
+
+[functions.create-paystack-payment]
+verify_jwt = false
+
+[functions.verify-paystack-payment]
+verify_jwt = false
+
+[functions.paystack-webhook]
 verify_jwt = false

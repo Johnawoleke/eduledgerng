@@ -1,29 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import type { Tables } from "@/integrations/supabase/types";
 
-export interface AcademicSession {
-  id: string;
-  school_id: string;
-  name: string;
-  is_current?: boolean | null;
-  start_date: string | null;
-  end_date: string | null;
-  start_year: number | null;
-  end_year: number | null;
-  created_at: string;
-}
-
-export interface AcademicTerm {
-  id: string;
-  session_id: string;
-  school_id: string;
-  name: string;
-  is_current?: boolean | null;
-  start_date: string | null;
-  end_date: string | null;
-  term_number: number | null;
-  created_at: string;
-}
+export type AcademicSession = Tables<"sessions">;
+export type AcademicTerm = Tables<"terms">;
 
 export const useAcademicPeriods = (schoolId: string | undefined) => {
   const [sessions, setSessions] = useState<AcademicSession[]>([]);
@@ -36,83 +16,83 @@ export const useAcademicPeriods = (schoolId: string | undefined) => {
     if (!schoolId) return;
     setLoading(true);
 
-    let { data: sessionsData } = await supabase
-      .from("sessions" as any)
-      .select("*")
-      .eq("school_id", schoolId)
-      .order("start_year", { ascending: true, nullsFirst: false })
-      .order("name", { ascending: true });
-
-    let allSessions = (sessionsData || []) as AcademicSession[];
-
-    // Safety fallback: initialize one dynamic current session + 3 terms when empty.
-    if (allSessions.length === 0) {
-      const currentYear = new Date().getFullYear();
-      const nextYear = currentYear + 1;
-      const sessionName = `${currentYear}/${nextYear}`;
-
-      const { data: newSession } = await supabase
-        .from("sessions" as any)
-        .insert({
-          school_id: schoolId,
-          name: sessionName,
-          start_year: currentYear,
-          end_year: nextYear,
-          is_current: true,
-        } as any)
-        .select()
-        .single();
-
-      if (newSession) {
-        await supabase.from("terms" as any).insert([
-          { session_id: newSession.id, school_id: schoolId, name: "Term 1", term_number: 1, is_current: true },
-          { session_id: newSession.id, school_id: schoolId, name: "Term 2", term_number: 2, is_current: false },
-          { session_id: newSession.id, school_id: schoolId, name: "Term 3", term_number: 3, is_current: false },
-        ] as any);
-      }
-
-      const { data: reloaded } = await supabase
-        .from("sessions" as any)
+    const fetchSessions = () =>
+      supabase
+        .from("sessions")
         .select("*")
         .eq("school_id", schoolId)
         .order("start_year", { ascending: true, nullsFirst: false })
         .order("name", { ascending: true });
-      allSessions = (reloaded || []) as AcademicSession[];
+
+    let { data: sessionsData, error: sessionsError } = await fetchSessions();
+    if (sessionsError) console.error("Failed to load sessions:", sessionsError.message);
+
+    let allSessions = sessionsData || [];
+
+    // Safety fallback: initialize one dynamic current session + 3 terms when empty.
+    // Requires an authenticated school member (RLS) — for students this silently
+    // no-ops and the selectors stay hidden until the school seeds its periods.
+    if (allSessions.length === 0 && !sessionsError) {
+      const currentYear = new Date().getFullYear();
+      const nextYear = currentYear + 1;
+
+      const { data: newSession, error: insertError } = await supabase
+        .from("sessions")
+        .insert({
+          school_id: schoolId,
+          name: `${currentYear}/${nextYear}`,
+          start_year: currentYear,
+          end_year: nextYear,
+          is_current: true,
+        })
+        .select()
+        .single();
+
+      if (!insertError && newSession) {
+        await supabase.from("terms").insert([
+          { session_id: newSession.id, school_id: schoolId, name: "Term 1", term_number: 1, is_current: true },
+          { session_id: newSession.id, school_id: schoolId, name: "Term 2", term_number: 2, is_current: false },
+          { session_id: newSession.id, school_id: schoolId, name: "Term 3", term_number: 3, is_current: false },
+        ]);
+
+        const { data: reloaded } = await fetchSessions();
+        allSessions = reloaded || [];
+      }
     }
 
     setSessions(allSessions);
 
-    // Default selection: DB current session, else latest by year/name.
-    if (!selectedSessionId && allSessions.length > 0) {
-      const currentSession = allSessions.find((s) => s.is_current);
-      if (currentSession) {
-        setSelectedSessionId(currentSession.id);
-      } else {
-        const sorted = [...allSessions].sort((a, b) => {
-          const ay = a.start_year ?? 0;
-          const by = b.start_year ?? 0;
-          if (ay !== by) return by - ay;
-          return b.name.localeCompare(a.name);
-        });
-        setSelectedSessionId(sorted[0].id);
-      }
-    }
-
-    const { data: termsData } = await supabase
-      .from("terms" as any)
+    const { data: termsData, error: termsError } = await supabase
+      .from("terms")
       .select("*")
       .eq("school_id", schoolId)
       .order("term_number", { ascending: true });
+    if (termsError) console.error("Failed to load terms:", termsError.message);
 
-    const allTerms = (termsData || []) as AcademicTerm[];
-    setTerms(allTerms);
-
+    setTerms(termsData || []);
     setLoading(false);
   }, [schoolId]);
 
   useEffect(() => {
     loadPeriods();
   }, [loadPeriods]);
+
+  // Default selection: DB current session, else latest by year/name.
+  useEffect(() => {
+    if (selectedSessionId || sessions.length === 0) return;
+    const currentSession = sessions.find((s) => s.is_current);
+    if (currentSession) {
+      setSelectedSessionId(currentSession.id);
+    } else {
+      const sorted = [...sessions].sort((a, b) => {
+        const ay = a.start_year ?? 0;
+        const by = b.start_year ?? 0;
+        if (ay !== by) return by - ay;
+        return b.name.localeCompare(a.name);
+      });
+      setSelectedSessionId(sorted[0].id);
+    }
+  }, [sessions, selectedSessionId]);
 
   // When session changes, auto-select current term in that session, else Term 1.
   useEffect(() => {
