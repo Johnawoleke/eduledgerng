@@ -8,67 +8,104 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { GraduationCap, LogOut, Wallet, CreditCard, History, Eye, Loader2, Banknote } from "lucide-react";
+import { GraduationCap, LogOut, Wallet, CreditCard, History, Eye, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { readFunctionsError } from "@/lib/utils";
 import AcademicPeriodSelector from "@/components/AcademicPeriodSelector";
 import { useAcademicPeriods } from "@/hooks/useAcademicPeriods";
 
 const formatNaira = (amount: number) =>
   new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN", minimumFractionDigits: 0 }).format(amount || 0);
 
+// Paystack NGN pricing: 1.5% + ₦100 (the ₦100 waived under ₦2,500), capped at
+// ₦2,000. The checkout total is grossed-up so the school still receives the
+// full fee amount — must stay in sync with create-paystack-payment.
+const paystackFeeKobo = (amountKobo: number) => {
+  let fee = 0.015 * amountKobo;
+  if (amountKobo >= 250_000) fee += 10_000;
+  return Math.min(Math.ceil(fee), 200_000);
+};
+
+const grossUpKobo = (baseKobo: number) => {
+  if (baseKobo <= 0) return 0;
+  let total =
+    baseKobo >= 246_250 ? Math.ceil((baseKobo + 10_000) / 0.985) : Math.ceil(baseKobo / 0.985);
+  if (0.015 * total + 10_000 > 200_000) total = baseKobo + 200_000;
+  while (total - paystackFeeKobo(total) < baseKobo) total += 100;
+  return total;
+};
+
 const SchoolStudentDashboard = () => {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
-  const { student, school, feeItems = [], payments = [], logoutStudent, setStudentData } = useSchool();
+  const { student, school, feeItems = [], payments = [], logoutStudent, setStudentData, studentCredentials } = useSchool();
 
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [selectedFees, setSelectedFees] = useState<Record<string, boolean>>({});
   const [feeAmounts, setFeeAmounts] = useState<Record<string, string>>({});
-  const [payingWithZendfi, setPayingWithZendfi] = useState(false);
+  const [processingPayment, setProcessingPayment] = useState(false);
+  const [paymentRefreshKey, setPaymentRefreshKey] = useState(0);
 
   const academicPeriods = useAcademicPeriods(school?.id);
 
-  // Directly fetch live fees & payments from Supabase tables based on active student session details
+  // Paystack redirects back with ?trxref=...&reference=... — confirm the
+  // transaction server-side, then refresh the dashboard data.
   useEffect(() => {
-    if (!student?.id) return;
+    const params = new URLSearchParams(window.location.search);
+    const reference = params.get("reference") || params.get("trxref");
+    if (!reference) return;
+    window.history.replaceState({}, "", window.location.pathname);
+
+    (async () => {
+      toast.info("Confirming your payment...");
+      try {
+        const { data, error } = await supabase.functions.invoke("verify-paystack-payment", {
+          body: { reference },
+        });
+        if (!error && data?.success) {
+          toast.success("Payment confirmed! Your fee balance has been updated.");
+          setPaymentRefreshKey((k) => k + 1);
+        } else if (data?.status === "abandoned" || data?.status === "failed") {
+          toast.error("Payment was not completed.");
+        } else {
+          toast.info("Payment is still processing — your balance will update shortly.");
+        }
+      } catch (err) {
+        console.error("Payment verification failed:", err);
+        toast.error("Could not confirm payment status. Refresh in a moment.");
+      }
+    })();
+  }, []);
+
+  // Refresh fees & payments for the selected period. The student-auth function
+  // recomputes fee items (class fees minus payments) server-side, so the
+  // browser never touches the students/pin tables directly.
+  useEffect(() => {
+    if (!student?.id || !studentCredentials) return;
 
     const fetchLiveDashboardData = async () => {
       try {
-        // Query live student fees table directly
-        let feesQuery = supabase
-          .from("student_fees")
-          .select("*")
-          .eq("student_id", student.id);
+        const { data, error } = await supabase.functions.invoke("student-auth", {
+          body: {
+            school_slug: slug,
+            student_id: studentCredentials.student_id,
+            pin: studentCredentials.pin,
+            session_id: academicPeriods.selectedSessionId || undefined,
+            term_id: academicPeriods.selectedTermId || undefined,
+          },
+        });
 
-        if (academicPeriods.selectedTermId) {
-          feesQuery = feesQuery.eq("term_id", academicPeriods.selectedTermId);
-        }
-
-        const { data: liveFees, error: feesErr } = await feesQuery;
-
-        // Query live payments table directly
-        let paymentsQuery = supabase
-          .from("payments")
-          .select("*")
-          .eq("student_id", student.id);
-
-        if (academicPeriods.selectedTermId) {
-          paymentsQuery = paymentsQuery.eq("term_id", academicPeriods.selectedTermId);
-        }
-
-        const { data: livePayments, error: payErr } = await paymentsQuery;
-
-        if (!feesErr && !payErr) {
-          setStudentData(liveFees || [], livePayments || []);
+        if (!error && data && !data.error) {
+          setStudentData(data.feeItems || [], data.payments || []);
         }
       } catch (err) {
-        console.error("Direct table sync failed:", err);
+        console.error("Dashboard refresh failed:", err);
       }
     };
 
     fetchLiveDashboardData();
-  }, [student?.id, academicPeriods.selectedTermId, setStudentData]);
+  }, [student?.id, studentCredentials, slug, academicPeriods.selectedSessionId, academicPeriods.selectedTermId, setStudentData, paymentRefreshKey]);
 
   // Filter fee items safely fallback
   const filteredFeeItems = useMemo(() => {
@@ -117,10 +154,9 @@ const SchoolStudentDashboard = () => {
     }, 0);
   }, [selectedFees, feeAmounts, unpaidFees]);
 
-  const platformFee = Math.round(basePaymentTotal * 0.01);
-  const gatewayFee = Math.round(basePaymentTotal * 0.006);
-  const bankCharge = Math.round(basePaymentTotal * 0.02);
-  const paymentTotal = basePaymentTotal + platformFee + gatewayFee + bankCharge;
+  const totalKobo = grossUpKobo(Math.round(basePaymentTotal * 100));
+  const processingFee = Math.max(totalKobo / 100 - basePaymentTotal, 0);
+  const paymentTotal = totalKobo / 100;
 
   const openPaymentModal = () => {
     setSelectedFees({});
@@ -266,7 +302,7 @@ const SchoolStudentDashboard = () => {
                 <p className="text-sm text-muted-foreground">Select fees to pay online</p>
               </div>
               <Button onClick={openPaymentModal} className="gap-2">
-                <Banknote className="w-4 h-4" /> Pay with Bank Transfer (via Zendfi)
+                <CreditCard className="w-4 h-4" /> Pay Fees Online
               </Button>
             </CardContent>
           </Card>
@@ -378,18 +414,9 @@ const SchoolStudentDashboard = () => {
                     <span className="text-muted-foreground">School Fees</span>
                     <span>{formatNaira(basePaymentTotal)}</span>
                   </div>
-                  <p className="text-xs font-medium text-muted-foreground pt-1">Service Charges:</p>
-                  <div className="flex justify-between pl-2">
-                    <span className="text-muted-foreground">• Platform Fee (1%)</span>
-                    <span>{formatNaira(platformFee)}</span>
-                  </div>
-                  <div className="flex justify-between pl-2">
-                    <span className="text-muted-foreground">• Gateway Fee (0.6%)</span>
-                    <span>{formatNaira(gatewayFee)}</span>
-                  </div>
-                  <div className="flex justify-between pl-2">
-                    <span className="text-muted-foreground">• Bank Charge (2%)</span>
-                    <span>{formatNaira(bankCharge)}</span>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Card/Transfer Processing Fee</span>
+                    <span>{formatNaira(processingFee)}</span>
                   </div>
                   <div className="border-t my-1" />
                 </div>
@@ -400,9 +427,9 @@ const SchoolStudentDashboard = () => {
               </div>
               <Button
                 className="w-full gap-2"
-                disabled={paymentTotal <= 0 || payingWithZendfi}
+                disabled={paymentTotal <= 0 || processingPayment}
                 onClick={async () => {
-                  setPayingWithZendfi(true);
+                  setProcessingPayment(true);
                   try {
                     const feePayments = unpaidFees
                       .filter((f) => f && selectedFees[f.id])
@@ -415,36 +442,40 @@ const SchoolStudentDashboard = () => {
                       }))
                       .filter((fp) => fp.amount > 0);
 
-                    const { data, error } = await supabase.functions.invoke("create-zendfi-payment", {
+                    const { data, error } = await supabase.functions.invoke("create-paystack-payment", {
                       body: {
                         school_slug: slug,
                         student_id: student.student_id,
+                        pin: studentCredentials?.pin,
                         fee_payments: feePayments,
                         session_id: academicPeriods.selectedSessionId,
                         term_id: academicPeriods.selectedTermId,
+                        callback_url: `${window.location.origin}/school/${slug}/student`,
                       },
                     });
 
-                    if (error || !data?.hosted_page_url) {
-                      toast.error(data?.error || "Failed to create payment link. Please try again.");
-                      setPayingWithZendfi(false);
+                    if (error || !data?.authorization_url) {
+                      toast.error(
+                        data?.error || (await readFunctionsError(error, "Failed to start payment. Please try again."))
+                      );
+                      setProcessingPayment(false);
                       return;
                     }
 
-                    toast.success("Redirecting to payment page...");
+                    toast.success("Redirecting to secure Paystack checkout...");
                     setPaymentOpen(false);
-                    window.location.href = data.hosted_page_url;
+                    window.location.href = data.authorization_url;
                   } catch (err) {
-                    console.error("Zendfi payment error:", err);
+                    console.error("Paystack payment error:", err);
                     toast.error("Something went wrong. Please try again.");
-                    setPayingWithZendfi(false);
+                    setProcessingPayment(false);
                   }
                 }}
               >
-                {payingWithZendfi ? (
+                {processingPayment ? (
                   <><Loader2 className="w-4 h-4 animate-spin" /> Processing...</>
                 ) : (
-                  <><Banknote className="w-4 h-4" /> Pay {formatNaira(paymentTotal)} via Bank Transfer</>
+                  <><CreditCard className="w-4 h-4" /> Pay {formatNaira(paymentTotal)} with Paystack</>
                 )}
               </Button>
             </div>
