@@ -31,7 +31,33 @@ create unique index if not exists payments_reference_key
 -- 2. class_fees: the Add/Update Fee dialog upserts with
 --    onConflict "school_id,class_target,name,session_id,term_id" — that fails
 --    unless a matching unique constraint exists.
+--
+--    Production contains duplicate rows for the same key (the old Add Fee flow
+--    could insert the same fee repeatedly), which both blocks the index AND
+--    double-counts fee totals shown to students. Keep the newest row of each
+--    duplicate set; move the rest into a backup table so this stays reversible
+--    (see supabase/rollback/).
 -- -----------------------------------------------------------------------------
+create table if not exists public.class_fees_duplicates_backup
+  (like public.class_fees);
+alter table public.class_fees_duplicates_backup enable row level security;
+
+with ranked as (
+  select id,
+         row_number() over (
+           partition by school_id, class_target, name, session_id, term_id
+           order by created_at desc, id desc
+         ) as rn
+  from public.class_fees
+), doomed as (
+  delete from public.class_fees cf
+  using ranked r
+  where r.id = cf.id and r.rn > 1
+  returning cf.*
+)
+insert into public.class_fees_duplicates_backup
+select * from doomed;
+
 create unique index if not exists class_fees_school_class_name_period_key
   on public.class_fees (school_id, class_target, name, session_id, term_id);
 

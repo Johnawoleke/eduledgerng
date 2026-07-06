@@ -37,8 +37,12 @@ where not exists (select 1 from public.terms t where t.session_id = s.id)
   and not exists (select 1 from public.class_fees cf where cf.session_id = s.id)
   and not exists (select 1 from public.payments p where p.session_id = s.id);
 
--- 2. class_fees unique index
+-- 2. class_fees unique index + restore the deduplicated rows from backup
 drop index if exists public.class_fees_school_class_name_period_key;
+insert into public.class_fees
+  select * from public.class_fees_duplicates_backup b
+  where not exists (select 1 from public.class_fees cf where cf.id = b.id);
+drop table if exists public.class_fees_duplicates_backup;
 
 -- 1. payments columns and index
 drop index if exists public.payments_reference_key;
