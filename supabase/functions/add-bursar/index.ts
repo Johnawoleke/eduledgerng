@@ -114,6 +114,14 @@ Deno.serve(async (req) => {
         return json({ error: memberError.message }, 400);
       }
 
+      // Force the bursar to rotate the owner-chosen temp password on first login.
+      await supabaseAdmin.from("profiles").upsert({
+        id: created.user.id,
+        email: target,
+        full_name: fullName || null,
+        must_change_password: true,
+      });
+
       return json({
         success: true,
         created: true,
@@ -139,13 +147,18 @@ Deno.serve(async (req) => {
 
     const { data: existingRequest } = await supabaseAdmin
       .from("school_requests")
-      .select("id, status")
+      .select("id, status, expires_at")
       .eq("school_id", schoolId)
       .eq("user_id", userId)
       .eq("status", "pending")
       .maybeSingle();
     if (existingRequest) {
-      return json({ error: "A pending request already exists for this user" }, 400);
+      // A still-valid pending invite blocks a duplicate; an EXPIRED one is a
+      // dead end (hidden from the invitee), so clear it and re-send instead.
+      if (new Date(existingRequest.expires_at) > new Date()) {
+        return json({ error: "A pending invitation already exists for this user" }, 400);
+      }
+      await supabaseAdmin.from("school_requests").delete().eq("id", existingRequest.id);
     }
 
     const { data: request, error: requestError } = await supabaseAdmin

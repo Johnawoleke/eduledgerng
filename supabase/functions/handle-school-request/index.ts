@@ -33,6 +33,24 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
+    // Verify the CALLER — only the invitee may accept or decline their own
+    // invitation. Previously this function acted on any requestId with no
+    // identity check, so anyone holding a requestId could accept/decline it.
+    const authHeader = req.headers.get("Authorization") || "";
+    const callerClient = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_ANON_KEY")!,
+      { global: { headers: { Authorization: authHeader } } }
+    );
+    const { data: callerData } = await callerClient.auth.getUser();
+    const caller = callerData?.user;
+    if (!caller) {
+      return new Response(
+        JSON.stringify({ error: "You must be signed in" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     // 1. Get the request
     const { data: request, error: requestError } = await supabaseAdmin
       .from("school_requests")
@@ -44,6 +62,14 @@ Deno.serve(async (req) => {
       return new Response(
         JSON.stringify({ error: "Request not found" }),
         { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // The invitation belongs to request.user_id — only that user may act on it.
+    if (request.user_id !== caller.id) {
+      return new Response(
+        JSON.stringify({ error: "This invitation is not addressed to you" }),
+        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
