@@ -104,6 +104,18 @@ const SchoolStudentDashboard = () => {
 
         if (!error && data && !data.error) {
           setStudentData(data.feeItems || [], data.payments || []);
+          return;
+        }
+
+        // The cached credential no longer works (e.g. the school reset this
+        // student's PIN). Don't keep silently replaying it — that both shows
+        // stale data AND runs the account toward the 5-strike lockout. End the
+        // session and send them to log in again.
+        const status = (error as { context?: { status?: number } })?.context?.status;
+        if (status === 401 || data?.error) {
+          toast.error("Your sign-in is no longer valid — your PIN may have been changed. Please log in again.");
+          logoutStudent();
+          navigate(`/school/${slug}`);
         }
       } catch (err) {
         console.error("Dashboard refresh failed:", err);
@@ -111,7 +123,7 @@ const SchoolStudentDashboard = () => {
     };
 
     fetchLiveDashboardData();
-  }, [student?.id, studentCredentials, slug, academicPeriods.isFutureSession, academicPeriods.selectedSessionId, academicPeriods.selectedTermId, setStudentData, paymentRefreshKey]);
+  }, [student?.id, studentCredentials, slug, academicPeriods.isFutureSession, academicPeriods.selectedSessionId, academicPeriods.selectedTermId, setStudentData, paymentRefreshKey, logoutStudent, navigate]);
 
   // Filter fee items safely fallback
   const filteredFeeItems = useMemo(() => {
@@ -176,8 +188,13 @@ const SchoolStudentDashboard = () => {
     return "bg-destructive/10 text-destructive border-destructive/30";
   };
 
+  // Redirect out in an effect, not during render (calling navigate() in the
+  // render body triggers a React "cannot update during render" warning).
+  useEffect(() => {
+    if (!student) navigate(`/school/${slug}`);
+  }, [student, slug, navigate]);
+
   if (!student) {
-    navigate(`/school/${slug}`);
     return null;
   }
 

@@ -115,50 +115,53 @@ const SchoolPortal = () => {
     e.preventDefault();
     setAdminLoading(true);
 
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: adminEmail,
-      password: adminPassword,
-    });
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: adminEmail,
+        password: adminPassword,
+      });
 
-    if (error) {
-      toast.error(error.message);
-      setAdminLoading(false);
-      return;
-    }
-
-    // Verify this user is owner or admin of THIS school
-    const { data: school } = await supabase
-      .from("schools")
-      .select("id, name, owner_id")
-      .eq("slug", slug!)
-      .maybeSingle();
-
-    if (!school) {
-      toast.error("School not found");
-      await supabase.auth.signOut();
-      setAdminLoading(false);
-      return;
-    }
-
-    const isOwner = school.owner_id === data.user.id;
-    if (!isOwner) {
-      const { data: adminEntry } = await supabase
-        .from("school_admins")
-        .select("id")
-        .eq("school_id", school.id)
-        .eq("user_id", data.user.id)
-        .maybeSingle();
-
-      if (!adminEntry) {
-        toast.error("You are not an admin of this school");
-        await supabase.auth.signOut();
-        setAdminLoading(false);
+      if (error) {
+        toast.error(error.message);
         return;
       }
-    }
 
-    navigate(`/school/${slug}/admin`);
-    setAdminLoading(false);
+      // Verify this user is owner or admin of THIS school
+      const { data: school } = await supabase
+        .from("schools")
+        .select("id, name, owner_id")
+        .eq("slug", slug!)
+        .maybeSingle();
+
+      if (!school) {
+        toast.error("School not found");
+        await supabase.auth.signOut();
+        return;
+      }
+
+      const isOwner = school.owner_id === data.user.id;
+      if (!isOwner) {
+        const { data: adminEntry } = await supabase
+          .from("school_admins")
+          .select("id")
+          .eq("school_id", school.id)
+          .eq("user_id", data.user.id)
+          .maybeSingle();
+
+        if (!adminEntry) {
+          toast.error("You are not an admin of this school");
+          await supabase.auth.signOut();
+          return;
+        }
+      }
+
+      navigate(`/school/${slug}/admin`);
+    } catch (err) {
+      console.error("Admin login error:", err);
+      toast.error("Something went wrong signing in. Please try again.");
+    } finally {
+      setAdminLoading(false);
+    }
   };
 
   if (schoolLoading) {

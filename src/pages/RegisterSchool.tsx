@@ -88,6 +88,16 @@ const RegisterSchool = () => {
         navigate("/login");
         return;
       }
+      // A bursar still on their temporary password must rotate it first.
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("must_change_password")
+        .eq("id", user.id)
+        .maybeSingle();
+      if (profile?.must_change_password) {
+        navigate("/change-password");
+        return;
+      }
       setUserId(user.id);
     };
     checkUser();

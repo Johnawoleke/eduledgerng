@@ -73,6 +73,16 @@ Deno.serve(async (req) => {
       );
     }
 
+    // Only a still-pending invitation can be actioned. Without this, an already
+    // accepted/declined request could be re-actioned (e.g. decline-after-accept
+    // would leave the school_admins membership in place).
+    if (request.status !== "pending") {
+      return new Response(
+        JSON.stringify({ error: `This invitation has already been ${request.status}.` }),
+        { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     // 2. Check if expired
     if (new Date(request.expires_at) < new Date()) {
       await supabaseAdmin

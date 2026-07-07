@@ -20,8 +20,12 @@ const ChangePinPage = () => {
   const [showNewPin, setShowNewPin] = useState(false);
   const [showConfirmPin, setShowConfirmPin] = useState(false);
 
+  // Redirect out in an effect, not during render.
+  React.useEffect(() => {
+    if (!student || !studentCredentials) navigate(`/school/${slug}`);
+  }, [student, studentCredentials, slug, navigate]);
+
   if (!student || !studentCredentials) {
-    navigate(`/school/${slug}`);
     return null;
   }
 

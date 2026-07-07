@@ -6,8 +6,8 @@ interface SupabaseAuthContextType {
   isSignedIn: boolean;
 }
 
-const SupabaseAuthContext = createContext<SupabaseAuthContextType>({ 
-  isReady: false, 
+const SupabaseAuthContext = createContext<SupabaseAuthContextType>({
+  isReady: false,
   isSignedIn: false,
 });
 
@@ -15,55 +15,18 @@ export const SupabaseAuthProvider = ({ children }: { children: ReactNode }) => {
   const [isReady, setIsReady] = React.useState(false);
   const [isSignedIn, setIsSignedIn] = React.useState(false);
 
-  const clearAuthState = () => {
-    try {
-      // 1. Clear Supabase auth tokens safely
-      localStorage.removeItem("sb-auth-token");
-      localStorage.removeItem("sb-refresh-token");
-      
-      // 2. Clear app-specific session data
-      localStorage.removeItem("pity_student");
-      localStorage.removeItem("pity_fees");
-      localStorage.removeItem("pity_payments");
-      localStorage.removeItem("pity_credentials");
-      localStorage.removeItem("pity_school");
-      localStorage.removeItem("pity_slug");
-      
-      localStorage.removeItem("supabase.auth.token");
-      localStorage.removeItem("supabase.auth.expires_at");
-      
-      setIsSignedIn(false);
-      
-      // 🛡️ LOOP BREAKER SHIELD:
-      // If the user is already on a school path (like /school/qwert), DO NOT force a browser redirect.
-      // Let the page render naturally so they can see the Admin/Student selection buttons safely.
-      // /account-recovery is exempt too: the recovery link needs a moment to
-      // exchange its token for a session, and a redirect here would break it.
-      if (
-        window.location.pathname.startsWith("/school/") ||
-        window.location.pathname.startsWith("/account-recovery")
-      ) {
-        return;
-      }
-      
-      // Only redirect to home if they are logged out out-of-bounds
-      if (window.location.pathname !== "/") {
-        window.location.href = "/";
-      }
-    } catch (err) {
-      console.error("Error clearing auth state:", err);
-    }
-  };
-
+  // This provider only tracks whether a STAFF (Supabase) session exists.
+  // It must NOT touch the student session (the pity_* localStorage keys managed
+  // by schoolContext) — those are a separate auth system and clearing them here
+  // silently logged students out on every reload. It also must not hand-delete
+  // Supabase's token (the real key is sb-<ref>-auth-token, which supabase-js
+  // owns); if a session is invalid, supabase-js handles it. Protected pages
+  // guard themselves (they redirect to /login or /school/:slug when there is no
+  // user), so this provider does not redirect.
   useEffect(() => {
     const checkSession = async () => {
-      const { data, error } = await supabase.auth.getSession();
-      
-      if (error || !data?.session) {
-        clearAuthState();
-      } else {
-        setIsSignedIn(true);
-      }
+      const { data } = await supabase.auth.getSession();
+      setIsSignedIn(!!data?.session);
       setIsReady(true);
     };
 
@@ -71,15 +34,8 @@ export const SupabaseAuthProvider = ({ children }: { children: ReactNode }) => {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === "SIGNED_OUT" || !session) {
-        clearAuthState();
-        return;
-      }
-
-      if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED" || event === "USER_UPDATED") {
-        setIsSignedIn(true);
-      }
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setIsSignedIn(!!session);
     });
 
     return () => {

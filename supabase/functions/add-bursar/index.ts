@@ -115,12 +115,24 @@ Deno.serve(async (req) => {
       }
 
       // Force the bursar to rotate the owner-chosen temp password on first login.
-      await supabaseAdmin.from("profiles").upsert({
+      const { error: profileError } = await supabaseAdmin.from("profiles").upsert({
         id: created.user.id,
         email: target,
         full_name: fullName || null,
         must_change_password: true,
       });
+      if (profileError) {
+        // The account + membership exist, but forced rotation didn't get set.
+        // Surface it so the owner knows to have the bursar change their password.
+        console.error("add-bursar: failed to set must_change_password:", profileError.message);
+        return json({
+          success: true,
+          created: true,
+          userId: created.user.id,
+          warning: "Account created, but we couldn't flag the temporary password for rotation — ask the bursar to change it after first login.",
+          message: "Bursar account created and added to the school. Share the login details with your bursar.",
+        });
+      }
 
       return json({
         success: true,

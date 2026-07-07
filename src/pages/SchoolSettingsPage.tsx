@@ -29,6 +29,14 @@ const SchoolSettingsPage = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { navigate(`/school/${slug}`); return; }
 
+      // A bursar still on their temporary password must rotate it first.
+      const { data: myProfile } = await supabase
+        .from("profiles")
+        .select("must_change_password")
+        .eq("id", user.id)
+        .maybeSingle();
+      if (myProfile?.must_change_password) { navigate("/change-password"); return; }
+
       const { data: schoolData } = await supabase
         .from("schools")
         .select("*")

@@ -49,6 +49,11 @@ const formatNaira = (amount: number) =>
 
 const NIGERIAN_CLASSES = ["JSS1", "JSS2", "JSS3", "SSS1", "SSS2", "SSS3"];
 
+// The default credential a student receives on creation/reset. MUST be the same
+// everywhere (create, bulk upload, reset, and the messages shown to the owner) —
+// a mismatch locks the student out of first login.
+const DEFAULT_STUDENT_PIN = "password";
+
 const DEFAULT_FEE_TEMPLATES = [
   "Tuition Fee", "PTA Levy", "Exam Fee", "Sports Levy", "Computer Fee",
   "Library Fee", "Laboratory Fee", "Books and Materials", "Uniform Fee", "Development Levy",
@@ -535,8 +540,8 @@ const SchoolAdminDashboard = () => {
       student_id: studentId,
       name: fullName,
       class: newStudentClass,
-      pin: "Password1",
-      default_pin: "Password1",
+      pin: DEFAULT_STUDENT_PIN,
+      default_pin: DEFAULT_STUDENT_PIN,
       must_change_pin: true,
       parent_email: newParentEmail.trim().toLowerCase(),
       status: "active",
@@ -545,7 +550,7 @@ const SchoolAdminDashboard = () => {
     if (error) {
       toast.error(error.message);
     } else {
-      toast.success(`Student added! ID: ${studentId}, Default Password: password`);
+      toast.success(`Student added! ID: ${studentId}, Default Password: ${DEFAULT_STUDENT_PIN}`);
       setAddStudentOpen(false);
       setNewSurname(""); setNewFirstName(""); setNewMiddleName("");
       setNewStudentClass(""); setNewParentEmail("");
@@ -596,13 +601,13 @@ const SchoolAdminDashboard = () => {
       return;
     }
     const { error } = await supabase.from("students").update({
-      pin: "password", default_pin: "password", must_change_pin: true,
+      pin: DEFAULT_STUDENT_PIN, default_pin: DEFAULT_STUDENT_PIN, must_change_pin: true,
     }).eq("id", studentDbId);
 
     if (error) {
       toast.error("Failed to reset password");
     } else {
-      toast.success(`Password reset for ${studentName}. Default: password`);
+      toast.success(`Password reset for ${studentName}. Default: ${DEFAULT_STUDENT_PIN}`);
       loadData();
     }
   };
@@ -681,8 +686,8 @@ const SchoolAdminDashboard = () => {
             student_id: generateStudentCode(nameParts.surname, nameParts.firstName, nameParts.middleName),
             name: nameParts.fullName,
             class: className,
-            pin: "password",
-            default_pin: "password",
+            pin: DEFAULT_STUDENT_PIN,
+            default_pin: DEFAULT_STUDENT_PIN,
             must_change_pin: true,
             status: "active",
           };

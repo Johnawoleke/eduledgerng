@@ -57,11 +57,16 @@ const AccountRecovery = () => {
       return;
     }
     setSaving(true);
-    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    const { data: updated, error } = await supabase.auth.updateUser({ password: newPassword });
     if (error) {
       toast.error(error.message);
       setSaving(false);
       return;
+    }
+    // Setting a password here also satisfies a forced rotation — clear the flag
+    // so the user isn't asked to change it a second time on the dashboard.
+    if (updated?.user?.id) {
+      await supabase.from("profiles").update({ must_change_password: false }).eq("id", updated.user.id);
     }
     toast.success("Password updated! You're signed in.");
     navigate("/main-dashboard");
