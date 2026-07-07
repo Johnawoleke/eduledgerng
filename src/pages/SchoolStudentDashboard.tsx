@@ -84,6 +84,12 @@ const SchoolStudentDashboard = () => {
   useEffect(() => {
     if (!student?.id || !studentCredentials) return;
 
+    // Upcoming (virtual) sessions have no data by definition — show blank
+    if (academicPeriods.isFutureSession) {
+      setStudentData([], []);
+      return;
+    }
+
     const fetchLiveDashboardData = async () => {
       try {
         const { data, error } = await supabase.functions.invoke("student-auth", {
@@ -105,7 +111,7 @@ const SchoolStudentDashboard = () => {
     };
 
     fetchLiveDashboardData();
-  }, [student?.id, studentCredentials, slug, academicPeriods.selectedSessionId, academicPeriods.selectedTermId, setStudentData, paymentRefreshKey]);
+  }, [student?.id, studentCredentials, slug, academicPeriods.isFutureSession, academicPeriods.selectedSessionId, academicPeriods.selectedTermId, setStudentData, paymentRefreshKey]);
 
   // Filter fee items safely fallback
   const filteredFeeItems = useMemo(() => {
@@ -203,9 +209,9 @@ const SchoolStudentDashboard = () => {
         </div>
 
         {/* Session & Term Selector */}
-        {academicPeriods.sessions && academicPeriods.sessions.length > 0 && (
+        {academicPeriods.sessionOptions && academicPeriods.sessionOptions.length > 0 && (
           <AcademicPeriodSelector
-            sessions={academicPeriods.sessions}
+            sessions={academicPeriods.sessionOptions}
             termsForSelectedSession={academicPeriods.termsForSelectedSession || []}
             selectedSessionId={academicPeriods.selectedSessionId}
             selectedTermId={academicPeriods.selectedTermId}

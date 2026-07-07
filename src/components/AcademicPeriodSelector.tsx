@@ -1,10 +1,10 @@
 import React from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import type { AcademicSession, AcademicTerm } from "@/hooks/useAcademicPeriods";
+import type { AcademicTerm, SessionOption } from "@/hooks/useAcademicPeriods";
 
 interface Props {
-  sessions: AcademicSession[];
+  sessions: SessionOption[];
   termsForSelectedSession: AcademicTerm[];
   selectedSessionId: string;
   selectedTermId: string;
@@ -33,7 +33,11 @@ const AcademicPeriodSelector: React.FC<Props> = ({
           <SelectContent>
             {sessions.map((s) => (
               <SelectItem key={s.id} value={s.id}>
-                {s.name}
+                {s.isFuture ? (
+                  <span className="text-muted-foreground">{s.name} (upcoming)</span>
+                ) : (
+                  s.name
+                )}
               </SelectItem>
             ))}
           </SelectContent>
@@ -41,9 +45,13 @@ const AcademicPeriodSelector: React.FC<Props> = ({
       </div>
       <div className={compact ? "flex-1" : "space-y-1 flex-1"}>
         {!compact && <Label className="text-xs text-muted-foreground">Term</Label>}
-        <Select value={selectedTermId} onValueChange={onTermChange}>
+        <Select
+          value={selectedTermId}
+          onValueChange={onTermChange}
+          disabled={termsForSelectedSession.length === 0}
+        >
           <SelectTrigger className={compact ? "h-9" : ""}>
-            <SelectValue placeholder="Select term" />
+            <SelectValue placeholder={termsForSelectedSession.length === 0 ? "—" : "Select term"} />
           </SelectTrigger>
           <SelectContent>
             {termsForSelectedSession.map((t) => (

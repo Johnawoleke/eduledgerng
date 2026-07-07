@@ -5,6 +5,51 @@ import type { Tables } from "@/integrations/supabase/types";
 export type AcademicSession = Tables<"sessions">;
 export type AcademicTerm = Tables<"terms">;
 
+/** What the session dropdown renders: real DB sessions plus upcoming virtual ones. */
+export interface SessionOption {
+  id: string;
+  name: string;
+  isFuture?: boolean;
+}
+
+export const FUTURE_SESSION_COUNT = 10;
+const FUTURE_ID_PREFIX = "future-";
+
+export const isFutureSessionId = (id: string | undefined | null) =>
+  !!id && id.startsWith(FUTURE_ID_PREFIX);
+
+/**
+ * Build the next `count` virtual sessions after the latest real session.
+ * Virtual sessions exist only in the dropdown — they have no DB rows, so
+ * nothing can be attached to them (that's what makes them non-editable).
+ */
+export const buildFutureSessions = (
+  sessions: Pick<AcademicSession, "name" | "start_year" | "end_year">[],
+  currentYear: number,
+  count: number = FUTURE_SESSION_COUNT
+): SessionOption[] => {
+  let lastEndYear = currentYear;
+  for (const s of sessions) {
+    const end =
+      s.end_year ??
+      (s.start_year != null ? s.start_year + 1 : null) ??
+      (() => {
+        const m = /^(\d{4})\s*\/\s*(\d{4})$/.exec(s.name.trim());
+        return m ? Number(m[2]) : null;
+      })();
+    if (end != null && end > lastEndYear) lastEndYear = end;
+  }
+  const existingNames = new Set(sessions.map((s) => s.name.trim()));
+  const future: SessionOption[] = [];
+  for (let i = 0; i < count; i++) {
+    const start = lastEndYear + i;
+    const name = `${start}/${start + 1}`;
+    if (existingNames.has(name)) continue;
+    future.push({ id: `${FUTURE_ID_PREFIX}${start}`, name, isFuture: true });
+  }
+  return future;
+};
+
 export const useAcademicPeriods = (schoolId: string | undefined) => {
   const [sessions, setSessions] = useState<AcademicSession[]>([]);
   const [terms, setTerms] = useState<AcademicTerm[]>([]);
@@ -95,8 +140,15 @@ export const useAcademicPeriods = (schoolId: string | undefined) => {
   }, [sessions, selectedSessionId]);
 
   // When session changes, auto-select current term in that session, else Term 1.
+  // Future (virtual) sessions have no terms — clear the term so nothing stale
+  // leaks through period filters.
   useEffect(() => {
-    if (!selectedSessionId || terms.length === 0) return;
+    if (!selectedSessionId) return;
+    if (isFutureSessionId(selectedSessionId)) {
+      setSelectedTermId("");
+      return;
+    }
+    if (terms.length === 0) return;
     const sessionTerms = terms
       .filter((t) => t.session_id === selectedSessionId)
       .sort((a, b) => (a.term_number || 0) - (b.term_number || 0));
@@ -105,15 +157,27 @@ export const useAcademicPeriods = (schoolId: string | undefined) => {
     if (defaultTerm) setSelectedTermId(defaultTerm.id);
   }, [selectedSessionId, terms]);
 
-  const selectedSession = sessions.find((s) => s.id === selectedSessionId);
+  const isFutureSession = isFutureSessionId(selectedSessionId);
+  const futureSessions = buildFutureSessions(sessions, new Date().getFullYear());
+  const sessionOptions: SessionOption[] = [
+    ...sessions.map((s) => ({ id: s.id, name: s.name })),
+    ...futureSessions,
+  ];
+  const selectedSession =
+    sessions.find((s) => s.id === selectedSessionId) ??
+    futureSessions.find((s) => s.id === selectedSessionId);
   const selectedTerm = terms.find((t) => t.id === selectedTermId);
-  const termsForSelectedSession = terms
-    .filter((t) => t.session_id === selectedSessionId)
-    .sort((a, b) => (a.term_number || 0) - (b.term_number || 0));
+  const termsForSelectedSession = isFutureSession
+    ? []
+    : terms
+        .filter((t) => t.session_id === selectedSessionId)
+        .sort((a, b) => (a.term_number || 0) - (b.term_number || 0));
 
   return {
     sessions,
     terms,
+    sessionOptions,
+    isFutureSession,
     selectedSessionId,
     selectedTermId,
     setSelectedSessionId,

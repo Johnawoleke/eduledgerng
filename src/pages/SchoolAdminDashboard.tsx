@@ -38,6 +38,7 @@ import {
 import { generateReceiptPdf, parsePaymentItems } from "@/lib/generateReceiptPdf";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { readFunctionsError } from "@/lib/utils";
 import { useAcademicPeriods } from "@/hooks/useAcademicPeriods";
 import AcademicPeriodSelector from "@/components/AcademicPeriodSelector";
 
@@ -74,6 +75,8 @@ interface ClassFee {
   amount: number;
   session_id: string | null;
   term_id: string | null;
+  status: string;
+  created_at?: string;
 }
 
 const generateStudentCode = (surname: string, firstName: string, middleName: string) => {
@@ -145,6 +148,8 @@ const SchoolAdminDashboard = () => {
   const navigate = useNavigate();
   const [school, setSchool] = useState<any>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [approvingFeeId, setApprovingFeeId] = useState<string | null>(null);
   const [students, setStudents] = useState<StudentRow[]>([]);
   const [classFees, setClassFees] = useState<ClassFee[]>([]);
   const [payments, setPayments] = useState<any[]>([]);
@@ -167,10 +172,10 @@ const SchoolAdminDashboard = () => {
   const [uploadingStudents, setUploadingStudents] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Add fee dialog (only for owners)
+  // Add fee dialog (owners and bursars; new fees require owner approval)
   const [addFeeOpen, setAddFeeOpen] = useState(false);
   const [feeClass, setFeeClass] = useState("");
-  const [feeEntries, setFeeEntries] = useState<{ name: string; amount: string }[]>(
+  const [feeEntries, setFeeEntries] = useState<{ name: string; amount: string; locked?: boolean }[]>(
     DEFAULT_FEE_TEMPLATES.map((name) => ({ name, amount: "" }))
   );
   const [addingFee, setAddingFee] = useState(false);
@@ -182,12 +187,14 @@ const SchoolAdminDashboard = () => {
   // Add Bursar dialog (only for owners)
   const [addBursarOpen, setAddBursarOpen] = useState(false);
   const [bursarEmail, setBursarEmail] = useState("");
+  const [bursarFullName, setBursarFullName] = useState("");
   const [bursarPassword, setBursarPassword] = useState("");
   const [bursarConfirmPassword, setBursarConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [addingBursar, setAddingBursar] = useState(false);
   const [checkingEmail, setCheckingEmail] = useState(false);
   const [emailExists, setEmailExists] = useState<boolean | null>(null);
+  const [createdCredentials, setCreatedCredentials] = useState<{ email: string; password: string } | null>(null);
 
   const academicPeriods = useAcademicPeriods(school?.id);
 
@@ -201,18 +208,25 @@ const SchoolAdminDashboard = () => {
     }
   }, [academicPeriods.selectedSessionId, academicPeriods.selectedTermId]);
 
-  // Update fee term dropdown when fee session changes
+  // Update fee term dropdown when fee session changes. Keep a still-valid
+  // selection, then prefer the term currently selected on the dashboard so
+  // submitted fees land where the Fees tab is looking, then fall back to Term 1.
   useEffect(() => {
     if (!feeSessionId) return;
     const sessionTerms = academicPeriods.terms.filter((t) => t.session_id === feeSessionId);
-    const term1 = sessionTerms.find((t) => t.name === "Term 1") || sessionTerms[0];
-    if (term1) setFeeTermId(term1.id);
-  }, [feeSessionId, academicPeriods.terms]);
+    if (sessionTerms.some((t) => t.id === feeTermId)) return;
+    const dashboardTerm = sessionTerms.find((t) => t.id === academicPeriods.selectedTermId);
+    const fallback = dashboardTerm || sessionTerms.find((t) => t.name === "Term 1") || sessionTerms[0];
+    if (fallback) setFeeTermId(fallback.id);
+  }, [feeSessionId, feeTermId, academicPeriods.terms, academicPeriods.selectedTermId]);
 
-  // Fetch existing fees when session, term, and class are selected
+  // Fetch existing fees when session, term, and class are selected. Keyed on
+  // addFeeOpen too, so reopening the dialog always refetches — otherwise a fee
+  // approved/rejected in the Fees tab in between would leave stale locked
+  // flags and amounts in the form.
   useEffect(() => {
     const fetchExistingFees = async () => {
-      if (!feeSessionId || !feeTermId || !feeClass || !school?.id) {
+      if (!addFeeOpen || !feeSessionId || !feeTermId || !feeClass || !school?.id) {
         setHasExistingFees(false);
         return;
       }
@@ -239,6 +253,8 @@ const SchoolAdminDashboard = () => {
             return {
               name: template,
               amount: existing ? String(existing.amount) : "",
+              // Published fees are locked for the entire session
+              locked: existing?.status === "published",
             };
           });
           setFeeEntries(populated);
@@ -256,23 +272,40 @@ const SchoolAdminDashboard = () => {
     };
 
     fetchExistingFees();
-  }, [feeSessionId, feeTermId, feeClass, school?.id]);
+  }, [addFeeOpen, feeSessionId, feeTermId, feeClass, school?.id]);
 
-  // Filter fees by selected term only
-  const filteredClassFees = classFees.filter((f) => {
-    if (!academicPeriods.selectedTermId) return true;
-    return f.term_id === academicPeriods.selectedTermId;
-  });
+  // Filter fees by selected term. Future (virtual) sessions have no data by
+  // definition — show a blank dashboard rather than leaking current-term data.
+  const filteredClassFees = academicPeriods.isFutureSession
+    ? []
+    : classFees.filter((f) => {
+        if (!academicPeriods.selectedTermId) return true;
+        return f.term_id === academicPeriods.selectedTermId;
+      });
+
+  // Only PUBLISHED fees count toward what students owe
+  const publishedClassFees = filteredClassFees.filter((f) => f.status === "published");
+
+  // The Fees tab and pending badge cover the whole selected SESSION (all
+  // terms), so a pending fee submitted for another term is never invisible.
+  const sessionClassFees = academicPeriods.isFutureSession
+    ? []
+    : classFees.filter(
+        (f) => !academicPeriods.selectedSessionId || f.session_id === academicPeriods.selectedSessionId
+      );
+  const pendingFeesCount = sessionClassFees.filter((f) => f.status === "pending").length;
 
   // Filter payments by selected term only
-  const filteredPaymentsByPeriod = payments.filter((p) => {
-    if (!academicPeriods.selectedTermId) return true;
-    return p.term_id === academicPeriods.selectedTermId;
-  });
+  const filteredPaymentsByPeriod = academicPeriods.isFutureSession
+    ? []
+    : payments.filter((p) => {
+        if (!academicPeriods.selectedTermId) return true;
+        return p.term_id === academicPeriods.selectedTermId;
+      });
 
-  // Helper: get class fees applicable to a student class for the selected term
+  // Helper: get published class fees applicable to a student class for the selected term
   const getFeesForClass = (studentClass: string) => {
-    return filteredClassFees.filter((f) => {
+    return publishedClassFees.filter((f) => {
       return f.class_target === studentClass || f.class_target === "ALL";
     });
   };
@@ -303,6 +336,7 @@ const SchoolAdminDashboard = () => {
       navigate(`/school/${slug}`);
       return;
     }
+    setUserId(user.id);
 
     const { data: schoolData } = await supabase
       .from("schools")
@@ -368,7 +402,7 @@ const SchoolAdminDashboard = () => {
 
   // Recalculate student totals when period filter changes (term-specific)
   const studentsWithTotals = students.map((s) => {
-    const applicableFees = filteredClassFees.filter(
+    const applicableFees = publishedClassFees.filter(
       (f) => f.class_target === s.class || f.class_target === "ALL"
     );
     const totalFees = applicableFees.reduce((a, f) => a + Number(f.amount), 0);
@@ -573,19 +607,46 @@ const SchoolAdminDashboard = () => {
     if (!feeClass) { toast.error("Please select a class"); return; }
     if (!feeSessionId || !feeTermId) { toast.error("Please select a session and term"); return; }
 
-    const validFees = feeEntries.filter((f) => f.name.trim() && Number(f.amount) > 0);
-    if (validFees.length === 0) { toast.error("Add at least one fee with an amount"); return; }
+    // Published fees are locked for the session — only new/pending entries can be saved
+    const validFees = feeEntries.filter((f) => !f.locked && f.name.trim() && Number(f.amount) > 0);
+    if (validFees.length === 0) {
+      toast.error("Nothing to save — published fees are locked, add an amount to an unlocked fee");
+      return;
+    }
 
     setAddingFee(true);
 
     try {
-      const upserts = validFees.map((f) => ({
+      // Re-check statuses server-side right before writing: a fee published
+      // while this dialog was open must never reach the upsert (the DB trigger
+      // would abort the whole batch).
+      const { data: currentRows } = await supabase
+        .from("class_fees")
+        .select("name, status")
+        .eq("school_id", school.id)
+        .eq("class_target", feeClass)
+        .eq("session_id", feeSessionId)
+        .eq("term_id", feeTermId);
+      const publishedNames = new Set(
+        (currentRows || []).filter((r) => r.status === "published").map((r) => r.name)
+      );
+      const writableFees = validFees.filter((f) => !publishedNames.has(f.name.trim()));
+      if (writableFees.length === 0) {
+        toast.error("These fees were published in the meantime and are now locked.");
+        setAddFeeOpen(false);
+        loadData();
+        return;
+      }
+
+      const upserts = writableFees.map((f) => ({
         school_id: school.id,
         class_target: feeClass,
         name: f.name.trim(),
         amount: Number(f.amount),
         session_id: feeSessionId,
         term_id: feeTermId,
+        status: "pending",
+        created_by: userId,
       }));
 
       const { error } = await supabase.from("class_fees").upsert(upserts, {
@@ -595,8 +656,13 @@ const SchoolAdminDashboard = () => {
       if (error) {
         toast.error(error.message);
       } else {
-        const actionWord = hasExistingFees ? "updated" : "added";
-        toast.success(`${validFees.length} fee(s) ${actionWord} for ${feeClass === "ALL" ? "All Classes" : feeClass}!`);
+        const skipped = validFees.length - writableFees.length;
+        toast.success(
+          (userRole === "owner"
+            ? `${writableFees.length} fee(s) submitted — approve them in the Fees tab to publish to students.`
+            : `${writableFees.length} fee(s) submitted for owner approval.`) +
+            (skipped > 0 ? ` ${skipped} already-published fee(s) were skipped.` : "")
+        );
         setAddFeeOpen(false);
         setFeeClass("");
         setFeeEntries(DEFAULT_FEE_TEMPLATES.map((name) => ({ name, amount: "" })));
@@ -609,6 +675,35 @@ const SchoolAdminDashboard = () => {
     } finally {
       setAddingFee(false);
     }
+  };
+
+  // Owner approves (publishes) or rejects (deletes) a pending fee
+  const handleApproveFee = async (feeId: string) => {
+    setApprovingFeeId(feeId);
+    const { error } = await supabase
+      .from("class_fees")
+      .update({ status: "published", approved_by: userId, approved_at: new Date().toISOString() })
+      .eq("id", feeId);
+    if (error) {
+      toast.error(error.message);
+    } else {
+      toast.success("Fee published! Students can now see and pay it. It is locked for this session.");
+      loadData();
+    }
+    setApprovingFeeId(null);
+  };
+
+  const handleRejectFee = async (feeId: string, feeName: string) => {
+    if (!confirm(`Reject and remove the pending fee "${feeName}"?`)) return;
+    setApprovingFeeId(feeId);
+    const { error } = await supabase.from("class_fees").delete().eq("id", feeId);
+    if (error) {
+      toast.error(error.message);
+    } else {
+      toast.success("Pending fee removed");
+      loadData();
+    }
+    setApprovingFeeId(null);
   };
 
   // Debounced email check for bursar
@@ -643,89 +738,79 @@ const SchoolAdminDashboard = () => {
 
   const resetBursarForm = () => {
     setBursarEmail("");
+    setBursarFullName("");
     setBursarPassword("");
     setBursarConfirmPassword("");
     setShowPassword(false);
     setEmailExists(null);
+    setCreatedCredentials(null);
+  };
+
+  const generateBursarPassword = () => {
+    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
+    let pw = "";
+    const rand = new Uint32Array(10);
+    crypto.getRandomValues(rand);
+    for (const r of rand) pw += chars[r % chars.length];
+    setBursarPassword(pw);
+    setBursarConfirmPassword(pw);
+    setShowPassword(true);
   };
 
   const handleAddBursar = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!bursarEmail.trim()) {
-      toast.error("Please enter an email address");
-      return;
-    }
-
+    const cleanEmail = bursarEmail.trim().toLowerCase();
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(bursarEmail.trim())) {
+    if (!cleanEmail || !emailRegex.test(cleanEmail)) {
       toast.error("Please enter a valid email address");
       return;
     }
 
-    if (!emailExists) {
-      toast.error("User does not exist. Please ask them to sign up first.");
+    const creating = emailExists === false;
+    if (creating) {
+      if (bursarPassword.length < 6) {
+        toast.error("Password must be at least 6 characters");
+        return;
+      }
+      if (bursarPassword !== bursarConfirmPassword) {
+        toast.error("Passwords do not match");
+        return;
+      }
+    } else if (emailExists !== true) {
+      toast.error("Please wait for the email check to finish");
       return;
     }
 
     setAddingBursar(true);
 
     try {
-      // Get current user ID (who is making the request)
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        toast.error("You must be logged in");
-        setAddingBursar(false);
-        return;
-      }
-
-      const { data: schoolData } = await supabase
-        .from("schools")
-        .select("id")
-        .eq("slug", slug!)
-        .single();
-
-      if (!schoolData) {
-        toast.error("School not found");
-        setAddingBursar(false);
-        return;
-      }
-
-      // Send request via edge function
       const { data, error } = await supabase.functions.invoke("add-bursar", {
         body: {
-          email: bursarEmail.trim().toLowerCase(),
-          schoolId: schoolData.id,
+          email: cleanEmail,
+          schoolId: school.id,
           role: "bursar",
-          requestedById: user.id,
+          ...(creating
+            ? { password: bursarPassword, fullName: bursarFullName.trim() || undefined }
+            : {}),
         },
       });
 
-      if (error) {
-        let errorMsg = error.message || "Failed to send request";
-        try {
-          const response = (error as any).context;
-          if (response && response.body) {
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            let result = "";
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              result += decoder.decode(value, { stream: true });
-            }
-            const parsed = JSON.parse(result);
-            if (parsed.error) errorMsg = parsed.error;
-          }
-        } catch (parseErr) { /* fallback */ }
-        toast.error(errorMsg);
-        setAddingBursar(false);
+      if (error || data?.error) {
+        toast.error(data?.error || (await readFunctionsError(error, "Failed to add bursar")));
         return;
       }
 
-      toast.success("Request sent! The bursar will be notified.");
-      setAddBursarOpen(false);
-      resetBursarForm();
+      if (data?.created) {
+        // Show the credentials so the owner can share them with the bursar
+        setCreatedCredentials({ email: cleanEmail, password: bursarPassword });
+        toast.success("Bursar account created and added to this school!");
+        loadData();
+      } else {
+        toast.success("Invitation sent! The bursar will see it on their dashboard.");
+        setAddBursarOpen(false);
+        resetBursarForm();
+      }
     } catch (err) {
       console.error("Error adding bursar:", err);
       toast.error("An unexpected error occurred");
@@ -784,16 +869,19 @@ const SchoolAdminDashboard = () => {
   }
 
   // Stats based on filtered period (term-specific)
-  const totalStudents = studentsWithTotals.length;
+  const totalStudents = academicPeriods.isFutureSession ? 0 : studentsWithTotals.length;
   const totalCollected = filteredPaymentsByPeriod.reduce((s, p) => s + Number(p.amount), 0);
   const totalFees = studentsWithTotals.reduce((s, st) => s + st.totalFees, 0);
   const outstanding = totalFees - studentsWithTotals.reduce((s, st) => s + st.totalPaid, 0);
 
-  const filteredStudents = studentsWithTotals.filter((s) => {
-    const matchClass = s.class === studentsClassFilter;
-    const matchSearch = !search || s.name.toLowerCase().includes(search.toLowerCase()) || s.student_id.toLowerCase().includes(search.toLowerCase());
-    return matchClass && matchSearch;
-  });
+  // Future sessions are blank everywhere, including the student roster
+  const filteredStudents = academicPeriods.isFutureSession
+    ? []
+    : studentsWithTotals.filter((s) => {
+        const matchClass = s.class === studentsClassFilter;
+        const matchSearch = !search || s.name.toLowerCase().includes(search.toLowerCase()) || s.student_id.toLowerCase().includes(search.toLowerCase());
+        return matchClass && matchSearch;
+      });
 
   const filteredPayments = filteredPaymentsByPeriod.filter((p) => {
     const studentData = p.students as any;
@@ -882,7 +970,7 @@ const SchoolAdminDashboard = () => {
         <div className="flex flex-col sm:flex-row items-end gap-3">
           <div className="flex-1 w-full">
             <AcademicPeriodSelector
-              sessions={academicPeriods.sessions}
+              sessions={academicPeriods.sessionOptions}
               termsForSelectedSession={academicPeriods.termsForSelectedSession}
               selectedSessionId={academicPeriods.selectedSessionId}
               selectedTermId={academicPeriods.selectedTermId}
@@ -946,14 +1034,19 @@ const SchoolAdminDashboard = () => {
             variant="outline"
             onClick={() => fileInputRef.current?.click()}
             className="gap-2"
-            disabled={uploadingStudents}
+            disabled={uploadingStudents || academicPeriods.isFutureSession}
           >
             <Upload className="w-4 h-4" /> {uploadingStudents ? "Uploading..." : "Upload CSV/Excel"}
           </Button>
           <Button variant="outline" onClick={downloadStudentTemplate} className="gap-2">
             <Download className="w-4 h-4" /> Download Template
           </Button>
-          <Button onClick={() => setAddStudentOpen(true)} className="gap-2">
+          <Button
+            onClick={() => setAddStudentOpen(true)}
+            className="gap-2"
+            disabled={academicPeriods.isFutureSession}
+            title={academicPeriods.isFutureSession ? "Upcoming sessions cannot be edited yet" : undefined}
+          >
             <UserPlus className="w-4 h-4" /> Add Student
           </Button>
           
@@ -964,20 +1057,31 @@ const SchoolAdminDashboard = () => {
 
           {/* Owner-only actions */}
           {userRole === "owner" && (
-            <>
-              <Button variant="outline" onClick={() => setAddBursarOpen(true)} className="gap-2">
-                <UserCog className="w-4 h-4" /> Add Bursar
-              </Button>
-              <Button variant="outline" onClick={() => setAddFeeOpen(true)} className="gap-2">
-                <Plus className="w-4 h-4" /> {hasExistingFees ? "Update Fee" : "Add Fee"}
-              </Button>
-            </>
+            <Button variant="outline" onClick={() => setAddBursarOpen(true)} className="gap-2">
+              <UserCog className="w-4 h-4" /> Add Bursar
+            </Button>
           )}
+          {/* Fees can be proposed by owners and bursars; future sessions are locked */}
+          <Button
+            variant="outline"
+            onClick={() => setAddFeeOpen(true)}
+            className="gap-2"
+            disabled={academicPeriods.isFutureSession}
+            title={academicPeriods.isFutureSession ? "Upcoming sessions cannot be edited yet" : undefined}
+          >
+            <Plus className="w-4 h-4" /> Add Fee
+          </Button>
         </div>
 
         <Tabs defaultValue="students">
           <TabsList>
             <TabsTrigger value="students">Students</TabsTrigger>
+            <TabsTrigger value="fees" className="gap-1.5">
+              Fees
+              {pendingFeesCount > 0 && (
+                <Badge variant="destructive" className="h-4 min-w-4 px-1 text-[10px]">{pendingFeesCount}</Badge>
+              )}
+            </TabsTrigger>
             <TabsTrigger value="payments">Payments</TabsTrigger>
           </TabsList>
 
@@ -1056,7 +1160,9 @@ const SchoolAdminDashboard = () => {
                         {filteredStudents.length === 0 ? (
                           <TableRow>
                             <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
-                              No students found.
+                              {academicPeriods.isFutureSession
+                                ? "This session hasn't started yet."
+                                : "No students found."}
                             </TableCell>
                           </TableRow>
                         ) : (
@@ -1113,6 +1219,101 @@ const SchoolAdminDashboard = () => {
             )}
           </TabsContent>
 
+          <TabsContent value="fees">
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-lg">Fees for {academicPeriods.selectedSession?.name || "selected period"} (all terms)</CardTitle>
+                <p className="text-sm text-muted-foreground">
+                  Pending fees are only visible to staff. Once an owner approves a fee it is
+                  published to students and locked for the entire session.
+                </p>
+              </CardHeader>
+              <CardContent className="pt-0">
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Class</TableHead>
+                        <TableHead>Fee Name</TableHead>
+                        <TableHead>Term</TableHead>
+                        <TableHead className="text-right">Amount</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {sessionClassFees.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                            {academicPeriods.isFutureSession
+                              ? "This session hasn't started yet."
+                              : "No fees created for this session yet. Use “Add Fee” to create some."}
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        [...sessionClassFees]
+                          .sort((a, b) => a.class_target.localeCompare(b.class_target) || a.name.localeCompare(b.name))
+                          .map((fee) => (
+                            <TableRow key={fee.id}>
+                              <TableCell className="font-medium">
+                                {fee.class_target === "ALL" ? "All Classes" : fee.class_target}
+                              </TableCell>
+                              <TableCell>{fee.name}</TableCell>
+                              <TableCell className="text-muted-foreground">
+                                {academicPeriods.terms.find((t) => t.id === fee.term_id)?.name || "—"}
+                              </TableCell>
+                              <TableCell className="text-right">{formatNaira(Number(fee.amount))}</TableCell>
+                              <TableCell>
+                                {fee.status === "published" ? (
+                                  <Badge className="bg-green-600 hover:bg-green-600 text-white gap-1">
+                                    Published
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="secondary" className="bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
+                                    Pending Approval
+                                  </Badge>
+                                )}
+                              </TableCell>
+                              <TableCell className="text-right">
+                                {fee.status === "pending" && userRole === "owner" ? (
+                                  <div className="flex items-center justify-end gap-1">
+                                    <Button
+                                      size="sm"
+                                      onClick={() => handleApproveFee(fee.id)}
+                                      disabled={approvingFeeId === fee.id}
+                                      className="gap-1"
+                                    >
+                                      {approvingFeeId === fee.id ? (
+                                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                      ) : null}
+                                      Approve & Publish
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={() => handleRejectFee(fee.id, fee.name)}
+                                      disabled={approvingFeeId === fee.id}
+                                      title="Reject and remove"
+                                    >
+                                      <Trash2 className="w-4 h-4 text-destructive" />
+                                    </Button>
+                                  </div>
+                                ) : fee.status === "pending" ? (
+                                  <span className="text-xs text-muted-foreground">Awaiting owner</span>
+                                ) : (
+                                  <span className="text-xs text-muted-foreground">Locked for session</span>
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          ))
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
           <TabsContent value="payments">
             <Card>
               <CardContent className="pt-6">
@@ -1135,6 +1336,7 @@ const SchoolAdminDashboard = () => {
                         <TableHead>Reference</TableHead>
                         <TableHead>Student</TableHead>
                         <TableHead>Class</TableHead>
+                        <TableHead>Fees Paid</TableHead>
                         <TableHead>Amount</TableHead>
                         <TableHead>Date</TableHead>
                         <TableHead className="text-right">Receipt</TableHead>
@@ -1143,18 +1345,24 @@ const SchoolAdminDashboard = () => {
                     <TableBody>
                       {filteredPayments.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                          <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
                             No payments recorded.
                           </TableCell>
                         </TableRow>
                       ) : (
                         filteredPayments.map((payment) => {
                           const studentData = payment.students as any;
+                          const paidItems = parsePaymentItems(payment.items || []);
                           return (
                             <TableRow key={payment.id}>
                               <TableCell className="font-mono text-xs">{payment.reference}</TableCell>
                               <TableCell className="font-medium">{studentData?.name || "Unknown Student"}</TableCell>
                               <TableCell>{studentData?.class || "N/A"}</TableCell>
+                              <TableCell className="text-xs max-w-[220px]">
+                                {paidItems.length > 0
+                                  ? paidItems.map((i) => i.name).join(", ")
+                                  : "—"}
+                              </TableCell>
                               <TableCell className="font-semibold text-green-600 dark:text-green-400">
                                 {formatNaira(Number(payment.amount))}
                               </TableCell>
@@ -1251,9 +1459,57 @@ const SchoolAdminDashboard = () => {
           <DialogHeader>
             <DialogTitle>Add Bursar</DialogTitle>
             <DialogDescription>
-              Enter the bursar's email. They must already have an account on EduLedgerNG.
+              {createdCredentials
+                ? "Account created — share these login details with your bursar."
+                : "Enter the bursar's email. If they don't have an account yet, you can create one for them."}
             </DialogDescription>
           </DialogHeader>
+          {createdCredentials ? (
+            <div className="space-y-4 py-2">
+              <div className="rounded-lg border bg-muted/30 p-4 space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Login page</span>
+                  <span className="font-mono">{`${window.location.origin}/login`}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Email</span>
+                  <span className="font-mono">{createdCredentials.email}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Password</span>
+                  <span className="font-mono">{createdCredentials.password}</span>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Send these to your bursar privately and ask them to change the password after
+                first login. This is the only time the password is shown.
+              </p>
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    navigator.clipboard.writeText(
+                      `EduLedgerNG bursar login\nURL: ${window.location.origin}/login\nEmail: ${createdCredentials.email}\nPassword: ${createdCredentials.password}`
+                    );
+                    toast.success("Login details copied");
+                  }}
+                  className="gap-2"
+                >
+                  <Copy className="w-4 h-4" /> Copy Details
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => {
+                    setAddBursarOpen(false);
+                    resetBursarForm();
+                  }}
+                >
+                  Done
+                </Button>
+              </DialogFooter>
+            </div>
+          ) : (
           <form onSubmit={handleAddBursar}>
             <div className="grid gap-4 py-4">
               <div className="space-y-2">
@@ -1280,30 +1536,85 @@ const SchoolAdminDashboard = () => {
                           ✓ Exists
                         </Badge>
                       ) : (
-                        <Badge variant="outline" className="bg-destructive/10 text-destructive border-destructive/30">
-                          ✗ Not found
+                        <Badge variant="outline" className="bg-primary/10 text-primary border-primary/30">
+                          New account
                         </Badge>
                       )}
                     </div>
                   )}
                 </div>
-                {emailExists === false && (
-                  <p className="text-xs text-destructive">
-                    No account found. Ask the bursar to <Button
-                      variant="link"
-                      className="p-0 h-auto text-destructive underline"
-                      onClick={() => window.open("/register", "_blank")}
-                    >
-                      sign up
-                    </Button> first.
-                  </p>
-                )}
                 {emailExists === true && (
                   <p className="text-xs text-green-600">
-                    ✅ Account found! This user will be invited to join your school.
+                    ✅ Account found — this user will be invited and must accept from their dashboard.
+                  </p>
+                )}
+                {emailExists === false && (
+                  <p className="text-xs text-muted-foreground">
+                    No account exists for this email — fill in a password below to create the
+                    bursar's account now and share the details with them.
                   </p>
                 )}
               </div>
+
+              {emailExists === false && (
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="bursarFullName">Bursar's Full Name</Label>
+                    <Input
+                      id="bursarFullName"
+                      placeholder="e.g. Ngozi Okeke"
+                      value={bursarFullName}
+                      onChange={(e) => setBursarFullName(e.target.value)}
+                      disabled={addingBursar}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="bursarPassword">Temporary Password *</Label>
+                      <Button type="button" variant="link" className="p-0 h-auto text-xs" onClick={generateBursarPassword}>
+                        Generate
+                      </Button>
+                    </div>
+                    <div className="relative">
+                      <Input
+                        id="bursarPassword"
+                        type={showPassword ? "text" : "password"}
+                        placeholder="Min. 6 characters"
+                        value={bursarPassword}
+                        onChange={(e) => setBursarPassword(e.target.value)}
+                        minLength={6}
+                        disabled={addingBursar}
+                        className="pr-10"
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 p-0"
+                        onClick={() => setShowPassword(!showPassword)}
+                      >
+                        {showPassword ? (
+                          <EyeOff className="w-4 h-4 text-muted-foreground" />
+                        ) : (
+                          <Eye className="w-4 h-4 text-muted-foreground" />
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="bursarConfirmPassword">Confirm Password *</Label>
+                    <Input
+                      id="bursarConfirmPassword"
+                      type={showPassword ? "text" : "password"}
+                      placeholder="Repeat the password"
+                      value={bursarConfirmPassword}
+                      onChange={(e) => setBursarConfirmPassword(e.target.value)}
+                      minLength={6}
+                      disabled={addingBursar}
+                    />
+                  </div>
+                </>
+              )}
             </div>
             <DialogFooter>
               <Button
@@ -1319,19 +1630,27 @@ const SchoolAdminDashboard = () => {
               </Button>
               <Button
                 type="submit"
-                disabled={addingBursar || !emailExists || checkingEmail}
+                disabled={
+                  addingBursar ||
+                  checkingEmail ||
+                  emailExists === null ||
+                  (emailExists === false && (bursarPassword.length < 6 || bursarPassword !== bursarConfirmPassword))
+                }
               >
                 {addingBursar ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Sending...
+                    {emailExists === false ? "Creating..." : "Sending..."}
                   </>
+                ) : emailExists === false ? (
+                  "Create Bursar Account"
                 ) : (
                   "Send Invitation"
                 )}
               </Button>
             </DialogFooter>
           </form>
+          )}
         </DialogContent>
       </Dialog>
 
@@ -1342,9 +1661,9 @@ const SchoolAdminDashboard = () => {
             <DialogHeader className="p-6 pb-2 shrink-0">
               <DialogTitle>{hasExistingFees ? "Update Class Term Fees" : "Configure Class Term Fees"}</DialogTitle>
               <DialogDescription>
-                {hasExistingFees
-                  ? "Fees already exist for this combination. Updating amounts below will overwrite them."
-                  : "Assign general billing items and mandatory levies to specific class brackets here."}
+                New fees are saved as <span className="font-medium">pending</span> and must be
+                approved by an owner before students can see them. Once published, a fee is
+                locked for the entire session.
               </DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 p-6 py-2 overflow-y-auto flex-1">
@@ -1401,7 +1720,9 @@ const SchoolAdminDashboard = () => {
                   <Label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Item Breakdown Layout (Enter Amount in ₦)</Label>
                   {feeEntries.map((entry, index) => (
                     <div key={index} className="grid grid-cols-3 items-center gap-2">
-                      <Label className="col-span-1 text-sm truncate" title={entry.name}>{entry.name}</Label>
+                      <Label className="col-span-1 text-sm truncate flex items-center gap-1" title={entry.name}>
+                        {entry.name}
+                      </Label>
                       <div className="col-span-2 relative">
                         <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">₦</span>
                         <Input
@@ -1409,12 +1730,21 @@ const SchoolAdminDashboard = () => {
                           placeholder="0.00"
                           className="pl-7"
                           value={entry.amount}
+                          disabled={entry.locked}
                           onChange={(e) => {
                             const updated = [...feeEntries];
                             updated[index].amount = e.target.value;
                             setFeeEntries(updated);
                           }}
                         />
+                        {entry.locked && (
+                          <Badge
+                            variant="outline"
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] bg-muted text-muted-foreground"
+                          >
+                            Published — locked
+                          </Badge>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -1424,7 +1754,7 @@ const SchoolAdminDashboard = () => {
             <DialogFooter className="p-6 pt-2 shrink-0 border-t bg-muted/20">
               <Button type="button" variant="outline" onClick={() => setAddFeeOpen(false)}>Cancel</Button>
               <Button type="submit" disabled={addingFee || loadingExistingFees}>
-                {addingFee ? "Saving Data..." : hasExistingFees ? "Update Records" : "Publish Fees"}
+                {addingFee ? "Saving..." : "Submit for Approval"}
               </Button>
             </DialogFooter>
           </form>
