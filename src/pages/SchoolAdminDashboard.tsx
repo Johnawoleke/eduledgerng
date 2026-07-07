@@ -33,7 +33,9 @@ import {
   EyeOff,
   Mail,
   Loader2,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Archive,
+  ArchiveRestore
 } from "lucide-react";
 import { generateReceiptPdf, parsePaymentItems } from "@/lib/generateReceiptPdf";
 import { toast } from "sonner";
@@ -156,6 +158,7 @@ const SchoolAdminDashboard = () => {
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [studentsClassFilter, setStudentsClassFilter] = useState("JSS1");
+  const [showArchived, setShowArchived] = useState(false);
   const [paymentsClassFilter, setPaymentsClassFilter] = useState("ALL");
   const [selectedStudent, setSelectedStudent] = useState<StudentRow | null>(null);
   const [studentFees, setStudentFees] = useState<any[]>([]);
@@ -473,9 +476,9 @@ const SchoolAdminDashboard = () => {
     setClassFees(allClassFees);
     setPayments(paymentsData || []);
 
-    // Student rows - only include active students
+    // Keep ALL students (active + archived); the roster filters by status in
+    // the render so archived students can be viewed and restored.
     const studentRows: StudentRow[] = (studentsData || [])
-      .filter((s: any) => s.status !== "inactive")
       .map((s: any) => {
         return { ...s, totalFees: 0, totalPaid: 0 };
       });
@@ -489,8 +492,13 @@ const SchoolAdminDashboard = () => {
     loadData();
   }, [slug]);
 
-  // Recalculate student totals when period filter changes (term-specific)
-  const studentsWithTotals = students.map((s) => {
+  const isArchived = (s: StudentRow) => s.status === "archived" || s.status === "inactive";
+  const activeStudents = students.filter((s) => !isArchived(s));
+  const archivedStudents = students.filter((s) => isArchived(s));
+
+  // Recalculate student totals when period filter changes (term-specific).
+  // Only ACTIVE students count toward the roster and stats.
+  const studentsWithTotals = activeStudents.map((s) => {
     const applicableFees = publishedClassFees.filter(
       (f) => f.class_target === s.class || f.class_target === "ALL"
     );
@@ -546,22 +554,37 @@ const SchoolAdminDashboard = () => {
     setAddingStudent(false);
   };
 
-  const handleDeleteStudent = async (studentDbId: string, studentName: string) => {
-    // Only owners can delete students
+  // Students are never removed — only archived (reversible). Archiving hides
+  // them from the active roster and stats but keeps all their records.
+  const handleArchiveStudent = async (studentDbId: string, studentName: string) => {
     if (userRole !== "owner") {
-      toast.error("Only owners can delete students");
+      toast.error("Only owners can archive students");
       return;
     }
-    if (!confirm(`Are you sure you want to delete ${studentName}? This action cannot be undone.`)) {
+    if (!confirm(`Archive ${studentName}? They will be moved out of the active roster but their records are kept, and you can restore them anytime.`)) {
       return;
     }
 
-    const { error } = await supabase.from("students").delete().eq("id", studentDbId);
+    const { error } = await supabase.from("students").update({ status: "archived" }).eq("id", studentDbId);
 
     if (error) {
-      toast.error("Failed to delete student");
+      toast.error("Failed to archive student");
     } else {
-      toast.success(`Student ${studentName} has been deleted`);
+      toast.success(`${studentName} archived`);
+      loadData();
+    }
+  };
+
+  const handleRestoreStudent = async (studentDbId: string, studentName: string) => {
+    if (userRole !== "owner") {
+      toast.error("Only owners can restore students");
+      return;
+    }
+    const { error } = await supabase.from("students").update({ status: "active" }).eq("id", studentDbId);
+    if (error) {
+      toast.error("Failed to restore student");
+    } else {
+      toast.success(`${studentName} restored to the active roster`);
       loadData();
     }
   };
@@ -979,10 +1002,14 @@ const SchoolAdminDashboard = () => {
   const totalFees = studentsWithTotals.reduce((s, st) => s + st.totalFees, 0);
   const outstanding = totalFees - studentsWithTotals.reduce((s, st) => s + st.totalPaid, 0);
 
-  // Future sessions are blank everywhere, including the student roster
+  // Future sessions are blank everywhere, including the student roster.
+  // The archived toggle swaps the active roster for the archived one.
+  const rosterBase = showArchived
+    ? archivedStudents.map((s) => ({ ...s, totalFees: 0, totalPaid: 0 }))
+    : studentsWithTotals;
   const filteredStudents = academicPeriods.isFutureSession
     ? []
-    : studentsWithTotals.filter((s) => {
+    : rosterBase.filter((s) => {
         const matchClass = s.class === studentsClassFilter;
         const matchSearch = !search ||
           (s.name || "").toLowerCase().includes(search.toLowerCase()) ||
@@ -1258,6 +1285,17 @@ const SchoolAdminDashboard = () => {
                         </Button>
                       ))}
                     </div>
+                    {userRole === "owner" && (
+                      <Button
+                        variant={showArchived ? "default" : "outline"}
+                        size="sm"
+                        className="gap-1.5 shrink-0"
+                        onClick={() => setShowArchived((v) => !v)}
+                      >
+                        <Archive className="w-3.5 h-3.5" />
+                        {showArchived ? `Viewing Archived (${archivedStudents.length})` : `Archived (${archivedStudents.length})`}
+                      </Button>
+                    )}
                   </div>
                   <div className="overflow-x-auto">
                     <Table>
@@ -1276,7 +1314,9 @@ const SchoolAdminDashboard = () => {
                             <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
                               {academicPeriods.isFutureSession
                                 ? "This session hasn't started yet."
-                                : "No students found."}
+                                : showArchived
+                                  ? "No archived students in this class."
+                                  : "No students found."}
                             </TableCell>
                           </TableRow>
                         ) : (
@@ -1305,18 +1345,28 @@ const SchoolAdminDashboard = () => {
                                 </TableCell>
                                 <TableCell className="text-right">
                                   <div className="flex items-center justify-end gap-1">
-                                    <Button variant="ghost" size="sm" onClick={() => handleViewStudent(student)}>
-                                      View Fees
-                                    </Button>
-                                    {/* Only owners can reset PIN and delete */}
-                                    {userRole === "owner" && (
+                                    {showArchived ? (
+                                      userRole === "owner" && (
+                                        <Button variant="outline" size="sm" className="gap-1.5" onClick={() => handleRestoreStudent(student.id, student.name)}>
+                                          <ArchiveRestore className="w-3.5 h-3.5" /> Restore
+                                        </Button>
+                                      )
+                                    ) : (
                                       <>
-                                        <Button variant="ghost" size="icon" onClick={() => handleResetPin(student.id, student.name)} title="Reset Password">
-                                          <KeyRound className="w-4 h-4 text-muted-foreground" />
+                                        <Button variant="ghost" size="sm" onClick={() => handleViewStudent(student)}>
+                                          View Fees
                                         </Button>
-                                        <Button variant="ghost" size="icon" onClick={() => handleDeleteStudent(student.id, student.name)} title="Delete Student">
-                                          <Trash2 className="w-4 h-4 text-destructive" />
-                                        </Button>
+                                        {/* Owners can reset PIN and archive (students are never hard-deleted) */}
+                                        {userRole === "owner" && (
+                                          <>
+                                            <Button variant="ghost" size="icon" onClick={() => handleResetPin(student.id, student.name)} title="Reset Password">
+                                              <KeyRound className="w-4 h-4 text-muted-foreground" />
+                                            </Button>
+                                            <Button variant="ghost" size="icon" onClick={() => handleArchiveStudent(student.id, student.name)} title="Archive Student">
+                                              <Archive className="w-4 h-4 text-muted-foreground" />
+                                            </Button>
+                                          </>
+                                        )}
                                       </>
                                     )}
                                   </div>
