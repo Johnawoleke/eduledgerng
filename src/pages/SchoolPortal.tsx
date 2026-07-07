@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { GraduationCap, ShieldCheck } from "lucide-react";
+import { GraduationCap, ShieldCheck, Eye, EyeOff } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { readFunctionsError } from "@/lib/utils";
@@ -27,6 +27,9 @@ const SchoolPortal = () => {
   const [adminEmail, setAdminEmail] = useState("");
   const [adminPassword, setAdminPassword] = useState("");
   const [adminLoading, setAdminLoading] = useState(false);
+
+  const [showPin, setShowPin] = useState(false);
+  const [showAdminPassword, setShowAdminPassword] = useState(false);
 
   useEffect(() => {
     const loadSchool = async () => {
@@ -218,15 +221,33 @@ const SchoolPortal = () => {
                   </div>
                   <div className="space-y-2">
                     <Label>PIN</Label>
-                    <Input
-                      type="password"
-                      placeholder="Enter your PIN"
-                      value={pin}
-                      onChange={(e) => setPin(e.target.value)}
-                      required
-                      maxLength={50}
-                      disabled={studentLoading}
-                    />
+                    <div className="relative">
+                      <Input
+                        type={showPin ? "text" : "password"}
+                        placeholder="Enter your PIN"
+                        value={pin}
+                        onChange={(e) => setPin(e.target.value)}
+                        required
+                        maxLength={50}
+                        disabled={studentLoading}
+                        className="pr-10"
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 p-0"
+                        onClick={() => setShowPin(!showPin)}
+                        disabled={studentLoading}
+                        tabIndex={-1}
+                      >
+                        {showPin ? (
+                          <EyeOff className="w-4 h-4 text-muted-foreground" />
+                        ) : (
+                          <Eye className="w-4 h-4 text-muted-foreground" />
+                        )}
+                      </Button>
+                    </div>
                   </div>
                   <Button type="submit" className="w-full" disabled={studentLoading}>
                     {studentLoading ? "Signing in..." : "Sign In"}
@@ -248,14 +269,32 @@ const SchoolPortal = () => {
                   </div>
                   <div className="space-y-2">
                     <Label>Password</Label>
-                    <Input
-                      type="password"
-                      placeholder="Password"
-                      value={adminPassword}
-                      onChange={(e) => setAdminPassword(e.target.value)}
-                      required
-                      disabled={adminLoading}
-                    />
+                    <div className="relative">
+                      <Input
+                        type={showAdminPassword ? "text" : "password"}
+                        placeholder="Password"
+                        value={adminPassword}
+                        onChange={(e) => setAdminPassword(e.target.value)}
+                        required
+                        disabled={adminLoading}
+                        className="pr-10"
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 p-0"
+                        onClick={() => setShowAdminPassword(!showAdminPassword)}
+                        disabled={adminLoading}
+                        tabIndex={-1}
+                      >
+                        {showAdminPassword ? (
+                          <EyeOff className="w-4 h-4 text-muted-foreground" />
+                        ) : (
+                          <Eye className="w-4 h-4 text-muted-foreground" />
+                        )}
+                      </Button>
+                    </div>
                   </div>
                   <Button type="submit" className="w-full" disabled={adminLoading}>
                     {adminLoading ? "Signing in..." : "Sign In"}

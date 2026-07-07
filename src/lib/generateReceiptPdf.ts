@@ -28,8 +28,8 @@ interface ReceiptData {
 }
 
 /** Parse item strings that may contain "|amount" suffix */
-export const parsePaymentItems = (items: string[]): ReceiptItem[] => {
-  return items.map((item) => {
+export const parsePaymentItems = (items: string[] | null | undefined): ReceiptItem[] => {
+  return (items || []).filter(Boolean).map((item) => {
     const pipeIdx = item.lastIndexOf("|");
     if (pipeIdx > 0) {
       const name = item.substring(0, pipeIdx);

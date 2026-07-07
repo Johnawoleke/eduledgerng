@@ -879,21 +879,27 @@ const SchoolAdminDashboard = () => {
     ? []
     : studentsWithTotals.filter((s) => {
         const matchClass = s.class === studentsClassFilter;
-        const matchSearch = !search || s.name.toLowerCase().includes(search.toLowerCase()) || s.student_id.toLowerCase().includes(search.toLowerCase());
+        const matchSearch = !search ||
+          (s.name || "").toLowerCase().includes(search.toLowerCase()) ||
+          (s.student_id || "").toLowerCase().includes(search.toLowerCase());
         return matchClass && matchSearch;
       });
 
   const filteredPayments = filteredPaymentsByPeriod.filter((p) => {
     const studentData = p.students as any;
     const matchClass = paymentsClassFilter === "ALL" || studentData?.class === paymentsClassFilter;
+    // reference can be null on legacy rows — guard before .toLowerCase(), or a
+    // single non-empty search keystroke crashes the whole dashboard render.
     const matchSearch = !search ||
       (studentData?.name || "").toLowerCase().includes(search.toLowerCase()) ||
-      p.reference.toLowerCase().includes(search.toLowerCase());
+      (p.reference || "").toLowerCase().includes(search.toLowerCase());
     return matchClass && matchSearch;
   });
 
-  const formatDateTime = (dateStr: string) => {
+  const formatDateTime = (dateStr: string | null) => {
+    if (!dateStr) return "—";
     const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return "—";
     const now = new Date();
     const isToday = d.toDateString() === now.toDateString();
     const yesterday = new Date(now);
