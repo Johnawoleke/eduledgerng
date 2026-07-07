@@ -118,6 +118,8 @@ const ResetPassword = () => {
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     required
+                    minLength={4}
+                    maxLength={50}
                     disabled={isLoading}
                     className="pr-10"
                   />
@@ -145,6 +147,7 @@ const ResetPassword = () => {
                     id="confirmPassword"
                     type={showConfirmPassword ? "text" : "password"}
                     placeholder="Confirm your new password"
+                    maxLength={50}
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     required

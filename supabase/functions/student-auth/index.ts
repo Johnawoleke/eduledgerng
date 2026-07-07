@@ -24,8 +24,10 @@ serve(async (req) => {
     }
 
     // Validate input types and lengths
+    // PIN max must match what the setters allow (student-set-pin caps at 50),
+    // otherwise a student who chose a >10-char password is locked out at login.
     if (typeof student_id !== "string" || student_id.length > 30 ||
-        typeof pin !== "string" || pin.length > 10 ||
+        typeof pin !== "string" || pin.length > 50 ||
         typeof school_slug !== "string" || school_slug.length > 100) {
       return new Response(
         JSON.stringify({ error: "Invalid input" }),
