@@ -18,8 +18,8 @@ An honest register of what the system assumes, where it is fragile, and what deb
 | **`handle-school-request` relies partly on UUID secrecy** | Improved | It now verifies the caller is the invitee, but request UUIDs are the primary unguessable token. Acceptable, noted. (`05-edge-functions.md`) |
 | **Removed bursar's JWT** | Mitigated | `remove-bursar` calls `auth.admin.signOut(user, "global")` to revoke sessions, and RLS re-evaluates per request so access ends immediately regardless — but a cached JWT is technically valid until expiry for non-RLS operations. |
 | **Profiles email visibility** | Scoped | Emails are readable by the owner of a school the person belongs to / is invited to (for the staff list), and by the person themselves — not by anon. |
-| **Archived students can still log in** | Open bug | `verify_student_pin` excludes only `status = 'inactive'` (`coalesce(s.status,'active') <> 'inactive'`), not `'archived'`. Since ADR-010 archives with `status='archived'`, an archived student is hidden from the roster but can **still authenticate and view their dashboard**. Fix: also exclude `'archived'` in the RPC (a one-line migration + redeploy). Surfaced by the documentation audit 2026-07-07. |
-| **`register-school` logs the plaintext password** | Open | `register-school/index.ts` `console.log`s the raw request body, which includes the new user's password, into function logs. Fix: stop logging the body, or redact `password`. |
+| ~~Archived students can still log in~~ | **Fixed 2026-07-07** | `verify_student_pin` now excludes `status in ('inactive','archived')` (migration `20260707180000`), so archiving a student also blocks their login. Was: excluded only `'inactive'`. Verified on prod. |
+| ~~`register-school` logs the plaintext password~~ | **Fixed 2026-07-07** | `register-school` no longer `console.log`s the raw request body (which contained the new user's password). Deployed to prod. |
 
 ## Operational constraints
 
