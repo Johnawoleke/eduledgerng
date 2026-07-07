@@ -16,7 +16,8 @@ import {
   Clock,
   Loader2,
   User,
-  Sparkles
+  Sparkles,
+  KeyRound
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -70,6 +71,18 @@ const Dashboard = () => {
       // Get user name from metadata or email
       const name = user.user_metadata?.full_name || user.email?.split("@")[0] || "User";
       setUserName(name);
+
+      // Force a freshly-created bursar to replace their temporary password
+      // before they can use the app.
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("must_change_password")
+        .eq("id", user.id)
+        .maybeSingle();
+      if (profile?.must_change_password) {
+        navigate("/change-password");
+        return;
+      }
 
       try {
         // 2. Fetch schools
@@ -261,7 +274,10 @@ const Dashboard = () => {
               <User className="w-4 h-4" />
               <span className="font-medium">{userName}</span>
             </div>
-            <Button variant="ghost" size="sm" onClick={handleLogout}>
+            <Button variant="ghost" size="sm" onClick={() => navigate("/change-password")} title="Change password">
+              <KeyRound className="w-4 h-4" />
+            </Button>
+            <Button variant="ghost" size="sm" onClick={handleLogout} title="Log out">
               <LogOut className="w-4 h-4" />
             </Button>
           </div>

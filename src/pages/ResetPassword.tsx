@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { GraduationCap, Eye, EyeOff } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { readFunctionsError } from "@/lib/utils";
 
 const ResetPassword = () => {
   const { slug } = useParams<{ slug: string }>();
@@ -15,7 +16,8 @@ const ResetPassword = () => {
   const navigate = useNavigate();
   
   const studentId = location.state?.studentId;
-  
+  const currentPin = location.state?.currentPin;
+
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -47,22 +49,27 @@ const ResetPassword = () => {
       return;
     }
 
+    if (!currentPin) {
+      toast.error("Session expired. Please log in again.");
+      navigate(`/school/${slug}`);
+      return;
+    }
+
     setIsLoading(true);
 
     try {
-      const { error } = await supabase
-        .from("students")
-        .update({
-          pin: newPassword,
-          default_pin: newPassword,
-          is_first_login: false,
-          must_change_pin: false,
-        })
-        .eq("student_id", studentId);
+      // Verified and written server-side (students is no longer anon-writable)
+      const { data, error } = await supabase.functions.invoke("student-set-pin", {
+        body: {
+          school_slug: slug,
+          student_id: studentId,
+          current_pin: currentPin,
+          new_pin: newPassword,
+        },
+      });
 
-      if (error) {
-        console.error("Password reset error:", error);
-        toast.error("Failed to update password. Please try again.");
+      if (error || data?.error) {
+        toast.error(data?.error || (await readFunctionsError(error, "Failed to update password. Please try again.")));
         setIsLoading(false);
         return;
       }

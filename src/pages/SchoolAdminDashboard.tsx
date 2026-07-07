@@ -196,6 +196,83 @@ const SchoolAdminDashboard = () => {
   const [emailExists, setEmailExists] = useState<boolean | null>(null);
   const [createdCredentials, setCreatedCredentials] = useState<{ email: string; password: string } | null>(null);
 
+  // Staff management (owner only): current members + pending invites
+  const [staffMembers, setStaffMembers] = useState<{ user_id: string; role: string; email: string }[]>([]);
+  const [pendingInvites, setPendingInvites] = useState<{ id: string; role: string; email: string; expires_at: string }[]>([]);
+  const [loadingStaff, setLoadingStaff] = useState(false);
+  const [staffActionId, setStaffActionId] = useState<string | null>(null);
+
+  const loadStaff = async () => {
+    if (!school?.id) return;
+    setLoadingStaff(true);
+    try {
+      const { data: admins } = await supabase
+        .from("school_admins")
+        .select("user_id, role")
+        .eq("school_id", school.id);
+      const { data: invites } = await supabase
+        .from("school_requests")
+        .select("id, user_id, role, expires_at")
+        .eq("school_id", school.id)
+        .eq("status", "pending");
+
+      const userIds = [
+        ...(admins || []).map((a) => a.user_id),
+        ...(invites || []).map((i) => i.user_id),
+      ];
+      const emailById: Record<string, string> = {};
+      if (userIds.length > 0) {
+        const { data: profs } = await supabase
+          .from("profiles")
+          .select("id, email")
+          .in("id", userIds);
+        (profs || []).forEach((p) => { emailById[p.id] = p.email || ""; });
+      }
+
+      setStaffMembers(
+        (admins || []).map((a) => ({ user_id: a.user_id, role: a.role, email: emailById[a.user_id] || "—" }))
+      );
+      const now = Date.now();
+      setPendingInvites(
+        (invites || [])
+          .filter((i) => new Date(i.expires_at).getTime() > now)
+          .map((i) => ({ id: i.id, role: i.role, email: emailById[i.user_id] || "—", expires_at: i.expires_at }))
+      );
+    } finally {
+      setLoadingStaff(false);
+    }
+  };
+
+  const handleRemoveBursar = async (userId: string, email: string) => {
+    if (!confirm(`Remove ${email} from this school? They will lose access immediately.`)) return;
+    setStaffActionId(userId);
+    try {
+      const { data, error } = await supabase.functions.invoke("remove-bursar", {
+        body: { schoolId: school.id, userId },
+      });
+      if (error || data?.error) {
+        toast.error(data?.error || (await readFunctionsError(error, "Failed to remove staff")));
+      } else {
+        toast.success(`${email} removed`);
+        loadStaff();
+      }
+    } finally {
+      setStaffActionId(null);
+    }
+  };
+
+  const handleCancelInvite = async (inviteId: string, email: string) => {
+    setStaffActionId(inviteId);
+    const { error } = await supabase.from("school_requests").delete().eq("id", inviteId);
+    if (error) {
+      toast.error("Failed to cancel invitation");
+    } else {
+      toast.success(`Invitation to ${email} cancelled`);
+      loadStaff();
+    }
+    setStaffActionId(null);
+  };
+
   const academicPeriods = useAcademicPeriods(school?.id);
 
   // Set fee dialog defaults to match dashboard selection
@@ -337,6 +414,18 @@ const SchoolAdminDashboard = () => {
       return;
     }
     setUserId(user.id);
+
+    // A freshly-created bursar must replace the owner-set temp password before
+    // using the app — enforce it here too (not just on /main-dashboard).
+    const { data: prof } = await supabase
+      .from("profiles")
+      .select("must_change_password")
+      .eq("id", user.id)
+      .maybeSingle();
+    if (prof?.must_change_password) {
+      navigate("/change-password");
+      return;
+    }
 
     const { data: schoolData } = await supabase
       .from("schools")
@@ -719,15 +808,18 @@ const SchoolAdminDashboard = () => {
         const { data, error } = await supabase.functions.invoke("check-user-exists", {
           body: { email: bursarEmail.trim().toLowerCase() },
         });
-        if (error) {
-          console.error("Error checking user:", error);
-          setEmailExists(false);
+        if (error || data?.error) {
+          // Fail CLOSED: leave the state unknown rather than falsely offering
+          // "create new account" for an email that might already exist.
+          console.error("Error checking user:", error || data?.error);
+          setEmailExists(null);
+          toast.error("Couldn't verify that email. Please try again.");
         } else {
-          setEmailExists(data?.exists || false);
+          setEmailExists(data?.exists ?? null);
         }
       } catch (err) {
         console.error("Error:", err);
-        setEmailExists(false);
+        setEmailExists(null);
       } finally {
         setCheckingEmail(false);
       }
@@ -735,6 +827,14 @@ const SchoolAdminDashboard = () => {
 
     return () => clearTimeout(timer);
   }, [bursarEmail]);
+
+  // Load current staff + pending invites whenever an owner opens the dialog
+  useEffect(() => {
+    if (addBursarOpen && userRole === "owner" && school?.id) {
+      loadStaff();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addBursarOpen, userRole, school?.id]);
 
   const resetBursarForm = () => {
     setBursarEmail("");
@@ -806,10 +906,15 @@ const SchoolAdminDashboard = () => {
         setCreatedCredentials({ email: cleanEmail, password: bursarPassword });
         toast.success("Bursar account created and added to this school!");
         loadData();
+        loadStaff();
       } else {
         toast.success("Invitation sent! The bursar will see it on their dashboard.");
-        setAddBursarOpen(false);
-        resetBursarForm();
+        setBursarEmail("");
+        setBursarFullName("");
+        setBursarPassword("");
+        setBursarConfirmPassword("");
+        setEmailExists(null);
+        loadStaff();
       }
     } catch (err) {
       console.error("Error adding bursar:", err);
@@ -937,16 +1042,19 @@ const SchoolAdminDashboard = () => {
               <Home className="w-4 h-4" />
             </Button>
             {userRole === "owner" && (
-              <Button 
-                variant="ghost" 
-                size="sm" 
-                onClick={() => navigate(`/school/${slug}/settings`)} 
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => navigate(`/school/${slug}/settings`)}
                 title="Settings"
               >
                 <Settings className="w-4 h-4" />
               </Button>
             )}
-            <Button variant="ghost" size="sm" onClick={handleLogout}>
+            <Button variant="ghost" size="sm" onClick={() => navigate("/change-password")} title="Change password">
+              <KeyRound className="w-4 h-4" />
+            </Button>
+            <Button variant="ghost" size="sm" onClick={handleLogout} title="Log out">
               <LogOut className="w-4 h-4" />
             </Button>
           </div>
@@ -1516,10 +1624,65 @@ const SchoolAdminDashboard = () => {
               </DialogFooter>
             </div>
           ) : (
+          <>
+            {/* Current staff + pending invitations */}
+            {(staffMembers.length > 0 || pendingInvites.length > 0 || loadingStaff) && (
+              <div className="space-y-2 border-b pb-4 mb-2">
+                <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                  Current Staff
+                </Label>
+                {loadingStaff ? (
+                  <p className="text-sm text-muted-foreground">Loading…</p>
+                ) : (
+                  <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                    {staffMembers.map((m) => (
+                      <div key={m.user_id} className="flex items-center justify-between gap-2 text-sm rounded-md border px-3 py-2">
+                        <div className="min-w-0">
+                          <span className="truncate block">{m.email}</span>
+                          <span className="text-xs text-muted-foreground capitalize">{m.role}</span>
+                        </div>
+                        {m.role === "owner" ? (
+                          <Badge variant="outline" className="text-xs shrink-0">Owner</Badge>
+                        ) : (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="text-destructive shrink-0 h-7"
+                            disabled={staffActionId === m.user_id}
+                            onClick={() => handleRemoveBursar(m.user_id, m.email)}
+                          >
+                            {staffActionId === m.user_id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Remove"}
+                          </Button>
+                        )}
+                      </div>
+                    ))}
+                    {pendingInvites.map((inv) => (
+                      <div key={inv.id} className="flex items-center justify-between gap-2 text-sm rounded-md border border-dashed px-3 py-2">
+                        <div className="min-w-0">
+                          <span className="truncate block">{inv.email}</span>
+                          <span className="text-xs text-amber-600">Invitation pending</span>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive shrink-0 h-7"
+                          disabled={staffActionId === inv.id}
+                          onClick={() => handleCancelInvite(inv.id, inv.email)}
+                        >
+                          {staffActionId === inv.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Cancel"}
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           <form onSubmit={handleAddBursar}>
             <div className="grid gap-4 py-4">
               <div className="space-y-2">
-                <Label htmlFor="bursarEmail">Bursar's Email *</Label>
+                <Label htmlFor="bursarEmail">Add a Bursar — Email *</Label>
                 <div className="relative">
                   <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                   <Input
@@ -1656,6 +1819,7 @@ const SchoolAdminDashboard = () => {
               </Button>
             </DialogFooter>
           </form>
+          </>
           )}
         </DialogContent>
       </Dialog>

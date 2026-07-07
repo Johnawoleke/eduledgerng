@@ -37,6 +37,24 @@ const SchoolSettingsPage = () => {
 
       if (!schoolData) { navigate(`/school/${slug}`); return; }
 
+      // Settings (incl. the bank/settlement account) are owner-only. Bursars
+      // are members but must not change where student money settles.
+      const isOwner = schoolData.owner_id === user.id;
+      if (!isOwner) {
+        const { data: ownerRow } = await supabase
+          .from("school_admins")
+          .select("id")
+          .eq("school_id", schoolData.id)
+          .eq("user_id", user.id)
+          .eq("role", "owner")
+          .maybeSingle();
+        if (!ownerRow) {
+          toast.error("Only the school owner can access settings");
+          navigate(`/school/${slug}/admin`);
+          return;
+        }
+      }
+
       setSchool(schoolData);
       setAddress(schoolData.address || "");
       setPhone(schoolData.phone || "");

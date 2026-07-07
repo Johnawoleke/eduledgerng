@@ -76,10 +76,13 @@ const SchoolPortal = () => {
         return;
       }
 
-      // First-time login: force a password reset before entering the dashboard
+      // First-time login: force a password reset before entering the dashboard.
+      // Pass the current PIN so the reset page can prove it server-side.
       if (student.must_change_pin) {
         toast.info("First-time login detected. Redirecting to set your new password...");
-        navigate(`/school/${slug}/reset-password`, { state: { studentId: student.student_id } });
+        navigate(`/school/${slug}/reset-password`, {
+          state: { studentId: student.student_id, currentPin: cleanPin },
+        });
         return;
       }
 

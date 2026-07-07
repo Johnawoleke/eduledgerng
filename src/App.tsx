@@ -20,6 +20,7 @@ import NotFound from "./pages/NotFound";
 import Dashboard from "./pages/Dashboard";
 import Register from "./pages/RegisterPage";
 import AccountRecovery from "./pages/AccountRecovery";
+import ChangePassword from "./pages/ChangePassword";
 
 const queryClient = new QueryClient();
 
@@ -47,6 +48,7 @@ const App = () => {
                   <Route path="/main-dashboard" element={<Dashboard />} />
                   <Route path="/school/:slug/receipt/:paymentId" element={<ReceiptPage />} />
                   <Route path="/account-recovery" element={<AccountRecovery />} />
+                  <Route path="/change-password" element={<ChangePassword />} />
                   <Route path="/owner-login" element={<OwnerLogin />} />
                   <Route path="*" element={<NotFound />} />
                 </Routes>
