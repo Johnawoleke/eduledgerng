@@ -57,6 +57,18 @@ The live DB was rebuilt by hand when the project moved off the Lovable tenant, s
 
 Tables: `schools`, `students`, `profiles`, `school_admins`, `school_requests` (bursar invitations), `sessions` → `terms` (academic periods per school), `class_fees` (fee definitions per class+period), `fee_items` (legacy per-student instances), `payments`, `payment_events` (webhook audit log). Fees and payments are scoped to a session/term — `src/hooks/useAcademicPeriods.ts` and `src/components/AcademicPeriodSelector.tsx` drive that selection. Student fee summaries are computed server-side by the `student-auth` function (class_fees minus payment items); the frontend never queries the `students` table for auth.
 
+### Fee approval workflow (migration 20260707090000)
+
+`class_fees.status` is `pending` or `published`. Owners AND bursars create fees (always as `pending`, enforced by RLS insert policy); only owners publish (RLS update policy: `is_school_owner`) via the admin "Fees" tab. Students only ever see/pay `published` fees — the filter exists in `student-auth`, `create-paystack-payment`, AND legacy `create-zendfi-payment`; any new student-facing read of class_fees must add it too. **Published fees are immutable for the whole session** — a DB trigger (`protect_published_class_fees`) rejects updates/deletes even from the service role; the only allowed transition is pending→published. The Add Fee dialog refetches on open and re-checks statuses server-side before upserting, because a fee published mid-edit would abort the whole upsert batch via the trigger.
+
+### Sessions: virtual future sessions
+
+The session dropdown shows real sessions plus 10 upcoming virtual ones (`buildFutureSessions` in useAcademicPeriods, ids `future-<year>`, no DB rows). `isFutureSession` must gate every data query and edit path — virtual ids are not UUIDs and will 22P02 any DB filter they reach. Both dashboards blank all lists and disable Add Fee/Add Student/Upload under a future session.
+
+### Password recovery
+
+OwnerLogin "Forgot password?" → `resetPasswordForEmail(redirectTo: /account-recovery)` → `src/pages/AccountRecovery.tsx` (`updateUser`). Requires the origin's `/account-recovery` URL in Supabase Auth → URL Configuration → Redirect URLs for EACH project (hosted config; `supabase config push` cannot be used — it syncs unrelated paid-tier settings and 402s). `clearAuthState` in supabaseAuthContext exempts `/account-recovery` from its redirect.
+
 ### Hardcoded Supabase URL + anon key (intentional)
 
 `src/integrations/supabase/client.ts` hardcodes the project URL and publishable key **on purpose** — see `notes/supabase-env-vars.md`. Do not "fix" this by moving to env vars without being asked; both values are public by design and hardcoding keeps Vercel deploys config-free.
