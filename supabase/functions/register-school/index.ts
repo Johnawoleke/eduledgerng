@@ -11,13 +11,9 @@ Deno.serve(async (req) => {
   }
 
   try {
-    // Log the raw request body
-    const rawBody = await req.clone().text();
-    console.log("🔍 Raw request body:", rawBody);
-
-    // Parse JSON
-    const body = JSON.parse(rawBody);
-    console.log("📦 Parsed body:", body);
+    // Parse the request body. Do NOT log it — it contains the new user's
+    // plaintext password.
+    const body = await req.json();
 
     const buildInitialSession = () => {
       const startYear = new Date().getFullYear();
