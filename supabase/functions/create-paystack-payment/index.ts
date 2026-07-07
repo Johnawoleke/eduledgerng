@@ -107,11 +107,12 @@ serve(async (req) => {
     }
     const student = students[0];
 
-    // --- Validate requested payments against class fees for the period -----
+    // --- Validate requested payments against PUBLISHED class fees ----------
     let feeQuery = supabaseAdmin
       .from("class_fees")
       .select("*")
       .eq("school_id", school.id)
+      .eq("status", "published")
       .in("class_target", [student.class, "ALL"]);
     if (session_id) feeQuery = feeQuery.eq("session_id", session_id);
     if (term_id) feeQuery = feeQuery.eq("term_id", term_id);

@@ -83,11 +83,13 @@ serve(async (req) => {
 
     const student = students[0];
 
-    // Build fee query - filter by session_id and term_id if provided
+    // Build fee query - only PUBLISHED fees are visible to students,
+    // filtered by session_id and term_id if provided
     let feeQuery = supabaseAdmin
       .from("class_fees")
       .select("*")
       .eq("school_id", school.id)
+      .eq("status", "published")
       .in("class_target", [student.class, "ALL"]);
 
     if (session_id) feeQuery = feeQuery.eq("session_id", session_id);

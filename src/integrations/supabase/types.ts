@@ -21,32 +21,44 @@ export type Database = {
       class_fees: {
         Row: {
           amount: number
+          approved_at: string | null
+          approved_by: string | null
           class_target: string
           created_at: string
+          created_by: string | null
           id: string
           name: string
           school_id: string
           session_id: string | null
+          status: string
           term_id: string | null
         }
         Insert: {
           amount: number
+          approved_at?: string | null
+          approved_by?: string | null
           class_target: string
           created_at?: string
+          created_by?: string | null
           id?: string
           name: string
           school_id: string
           session_id?: string | null
+          status?: string
           term_id?: string | null
         }
         Update: {
           amount?: number
+          approved_at?: string | null
+          approved_by?: string | null
           class_target?: string
           created_at?: string
+          created_by?: string | null
           id?: string
           name?: string
           school_id?: string
           session_id?: string | null
+          status?: string
           term_id?: string | null
         }
         Relationships: [
@@ -479,6 +491,7 @@ export type Database = {
     }
     Functions: {
       is_school_member: { Args: { school_id_param: string }; Returns: boolean }
+      is_school_owner: { Args: { school_id_param: string }; Returns: boolean }
       verify_student_pin: {
         Args: { p_pin: string; p_school_id: string; p_student_id: string }
         Returns: {

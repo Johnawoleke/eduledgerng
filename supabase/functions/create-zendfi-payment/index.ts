@@ -58,11 +58,13 @@ serve(async (req) => {
 
     const student = students[0];
 
-    // Get class-level fees for this student's class
+    // Get PUBLISHED class-level fees for this student's class — pending
+    // (unapproved) fees must not be payable through any payment path
     const { data: classFees } = await supabaseAdmin
       .from("class_fees")
       .select("*")
       .eq("school_id", school.id)
+      .eq("status", "published")
       .in("class_target", [student.class, "ALL"]);
 
     // Get existing payments to calculate paid amounts

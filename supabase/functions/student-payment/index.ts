@@ -70,6 +70,8 @@ serve(async (req) => {
     const itemNames: string[] = [];
 
     for (const fp of fee_payments) {
+      // fee_items is the legacy per-student table; it has no approval flow,
+      // but keep parity by never letting this path touch class_fees.
       const { data: feeItem } = await supabaseAdmin
         .from("fee_items")
         .select("*")
