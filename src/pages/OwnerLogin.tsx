@@ -15,6 +15,25 @@ const OwnerLogin = () => {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [sendingReset, setSendingReset] = useState(false);
+
+  const handleForgotPassword = async () => {
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail) {
+      toast.error("Enter your email above first, then click Forgot password");
+      return;
+    }
+    setSendingReset(true);
+    const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
+      redirectTo: `${window.location.origin}/account-recovery`,
+    });
+    if (error) {
+      toast.error(error.message);
+    } else {
+      toast.success("Password reset email sent — check your inbox (and spam folder).");
+    }
+    setSendingReset(false);
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -96,6 +115,17 @@ const OwnerLogin = () => {
               <Button type="submit" className="w-full" disabled={loading}>
                 {loading ? "Signing in..." : "Sign In"}
               </Button>
+              <div className="text-right">
+                <Button
+                  type="button"
+                  variant="link"
+                  className="p-0 h-auto text-sm text-muted-foreground"
+                  onClick={handleForgotPassword}
+                  disabled={sendingReset}
+                >
+                  {sendingReset ? "Sending reset email..." : "Forgot password?"}
+                </Button>
+              </div>
             </form>
           </CardContent>
         </Card>

@@ -37,8 +37,13 @@ export const SupabaseAuthProvider = ({ children }: { children: ReactNode }) => {
       // 🛡️ LOOP BREAKER SHIELD:
       // If the user is already on a school path (like /school/qwert), DO NOT force a browser redirect.
       // Let the page render naturally so they can see the Admin/Student selection buttons safely.
-      if (window.location.pathname.startsWith("/school/")) {
-        return; 
+      // /account-recovery is exempt too: the recovery link needs a moment to
+      // exchange its token for a session, and a redirect here would break it.
+      if (
+        window.location.pathname.startsWith("/school/") ||
+        window.location.pathname.startsWith("/account-recovery")
+      ) {
+        return;
       }
       
       // Only redirect to home if they are logged out out-of-bounds

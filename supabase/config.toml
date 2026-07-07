@@ -1,6 +1,17 @@
 # Live project (personal Supabase, migrated off the Lovable tenant 2026-04-22)
 project_id = "ifonivphhfplntzshtsb"
 
+# Auth URL configuration — required for the /account-recovery password-reset
+# flow (the emailed link must be allowed to redirect there). Applied to hosted
+# projects via `supabase config push [--project-ref ...]`.
+[auth]
+site_url = "https://eduledgerng.vercel.app"
+additional_redirect_urls = [
+  "https://eduledgerng.vercel.app/account-recovery",
+  "http://localhost:8080/account-recovery",
+  "http://localhost:8080",
+]
+
 [functions.register-school]
 verify_jwt = false
 

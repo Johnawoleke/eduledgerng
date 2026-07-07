@@ -19,6 +19,7 @@ import SchoolSettingsPage from "./pages/SchoolSettingsPage";
 import NotFound from "./pages/NotFound";
 import Dashboard from "./pages/Dashboard";
 import Register from "./pages/RegisterPage";
+import AccountRecovery from "./pages/AccountRecovery";
 
 const queryClient = new QueryClient();
 
@@ -45,6 +46,7 @@ const App = () => {
                   <Route path="/school/:slug/settings" element={<SchoolSettingsPage />} />
                   <Route path="/main-dashboard" element={<Dashboard />} />
                   <Route path="/school/:slug/receipt/:paymentId" element={<ReceiptPage />} />
+                  <Route path="/account-recovery" element={<AccountRecovery />} />
                   <Route path="/owner-login" element={<OwnerLogin />} />
                   <Route path="*" element={<NotFound />} />
                 </Routes>
