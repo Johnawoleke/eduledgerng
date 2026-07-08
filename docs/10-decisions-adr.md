@@ -108,9 +108,21 @@ Each record captures a significant decision, the context, the choice, and the tr
 
 **Context.** Each school (branch) must receive its own students' fees directly, minus a flat 1% platform cut, without manual payouts.
 
-**Decision.** Lazily provision one Paystack **subaccount** per school from its registered bank details (cached in `settings.paystack_subaccount_code`). Each transaction is a split: a flat 1%-of-fees `transaction_charge` to the platform, the remainder to the school subaccount (`bearer: "subaccount"`). The checkout total is **grossed up** so the student pays Paystack's processing fee on top and the school still nets fees − 1%.
+**Decision.** Lazily provision one Paystack **subaccount** per school from its registered bank details (cached in `settings.paystack_subaccount_code`). Each transaction is a split: a flat 1%-of-fees `transaction_charge` to the platform, the remainder to the school subaccount (`bearer: "subaccount"`). The checkout total is **grossed up** so the parent covers Paystack's processing fee on top.
 
-**Trade-off.** Students pay slightly more (the gateway fee), schools get automatic direct settlement and the platform gets a clean 1%. The gross-up formula is duplicated in `create-paystack-payment` and `SchoolStudentDashboard.tsx` and **must be kept in sync**. See `07-payments.md`.
+**Superseded by ADR-013** on the fee/charge split: originally the platform 1% was deducted from the fee (school netted 99%). See below.
+
+**Trade-off.** Schools get automatic direct settlement per branch and the platform gets a clean 1%. The gross-up formula is duplicated in `create-paystack-payment` and `SchoolStudentDashboard.tsx` and **must be kept in sync**. See `07-payments.md`.
+
+---
+
+## ADR-013 — The school receives the exact fee; both charges are added on top
+
+**Context.** The founder's model (2026-07-08): EduLedgerNG is a record-management/ledger tool, so a school must receive the **precise** amount it set for a fee — like a paper ledger. Both the Paystack gateway charge **and** the platform charge are **added on top** and borne by the parent, never deducted from the school's fee. Supersedes the original ADR-011 split (where the 1% was taken out of the fee and the school netted 99%).
+
+**Decision.** Gross the checkout up on **base + platform_fee** (not just base), so after Paystack's fee clears, the settled amount is `fee + 1%`; the split's `transaction_charge` (1%) goes to the platform and the subaccount receives exactly the **full fee**. Net: `parent pays = fee + platform 1% + Paystack fee`; `school receives = fee (100%)`; `platform keeps = 1%`. The recorded `payments` still store only the base fee amounts, so the school's ledger reflects the exact fees. Worked example (₦50,000 fee): parent pays ≈ ₦51,370.56 = ₦50,000 + ₦500 + ≈₦870.56; school receives ₦50,000.
+
+**Trade-off.** Parents pay marginally more (they now also carry the 1%), in exchange for the school's records and settlement being exact — which is the product's core promise. The two-line gross-up target change lives in both `create-paystack-payment` and `SchoolStudentDashboard.tsx` and must stay in sync.
 
 ---
 

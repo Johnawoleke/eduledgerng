@@ -5,13 +5,17 @@
 // per-school Paystack subaccount, while a flat `transaction_charge` (the 1%
 // platform fee) stays with the platform's main Paystack account.
 //
-// Money model (all amounts in kobo internally):
-//   base            = sum of validated fee payments (what counts toward fees)
+// Money model (all amounts in kobo internally). The school must receive the
+// EXACT fee it set — both charges are ADDED ON TOP and paid by the parent:
+//   base            = sum of validated fee payments (the fees the school set)
 //   platform_fee    = 1% of base                     -> platform main account
-//   total charged   = gross-up(base) so that after Paystack deducts its own
-//                     processing fee the settled amount still equals base.
-//                     The student therefore bears the gateway fee.
-//   school receives = base - platform_fee   (bearer: "subaccount")
+//   settled target  = base + platform_fee            (what must clear Paystack)
+//   total charged   = gross-up(base + platform_fee) so that after Paystack
+//                     deducts its processing fee the settled amount still
+//                     covers base + platform_fee. The parent bears BOTH the
+//                     platform fee and the gateway fee.
+//   school receives = base (100% of the fee)          (bearer: "subaccount")
+//   parent pays     = base + platform_fee + paystack_fee
 //
 // Requires the PAYSTACK_SECRET_KEY edge function secret.
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
@@ -157,8 +161,12 @@ serve(async (req) => {
 
     const baseKobo = Math.round(baseAmountNGN * 100);
     const platformFeeKobo = Math.round(baseKobo * PLATFORM_FEE_RATE);
-    const totalKobo = grossUpKobo(baseKobo);
-    const processingFeeKobo = totalKobo - baseKobo;
+    // The school must receive the full fee (base), so the amount that clears
+    // Paystack must be base + our platform fee. Gross that up so the parent also
+    // covers Paystack's gateway fee — both charges ride on top of the fee.
+    const targetSettledKobo = baseKobo + platformFeeKobo;
+    const totalKobo = grossUpKobo(targetSettledKobo);
+    const processingFeeKobo = totalKobo - targetSettledKobo;
 
     // --- Ensure this school (branch) has a Paystack subaccount -------------
     const settings = (school.settings || {}) as Record<string, unknown>;

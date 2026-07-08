@@ -172,8 +172,15 @@ const SchoolStudentDashboard = () => {
     }, 0);
   }, [selectedFees, feeAmounts, unpaidFees]);
 
-  const totalKobo = grossUpKobo(Math.round(basePaymentTotal * 100));
-  const processingFee = Math.max(totalKobo / 100 - basePaymentTotal, 0);
+  // The school receives the full fee; our 1% platform charge and Paystack's
+  // gateway fee are both added on top (paid by the parent). Must stay in sync
+  // with create-paystack-payment's money model.
+  const baseKobo = Math.round(basePaymentTotal * 100);
+  const platformFeeKobo = Math.round(baseKobo * 0.01);
+  const targetSettledKobo = baseKobo + platformFeeKobo;
+  const totalKobo = grossUpKobo(targetSettledKobo);
+  const platformFee = platformFeeKobo / 100;
+  const processingFee = Math.max((totalKobo - targetSettledKobo) / 100, 0);
   const paymentTotal = totalKobo / 100;
 
   const openPaymentModal = () => {
@@ -438,9 +445,16 @@ const SchoolStudentDashboard = () => {
                     <span>{formatNaira(basePaymentTotal)}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Card/Transfer Processing Fee</span>
+                    <span className="text-muted-foreground">Platform Charge (1%)</span>
+                    <span>{formatNaira(platformFee)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Payment Processing Fee</span>
                     <span>{formatNaira(processingFee)}</span>
                   </div>
+                  <p className="text-[11px] text-muted-foreground pt-0.5">
+                    The school receives the full {formatNaira(basePaymentTotal)}; the charges above are added on top.
+                  </p>
                   <div className="border-t my-1" />
                 </div>
               )}
