@@ -501,6 +501,12 @@ const SchoolAdminDashboard = () => {
   const activeStudents = students.filter((s) => !isArchived(s));
   const archivedStudents = students.filter((s) => isArchived(s));
 
+  // How many active students a fee applies to (a fee targets one class, or ALL).
+  // A fee that applies to 0 students shows "Published" but adds nothing to any
+  // balance until a student is added to that class — this makes that visible.
+  const countStudentsInClass = (classTarget: string) =>
+    activeStudents.filter((s) => classTarget === "ALL" || s.class === classTarget).length;
+
   // Recalculate student totals when period filter changes (term-specific).
   // Only ACTIVE students count toward the roster and stats.
   const studentsWithTotals = activeStudents.map((s) => {
@@ -795,7 +801,16 @@ const SchoolAdminDashboard = () => {
   };
 
   // Owner approves (publishes) or rejects (deletes) a pending fee
-  const handleApproveFee = async (feeId: string) => {
+  const handleApproveFee = async (feeId: string, classTarget: string) => {
+    // Warn if this fee applies to no current students — it will publish fine,
+    // but won't appear in anyone's balance until a student joins that class.
+    const applies = countStudentsInClass(classTarget);
+    if (applies === 0) {
+      const where = classTarget === "ALL" ? "any class" : classTarget;
+      if (!confirm(`No students are currently in ${where}. You can still publish this fee — it will apply automatically once a student is added there. Publish now?`)) {
+        return;
+      }
+    }
     setApprovingFeeId(feeId);
     const { error } = await supabase
       .from("class_fees")
@@ -1406,6 +1421,7 @@ const SchoolAdminDashboard = () => {
                         <TableHead>Fee Name</TableHead>
                         <TableHead>Term</TableHead>
                         <TableHead className="text-right">Amount</TableHead>
+                        <TableHead className="text-center">Applies to</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead className="text-right">Actions</TableHead>
                       </TableRow>
@@ -1413,7 +1429,7 @@ const SchoolAdminDashboard = () => {
                     <TableBody>
                       {sessionClassFees.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                          <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
                             {academicPeriods.isFutureSession
                               ? "This session hasn't started yet."
                               : "No fees created for this session yet. Use “Add Fee” to create some."}
@@ -1432,6 +1448,18 @@ const SchoolAdminDashboard = () => {
                                 {academicPeriods.terms.find((t) => t.id === fee.term_id)?.name || "—"}
                               </TableCell>
                               <TableCell className="text-right">{formatNaira(Number(fee.amount))}</TableCell>
+                              <TableCell className="text-center">
+                                {(() => {
+                                  const n = countStudentsInClass(fee.class_target);
+                                  return n === 0 ? (
+                                    <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-900/20 dark:text-amber-400 text-xs" title="No students in this class yet — this fee affects no balance until one is added">
+                                      0 students
+                                    </Badge>
+                                  ) : (
+                                    <span className="text-sm">{n} student{n === 1 ? "" : "s"}</span>
+                                  );
+                                })()}
+                              </TableCell>
                               <TableCell>
                                 {fee.status === "published" ? (
                                   <Badge className="bg-green-600 hover:bg-green-600 text-white gap-1">
@@ -1448,7 +1476,7 @@ const SchoolAdminDashboard = () => {
                                   <div className="flex items-center justify-end gap-1">
                                     <Button
                                       size="sm"
-                                      onClick={() => handleApproveFee(fee.id)}
+                                      onClick={() => handleApproveFee(fee.id, fee.class_target)}
                                       disabled={approvingFeeId === fee.id}
                                       className="gap-1"
                                     >
