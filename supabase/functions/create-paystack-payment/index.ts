@@ -124,14 +124,20 @@ serve(async (req) => {
 
     let paymentQuery = supabaseAdmin
       .from("payments")
-      .select("items")
+      .select("items, status")
       .eq("student_id", student.id);
     if (session_id) paymentQuery = paymentQuery.eq("session_id", session_id);
     if (term_id) paymentQuery = paymentQuery.eq("term_id", term_id);
     const { data: existingPayments } = await paymentQuery;
 
+    // Only SETTLED payments reduce what's still owing. Pending rows (this or a
+    // prior in-flight checkout) and failed attempts must NOT count, or a parent
+    // could never retry a failed payment or re-initiate an abandoned one.
+    // Legacy rows have no status -> treated as settled.
     const paidMap: Record<string, number> = {};
-    (existingPayments || []).forEach((p: { items: string[] | null }) => {
+    (existingPayments || [])
+      .filter((p: { status?: string | null }) => p.status !== "pending" && p.status !== "failed")
+      .forEach((p: { items: string[] | null }) => {
       (p.items || []).forEach((item: string) => {
         const pipeIdx = item.lastIndexOf("|");
         if (pipeIdx > 0) {
