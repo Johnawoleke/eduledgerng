@@ -1655,11 +1655,11 @@ const SchoolAdminDashboard = () => {
         <DialogContent className="sm:max-w-[450px]">
           <DialogHeader>
             <DialogTitle>Add Bursar</DialogTitle>
-            <DialogDescription>
-              {createdCredentials
-                ? "Account created — share these login details with your bursar."
-                : "Enter the bursar's email. If they don't have an account yet, you can create one for them."}
-            </DialogDescription>
+            {createdCredentials && (
+              <DialogDescription>
+                Account created — share these login details with your bursar.
+              </DialogDescription>
+            )}
           </DialogHeader>
           {createdCredentials ? (
             <div className="space-y-4 py-2">
