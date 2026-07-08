@@ -41,6 +41,7 @@ import { generateReceiptPdf, parsePaymentItems } from "@/lib/generateReceiptPdf"
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { readFunctionsError } from "@/lib/utils";
+import InvitationsBell from "@/components/InvitationsBell";
 import { useAcademicPeriods } from "@/hooks/useAcademicPeriods";
 import AcademicPeriodSelector from "@/components/AcademicPeriodSelector";
 
@@ -204,9 +205,10 @@ const SchoolAdminDashboard = () => {
   const [emailExists, setEmailExists] = useState<boolean | null>(null);
   const [createdCredentials, setCreatedCredentials] = useState<{ email: string; password: string } | null>(null);
 
-  // Staff management (owner only): current members + pending invites
+  // Staff management (owner only): current members + pending invites + history
   const [staffMembers, setStaffMembers] = useState<{ user_id: string; role: string; email: string }[]>([]);
   const [pendingInvites, setPendingInvites] = useState<{ id: string; role: string; email: string; expires_at: string }[]>([]);
+  const [pastInvites, setPastInvites] = useState<{ id: string; email: string; status: string }[]>([]);
   const [loadingStaff, setLoadingStaff] = useState(false);
   const [staffActionId, setStaffActionId] = useState<string | null>(null);
 
@@ -218,11 +220,13 @@ const SchoolAdminDashboard = () => {
         .from("school_admins")
         .select("user_id, role")
         .eq("school_id", school.id);
+      // Load ALL invitations (any status) so the owner keeps a record of what
+      // happened to each one — declined/expired invites were previously invisible.
       const { data: invites } = await supabase
         .from("school_requests")
-        .select("id, user_id, role, expires_at")
+        .select("id, user_id, role, expires_at, status")
         .eq("school_id", school.id)
-        .eq("status", "pending");
+        .order("created_at", { ascending: false });
 
       const userIds = [
         ...(admins || []).map((a) => a.user_id),
@@ -241,10 +245,20 @@ const SchoolAdminDashboard = () => {
         (admins || []).map((a) => ({ user_id: a.user_id, role: a.role, email: emailById[a.user_id] || "—" }))
       );
       const now = Date.now();
+      // An invite that is still 'pending' but past its expiry counts as expired
+      // for display (the DB only flips the status lazily when acted on).
+      const display = (invites || []).map((i) => {
+        const expired = new Date(i.expires_at).getTime() <= now;
+        const status = i.status === "pending" && expired ? "expired" : i.status;
+        return { id: i.id, role: i.role, email: emailById[i.user_id] || "—", expires_at: i.expires_at, status };
+      });
       setPendingInvites(
-        (invites || [])
-          .filter((i) => new Date(i.expires_at).getTime() > now)
-          .map((i) => ({ id: i.id, role: i.role, email: emailById[i.user_id] || "—", expires_at: i.expires_at }))
+        display.filter((i) => i.status === "pending").map((i) => ({ id: i.id, role: i.role, email: i.email, expires_at: i.expires_at }))
+      );
+      // Show only the outcomes the member list doesn't already cover
+      // (accepted invitees appear as current staff).
+      setPastInvites(
+        display.filter((i) => i.status === "declined" || i.status === "expired").map((i) => ({ id: i.id, email: i.email, status: i.status }))
       );
     } finally {
       setLoadingStaff(false);
@@ -1088,6 +1102,7 @@ const SchoolAdminDashboard = () => {
             >
               <Home className="w-4 h-4" />
             </Button>
+            <InvitationsBell />
             {userRole === "owner" && (
               <Button
                 variant="ghost"
@@ -1709,7 +1724,7 @@ const SchoolAdminDashboard = () => {
           ) : (
           <>
             {/* Current staff + pending invitations */}
-            {(staffMembers.length > 0 || pendingInvites.length > 0 || loadingStaff) && (
+            {(staffMembers.length > 0 || pendingInvites.length > 0 || pastInvites.length > 0 || loadingStaff) && (
               <div className="space-y-2 border-b pb-4 mb-2">
                 <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                   Current Staff
@@ -1756,6 +1771,19 @@ const SchoolAdminDashboard = () => {
                         >
                           {staffActionId === inv.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Cancel"}
                         </Button>
+                      </div>
+                    ))}
+                    {/* Outcome trace: invites that were declined or expired.
+                        Accepted invitees appear in the member list above. */}
+                    {pastInvites.map((inv) => (
+                      <div key={inv.id} className="flex items-center justify-between gap-2 text-sm rounded-md border px-3 py-2 opacity-75">
+                        <div className="min-w-0">
+                          <span className="truncate block">{inv.email}</span>
+                          <span className={`text-xs ${inv.status === "declined" ? "text-destructive" : "text-muted-foreground"}`}>
+                            Invitation {inv.status}
+                          </span>
+                        </div>
+                        <Badge variant="outline" className="shrink-0 text-xs capitalize">{inv.status}</Badge>
                       </div>
                     ))}
                   </div>
