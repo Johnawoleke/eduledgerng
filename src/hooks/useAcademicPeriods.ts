@@ -33,6 +33,22 @@ const toYear = (value: unknown): number | null => {
   return Number.isInteger(n) ? n : null;
 };
 
+// A session's start year for ordering. Same precedence as buildFutureSessions:
+// the canonical name ("YYYY/YYYY") wins over the drifted start_year/end_year
+// columns, so a latest session whose name is clean but whose start_year is
+// null/dirty still sorts ahead of an older session with a clean numeric column.
+const sessionStartYear = (
+  s: Pick<AcademicSession, "name" | "start_year" | "end_year">
+): number => {
+  const m = /^(\d{4})\s*\/\s*(\d{4})$/.exec((s.name || "").trim());
+  if (m) return Number(m[1]);
+  const sy = toYear(s.start_year);
+  if (sy != null) return sy;
+  const ey = toYear(s.end_year);
+  if (ey != null) return ey - 1;
+  return 0;
+};
+
 export const buildFutureSessions = (
   sessions: Pick<AcademicSession, "name" | "start_year" | "end_year">[],
   currentYear: number,
@@ -141,8 +157,8 @@ export const useAcademicPeriods = (schoolId: string | undefined) => {
       setSelectedSessionId(currentSession.id);
     } else {
       const sorted = [...sessions].sort((a, b) => {
-        const ay = toYear(a.start_year) ?? 0;
-        const by = toYear(b.start_year) ?? 0;
+        const ay = sessionStartYear(a);
+        const by = sessionStartYear(b);
         if (ay !== by) return by - ay;
         return (b.name || "").localeCompare(a.name || "");
       });
