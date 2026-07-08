@@ -224,7 +224,7 @@ const SchoolAdminDashboard = () => {
       // happened to each one — declined/expired invites were previously invisible.
       const { data: invites } = await supabase
         .from("school_requests")
-        .select("id, user_id, role, expires_at, status")
+        .select("id, user_id, role, expires_at, status, email")
         .eq("school_id", school.id)
         .order("created_at", { ascending: false });
 
@@ -250,7 +250,10 @@ const SchoolAdminDashboard = () => {
       const display = (invites || []).map((i) => {
         const expired = new Date(i.expires_at).getTime() <= now;
         const status = i.status === "pending" && expired ? "expired" : i.status;
-        return { id: i.id, role: i.role, email: emailById[i.user_id] || "—", expires_at: i.expires_at, status };
+        // Prefer the email stored on the invitation itself (always the address
+        // the owner typed); fall back to the invitee's profile for older rows.
+        const email = (i as { email?: string }).email || emailById[i.user_id] || "—";
+        return { id: i.id, role: i.role, email, expires_at: i.expires_at, status };
       });
       setPendingInvites(
         display.filter((i) => i.status === "pending").map((i) => ({ id: i.id, role: i.role, email: i.email, expires_at: i.expires_at }))

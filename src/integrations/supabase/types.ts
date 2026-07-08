@@ -249,6 +249,7 @@ export type Database = {
       school_requests: {
         Row: {
           created_at: string
+          email: string | null
           expires_at: string
           id: string
           requested_by: string
@@ -259,6 +260,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          email?: string | null
           expires_at: string
           id?: string
           requested_by: string
@@ -269,6 +271,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          email?: string | null
           expires_at?: string
           id?: string
           requested_by?: string
