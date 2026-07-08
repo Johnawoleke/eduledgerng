@@ -291,6 +291,27 @@ serve(async (req) => {
       return json({ error: initData?.message || "Failed to start payment", details: initData }, 502);
     }
 
+    // Record the attempt as 'pending' now, before the parent is redirected to
+    // Paystack. The webhook / redirect-verify flips it to 'success' (or 'failed')
+    // once the outcome is known. Best-effort: if this insert fails, the webhook
+    // still records the payment on success, so don't block the checkout.
+    const pendingItems = validatedItems.map((i) => `${i.name}|${i.amount}`);
+    const { error: pendingError } = await supabaseAdmin.from("payments").insert({
+      school_id: school.id,
+      student_id: student.id,
+      amount: baseAmountNGN,
+      amount_paid: 0,
+      reference,
+      method: "Paystack",
+      status: "pending",
+      items: pendingItems,
+      session_id: session_id || null,
+      term_id: term_id || null,
+    });
+    if (pendingError) {
+      console.error("create-paystack-payment: pending insert failed:", pendingError.message);
+    }
+
     return json({
       authorization_url: initData.data.authorization_url,
       reference,

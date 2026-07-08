@@ -90,32 +90,72 @@ serve(async (req) => {
       payload,
     });
 
+    const metadata = (data.metadata || {}) as Record<string, unknown>;
+
+    // The row recorded as 'pending' at creation time (may be absent).
+    const { data: existingPayment } = reference
+      ? await supabaseAdmin
+          .from("payments")
+          .select("id, status")
+          .eq("reference", reference)
+          .maybeSingle()
+      : { data: null };
+
+    // --- Failed charge: mark the attempt failed (for admin visibility) --------
+    if (event === "charge.failed" || (event === "charge" && status === "failed")) {
+      if (existingPayment && existingPayment.status === "pending") {
+        await supabaseAdmin
+          .from("payments")
+          .update({ status: "failed" })
+          .eq("id", existingPayment.id);
+      }
+      return json({ received: true, marked: "failed", reference });
+    }
+
     if (event !== "charge.success" || status !== "success") {
       return json({ received: true, ignored: event || status || "unknown" });
     }
 
-    const metadata = (data.metadata || {}) as Record<string, unknown>;
     const items = metadata.items as { name: string; amount: number }[] | undefined;
-    if (!reference || !metadata.school_id || !metadata.student_db_id || !items) {
-      console.warn("charge.success missing required metadata:", JSON.stringify(metadata));
-      return json({ received: true, note: "no_metadata" });
-    }
 
-    // Idempotency: one payment row per reference
-    const { data: existingPayment } = await supabaseAdmin
-      .from("payments")
-      .select("id")
-      .eq("reference", reference)
-      .maybeSingle();
-    if (existingPayment) return json({ received: true, already_processed: true });
+    // Already recorded as success (verify beat us) — nothing to do.
+    if (existingPayment && existingPayment.status === "success") {
+      return json({ received: true, already_processed: true });
+    }
 
     let totalBaseAmount = 0;
     const itemNames: string[] = [];
-    for (const item of items) {
+    for (const item of items || []) {
       const payAmount = Math.max(Number(item.amount), 0);
       if (payAmount <= 0) continue;
       totalBaseAmount += payAmount;
       itemNames.push(`${item.name}|${payAmount}`);
+    }
+
+    // Pending row exists -> flip it to success.
+    if (existingPayment) {
+      const patch: Record<string, unknown> = { status: "success" };
+      if (totalBaseAmount > 0) {
+        patch.amount = totalBaseAmount;
+        patch.amount_paid = totalBaseAmount;
+        patch.items = itemNames;
+      }
+      const { error: updErr } = await supabaseAdmin
+        .from("payments")
+        .update(patch)
+        .eq("id", existingPayment.id);
+      if (updErr) {
+        console.error("Failed to flip payment to success:", updErr);
+        return json({ error: "Failed to record payment" }, 500);
+      }
+      console.log("Paystack payment flipped to success:", reference);
+      return json({ received: true, reference, flipped: true });
+    }
+
+    // No pending row -> insert a fresh success row (needs metadata).
+    if (!reference || !metadata.school_id || !metadata.student_db_id || !items) {
+      console.warn("charge.success missing required metadata:", JSON.stringify(metadata));
+      return json({ received: true, note: "no_metadata" });
     }
     if (totalBaseAmount <= 0) return json({ received: true, note: "no_valid_payments" });
 
@@ -123,8 +163,10 @@ serve(async (req) => {
       school_id: metadata.school_id,
       student_id: metadata.student_db_id,
       amount: totalBaseAmount,
+      amount_paid: totalBaseAmount,
       reference,
       method: "Paystack",
+      status: "success",
       items: itemNames,
     };
     if (metadata.session_id) paymentRecord.session_id = metadata.session_id;

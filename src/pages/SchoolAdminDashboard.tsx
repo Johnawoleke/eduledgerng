@@ -241,6 +241,14 @@ const SchoolAdminDashboard = () => {
         (profs || []).forEach((p) => { emailById[p.id] = p.email || ""; });
       }
 
+      // The owner's own profiles row can be missing/empty (no readable email),
+      // which showed the owner's row as "—". Fill their own address from the
+      // authenticated session so at least the current user always sees theirs.
+      const { data: { user: currentUser } } = await supabase.auth.getUser();
+      if (currentUser?.id && currentUser.email && !emailById[currentUser.id]) {
+        emailById[currentUser.id] = currentUser.email;
+      }
+
       setStaffMembers(
         (admins || []).map((a) => ({ user_id: a.user_id, role: a.role, email: emailById[a.user_id] || "—" }))
       );
@@ -397,13 +405,21 @@ const SchoolAdminDashboard = () => {
       );
   const pendingFeesCount = sessionClassFees.filter((f) => f.status === "pending").length;
 
-  // Filter payments by selected term only
+  // Filter payments by selected term only (ALL statuses — the Payments tab
+  // shows pending/failed attempts too, with a status badge).
   const filteredPaymentsByPeriod = academicPeriods.isFutureSession
     ? []
     : payments.filter((p) => {
         if (!academicPeriods.selectedTermId) return true;
         return p.term_id === academicPeriods.selectedTermId;
       });
+
+  // Only SETTLED payments count toward balances and collection stats. Pending
+  // and failed Paystack attempts are visible in the list but never reduce an
+  // outstanding balance. Legacy rows have no status -> treated as settled.
+  const settledPaymentsByPeriod = filteredPaymentsByPeriod.filter(
+    (p) => p.status !== "pending" && p.status !== "failed"
+  );
 
   // Helper: get published class fees applicable to a student class for the selected term
   const getFeesForClass = (studentClass: string) => {
@@ -415,7 +431,7 @@ const SchoolAdminDashboard = () => {
   // Helper: calculate paid amount for a fee from filtered payments
   const getPaidForFee = (studentId: string, feeName: string, feeAmount: number) => {
     let totalPaid = 0;
-    filteredPaymentsByPeriod
+    settledPaymentsByPeriod
       .filter((p) => p.student_id === studentId)
       .forEach((p) => {
         (p.items || []).forEach((item: string) => {
@@ -533,7 +549,7 @@ const SchoolAdminDashboard = () => {
     const totalFees = applicableFees.reduce((a, f) => a + Number(f.amount), 0);
 
     let totalPaid = 0;
-    filteredPaymentsByPeriod
+    settledPaymentsByPeriod
       .filter((p) => p.student_id === s.id)
       .forEach((p) => {
         totalPaid += Number(p.amount);
@@ -1035,7 +1051,7 @@ const SchoolAdminDashboard = () => {
 
   // Stats based on filtered period (term-specific)
   const totalStudents = academicPeriods.isFutureSession ? 0 : studentsWithTotals.length;
-  const totalCollected = filteredPaymentsByPeriod.reduce((s, p) => s + Number(p.amount), 0);
+  const totalCollected = settledPaymentsByPeriod.reduce((s, p) => s + Number(p.amount), 0);
   const totalFees = studentsWithTotals.reduce((s, st) => s + st.totalFees, 0);
   const outstanding = totalFees - studentsWithTotals.reduce((s, st) => s + st.totalPaid, 0);
 
@@ -1553,6 +1569,7 @@ const SchoolAdminDashboard = () => {
                         <TableHead>Class</TableHead>
                         <TableHead>Fees Paid</TableHead>
                         <TableHead>Amount</TableHead>
+                        <TableHead>Status</TableHead>
                         <TableHead>Date</TableHead>
                         <TableHead className="text-right">Receipt</TableHead>
                       </TableRow>
@@ -1560,7 +1577,7 @@ const SchoolAdminDashboard = () => {
                     <TableBody>
                       {filteredPayments.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                          <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
                             No payments recorded.
                           </TableCell>
                         </TableRow>
@@ -1568,8 +1585,10 @@ const SchoolAdminDashboard = () => {
                         filteredPayments.map((payment) => {
                           const studentData = payment.students as any;
                           const paidItems = parsePaymentItems(payment.items || []);
+                          const payStatus = (payment.status as string) || "success";
+                          const isSettled = payStatus !== "pending" && payStatus !== "failed";
                           return (
-                            <TableRow key={payment.id}>
+                            <TableRow key={payment.id} className={isSettled ? "" : "opacity-70"}>
                               <TableCell className="font-mono text-xs">{payment.reference}</TableCell>
                               <TableCell className="font-medium">{studentData?.name || "Unknown Student"}</TableCell>
                               <TableCell>{studentData?.class || "N/A"}</TableCell>
@@ -1578,11 +1597,28 @@ const SchoolAdminDashboard = () => {
                                   ? paidItems.map((i) => i.name).join(", ")
                                   : "—"}
                               </TableCell>
-                              <TableCell className="font-semibold text-green-600 dark:text-green-400">
+                              <TableCell className={`font-semibold ${isSettled ? "text-green-600 dark:text-green-400" : "text-muted-foreground"}`}>
                                 {formatNaira(Number(payment.amount))}
+                              </TableCell>
+                              <TableCell>
+                                <Badge
+                                  variant="outline"
+                                  className={
+                                    payStatus === "failed"
+                                      ? "bg-destructive/10 text-destructive border-destructive/30"
+                                      : payStatus === "pending"
+                                      ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30"
+                                      : "bg-primary/15 text-primary border-primary/30"
+                                  }
+                                >
+                                  {payStatus === "failed" ? "Failed" : payStatus === "pending" ? "Pending" : "Success"}
+                                </Badge>
                               </TableCell>
                               <TableCell className="text-muted-foreground text-sm">{formatDateTime(payment.date)}</TableCell>
                               <TableCell className="text-right">
+                                {!isSettled ? (
+                                  <span className="text-muted-foreground text-xs">—</span>
+                                ) : (
                                 <Button
                                   variant="ghost"
                                   size="sm"
@@ -1605,6 +1641,7 @@ const SchoolAdminDashboard = () => {
                                 >
                                   <Download className="w-3.5 h-3.5" /> PDF
                                 </Button>
+                                )}
                               </TableCell>
                             </TableRow>
                           );
@@ -1670,7 +1707,7 @@ const SchoolAdminDashboard = () => {
 
       {/* Add Bursar Dialog - Owners Only */}
       <Dialog open={addBursarOpen} onOpenChange={setAddBursarOpen}>
-        <DialogContent className="sm:max-w-[450px]">
+        <DialogContent className="sm:max-w-[450px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Add Bursar</DialogTitle>
             {createdCredentials && (

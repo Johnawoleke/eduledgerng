@@ -23,6 +23,16 @@ export const isFutureSessionId = (id: string | undefined | null) =>
  * Virtual sessions exist only in the dropdown — they have no DB rows, so
  * nothing can be attached to them (that's what makes them non-editable).
  */
+// Coerce a start/end year to a clean number. Prod's start_year/end_year columns
+// drifted to text and hold dirty values ("2026", null, even "2025/2026"), so a
+// raw `value + 1` would string-concatenate and produce gibberish upcoming
+// sessions like "20270/20271". Numeric coercion + NaN guard keeps the math sane.
+const toYear = (value: unknown): number | null => {
+  if (value == null) return null;
+  const n = Number(value);
+  return Number.isInteger(n) ? n : null;
+};
+
 export const buildFutureSessions = (
   sessions: Pick<AcademicSession, "name" | "start_year" | "end_year">[],
   currentYear: number,
@@ -30,16 +40,17 @@ export const buildFutureSessions = (
 ): SessionOption[] => {
   let lastEndYear = currentYear;
   for (const s of sessions) {
+    // The name ("YYYY/YYYY") is the canonical value; prefer it over the drifted
+    // year columns, falling back to those only when the name doesn't parse.
+    const nameMatch = /^(\d{4})\s*\/\s*(\d{4})$/.exec((s.name || "").trim());
+    const startCol = toYear(s.start_year);
     const end =
-      s.end_year ??
-      (s.start_year != null ? s.start_year + 1 : null) ??
-      (() => {
-        const m = /^(\d{4})\s*\/\s*(\d{4})$/.exec(s.name.trim());
-        return m ? Number(m[2]) : null;
-      })();
+      (nameMatch ? Number(nameMatch[2]) : null) ??
+      toYear(s.end_year) ??
+      (startCol != null ? startCol + 1 : null);
     if (end != null && end > lastEndYear) lastEndYear = end;
   }
-  const existingNames = new Set(sessions.map((s) => s.name.trim()));
+  const existingNames = new Set(sessions.map((s) => (s.name || "").trim()));
   const future: SessionOption[] = [];
   for (let i = 0; i < count; i++) {
     const start = lastEndYear + i;
@@ -130,10 +141,10 @@ export const useAcademicPeriods = (schoolId: string | undefined) => {
       setSelectedSessionId(currentSession.id);
     } else {
       const sorted = [...sessions].sort((a, b) => {
-        const ay = a.start_year ?? 0;
-        const by = b.start_year ?? 0;
+        const ay = toYear(a.start_year) ?? 0;
+        const by = toYear(b.start_year) ?? 0;
         if (ay !== by) return by - ay;
-        return b.name.localeCompare(a.name);
+        return (b.name || "").localeCompare(a.name || "");
       });
       setSelectedSessionId(sorted[0].id);
     }

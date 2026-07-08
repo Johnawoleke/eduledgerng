@@ -125,10 +125,18 @@ serve(async (req) => {
       );
     }
 
-    // Build fee items with paid amounts calculated from filtered payments
+    // Only settled payments count toward balances and appear in history. Pending
+    // and failed Paystack attempts are recorded for the admin's visibility but
+    // must not reduce a student's outstanding balance. Legacy rows have no
+    // status column value -> treated as settled.
+    const settledPayments = (payments || []).filter(
+      (p: any) => p.status !== "pending" && p.status !== "failed"
+    );
+
+    // Build fee items with paid amounts calculated from settled payments
     const feeItems = (classFees || []).map((cf: any) => {
       let totalPaid = 0;
-      (payments || []).forEach((p: any) => {
+      settledPayments.forEach((p: any) => {
         (p.items || []).forEach((item: string) => {
           const pipeIdx = item.lastIndexOf("|");
           if (pipeIdx > 0) {
@@ -186,7 +194,7 @@ serve(async (req) => {
         student,
         school,
         feeItems,
-        payments: payments || [],
+        payments: settledPayments,
         sessions: sessions || [],
         terms: terms || [],
       }),

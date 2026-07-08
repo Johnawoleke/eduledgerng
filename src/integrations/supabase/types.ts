@@ -146,6 +146,7 @@ export type Database = {
           reference: string | null
           school_id: string
           session_id: string | null
+          status: string
           student_id: string
           term_id: string | null
         }
@@ -160,6 +161,7 @@ export type Database = {
           reference?: string | null
           school_id: string
           session_id?: string | null
+          status?: string
           student_id: string
           term_id?: string | null
         }
@@ -174,6 +176,7 @@ export type Database = {
           reference?: string | null
           school_id?: string
           session_id?: string | null
+          status?: string
           student_id?: string
           term_id?: string | null
         }

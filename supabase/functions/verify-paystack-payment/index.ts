@@ -43,36 +43,85 @@ serve(async (req) => {
     }
 
     const data = verifyData.data;
-    if (data.status !== "success") {
-      return json({ success: false, status: data.status || "pending" });
-    }
-
     const supabaseAdmin = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    // Idempotency: the webhook may have recorded it already
+    // Look up the row we recorded as 'pending' at creation time (may be absent
+    // if the pending insert was skipped/raced).
     const { data: existingPayment } = await supabaseAdmin
       .from("payments")
-      .select("id")
+      .select("id, status")
       .eq("reference", reference)
       .maybeSingle();
-    if (existingPayment) return json({ success: true, recorded: true, already_processed: true });
 
+    // --- Not a success: mark the attempt failed (for admin visibility) --------
+    if (data.status !== "success") {
+      if (existingPayment) {
+        if (existingPayment.status === "pending") {
+          await supabaseAdmin
+            .from("payments")
+            .update({ status: "failed" })
+            .eq("id", existingPayment.id);
+        }
+      }
+      await supabaseAdmin.from("payment_events").insert({
+        event_type: "verify.failed",
+        payment_id: reference,
+        status: data.status || "failed",
+        payload: { reference, source: "verify-paystack-payment", status: data.status },
+      });
+      return json({ success: false, status: data.status || "pending" });
+    }
+
+    // --- Success ------------------------------------------------------------
     const metadata = data.metadata || {};
     const items = metadata.items as { name: string; amount: number }[] | undefined;
-    if (!metadata.school_id || !metadata.student_db_id || !items) {
-      return json({ success: true, recorded: false, note: "no_metadata" });
-    }
 
     let totalBaseAmount = 0;
     const itemNames: string[] = [];
-    for (const item of items) {
+    for (const item of items || []) {
       const payAmount = Math.max(Number(item.amount), 0);
       if (payAmount <= 0) continue;
       totalBaseAmount += payAmount;
       itemNames.push(`${item.name}|${payAmount}`);
+    }
+
+    // Already recorded as success (webhook beat us) — nothing to do.
+    if (existingPayment && existingPayment.status === "success") {
+      return json({ success: true, recorded: true, already_processed: true });
+    }
+
+    // Pending row exists -> flip it to success (reconciling amount/items from
+    // the authoritative verify response).
+    if (existingPayment) {
+      const patch: Record<string, unknown> = { status: "success" };
+      if (totalBaseAmount > 0) {
+        patch.amount = totalBaseAmount;
+        patch.amount_paid = totalBaseAmount;
+        patch.items = itemNames;
+      }
+      const { error: updErr } = await supabaseAdmin
+        .from("payments")
+        .update(patch)
+        .eq("id", existingPayment.id);
+      if (updErr) {
+        console.error("verify-paystack-payment update:", updErr.message);
+        return json({ success: true, recorded: false, note: updErr.message });
+      }
+      await supabaseAdmin.from("payment_events").insert({
+        event_type: "verify.recorded",
+        payment_id: reference,
+        status: "success",
+        payload: { reference, source: "verify-paystack-payment", flipped: "pending->success" },
+      });
+      return json({ success: true, recorded: true, amount: totalBaseAmount });
+    }
+
+    // No pending row -> insert a fresh success row (needs metadata).
+    if (!metadata.school_id || !metadata.student_db_id || !items) {
+      return json({ success: true, recorded: false, note: "no_metadata" });
     }
     if (totalBaseAmount <= 0) return json({ success: true, recorded: false, note: "no_valid_payments" });
 
@@ -80,8 +129,10 @@ serve(async (req) => {
       school_id: metadata.school_id,
       student_id: metadata.student_db_id,
       amount: totalBaseAmount,
+      amount_paid: totalBaseAmount,
       reference,
       method: "Paystack",
+      status: "success",
       items: itemNames,
     };
     if (metadata.session_id) paymentRecord.session_id = metadata.session_id;
