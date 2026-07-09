@@ -47,7 +47,14 @@ import AcademicPeriodSelector from "@/components/AcademicPeriodSelector";
 const formatNaira = (amount: number) =>
   new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN", minimumFractionDigits: 0 }).format(amount);
 
-const NIGERIAN_CLASSES = ["JSS1", "JSS2", "JSS3", "SSS1", "SSS2", "SSS3"];
+// Full private-school range: Nursery, Primary, Junior and Senior Secondary.
+// The JSS/SSS values are unchanged so existing students and fees keep matching.
+const NIGERIAN_CLASSES = [
+  "Nursery 1", "Nursery 2",
+  "Primary 1", "Primary 2", "Primary 3", "Primary 4", "Primary 5", "Primary 6",
+  "JSS1", "JSS2", "JSS3",
+  "SSS1", "SSS2", "SSS3",
+];
 
 // The default credential a student receives on creation/reset. MUST be the same
 // everywhere (create, bulk upload, reset, and the messages shown to the owner) —
@@ -545,6 +552,9 @@ const SchoolAdminDashboard = () => {
       toast.error(error.message);
     } else {
       toast.success(`Student added! ID: ${studentId}, Default Password: ${DEFAULT_STUDENT_PIN}`);
+      // Jump the roster to the class just added to, so the new student is visible
+      // immediately (otherwise a new Nursery/Primary school lands on an empty tab).
+      setStudentsClassFilter(newStudentClass);
       setAddStudentOpen(false);
       setNewSurname(""); setNewFirstName(""); setNewMiddleName("");
       setNewStudentClass(""); setNewParentEmail("");
@@ -618,7 +628,7 @@ const SchoolAdminDashboard = () => {
   };
 
   const downloadStudentTemplate = () => {
-    const csv = ["name,class", "Okafor Chinedu,JSS1", "Adebayo Kemi,SSS2"].join("\n");
+    const csv = ["name,class", "Bello Aisha,Primary 3", "Okafor Chinedu,JSS1", "Adebayo Kemi,SSS2"].join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
@@ -671,8 +681,11 @@ const SchoolAdminDashboard = () => {
         .map((row) => {
           const rawName = row.name || row.fullname || row.studentname || row.student;
           const rawClass = row.class || row.studentclass || row.level;
-          const className = rawClass?.toUpperCase().trim();
-          if (!rawName || !className || !NIGERIAN_CLASSES.includes(className)) return null;
+          // Match case/space-insensitively and store the canonical class name,
+          // so "primary 1", "Primary 1" and "PRIMARY 1" all resolve correctly.
+          const normalizedClass = rawClass?.toUpperCase().trim();
+          const className = NIGERIAN_CLASSES.find((c) => c.toUpperCase() === normalizedClass);
+          if (!rawName || !className) return null;
 
           const nameParts = toStudentNameParts(rawName);
           return {
