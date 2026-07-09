@@ -1719,8 +1719,7 @@ const SchoolAdminDashboard = () => {
                   />
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  This creates the bursar's account now. Share the email and temporary
-                  password below with them — they'll set their own password on first login.
+                  Share these details with the bursar — they'll set their own password on first login.
                 </p>
               </div>
 
