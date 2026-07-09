@@ -41,7 +41,6 @@ import { generateReceiptPdf, parsePaymentItems } from "@/lib/generateReceiptPdf"
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { readFunctionsError } from "@/lib/utils";
-import InvitationsBell from "@/components/InvitationsBell";
 import { useAcademicPeriods } from "@/hooks/useAcademicPeriods";
 import AcademicPeriodSelector from "@/components/AcademicPeriodSelector";
 
@@ -201,14 +200,11 @@ const SchoolAdminDashboard = () => {
   const [bursarConfirmPassword, setBursarConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [addingBursar, setAddingBursar] = useState(false);
-  const [checkingEmail, setCheckingEmail] = useState(false);
-  const [emailExists, setEmailExists] = useState<boolean | null>(null);
   const [createdCredentials, setCreatedCredentials] = useState<{ email: string; password: string } | null>(null);
 
-  // Staff management (owner only): current members + pending invites + history
+  // Staff management (owner only): current members. Bursars are added only by the
+  // owner creating a new account for them — there is no invitation flow.
   const [staffMembers, setStaffMembers] = useState<{ user_id: string; role: string; email: string }[]>([]);
-  const [pendingInvites, setPendingInvites] = useState<{ id: string; role: string; email: string; expires_at: string }[]>([]);
-  const [pastInvites, setPastInvites] = useState<{ id: string; email: string; status: string }[]>([]);
   const [loadingStaff, setLoadingStaff] = useState(false);
   const [staffActionId, setStaffActionId] = useState<string | null>(null);
 
@@ -220,18 +216,8 @@ const SchoolAdminDashboard = () => {
         .from("school_admins")
         .select("user_id, role")
         .eq("school_id", school.id);
-      // Load ALL invitations (any status) so the owner keeps a record of what
-      // happened to each one — declined/expired invites were previously invisible.
-      const { data: invites } = await supabase
-        .from("school_requests")
-        .select("id, user_id, role, expires_at, status, email")
-        .eq("school_id", school.id)
-        .order("created_at", { ascending: false });
 
-      const userIds = [
-        ...(admins || []).map((a) => a.user_id),
-        ...(invites || []).map((i) => i.user_id),
-      ];
+      const userIds = (admins || []).map((a) => a.user_id);
       const emailById: Record<string, string> = {};
       if (userIds.length > 0) {
         const { data: profs } = await supabase
@@ -251,25 +237,6 @@ const SchoolAdminDashboard = () => {
 
       setStaffMembers(
         (admins || []).map((a) => ({ user_id: a.user_id, role: a.role, email: emailById[a.user_id] || "—" }))
-      );
-      const now = Date.now();
-      // An invite that is still 'pending' but past its expiry counts as expired
-      // for display (the DB only flips the status lazily when acted on).
-      const display = (invites || []).map((i) => {
-        const expired = new Date(i.expires_at).getTime() <= now;
-        const status = i.status === "pending" && expired ? "expired" : i.status;
-        // Prefer the email stored on the invitation itself (always the address
-        // the owner typed); fall back to the invitee's profile for older rows.
-        const email = (i as { email?: string }).email || emailById[i.user_id] || "—";
-        return { id: i.id, role: i.role, email, expires_at: i.expires_at, status };
-      });
-      setPendingInvites(
-        display.filter((i) => i.status === "pending").map((i) => ({ id: i.id, role: i.role, email: i.email, expires_at: i.expires_at }))
-      );
-      // Show only the outcomes the member list doesn't already cover
-      // (accepted invitees appear as current staff).
-      setPastInvites(
-        display.filter((i) => i.status === "declined" || i.status === "expired").map((i) => ({ id: i.id, email: i.email, status: i.status }))
       );
     } finally {
       setLoadingStaff(false);
@@ -292,18 +259,6 @@ const SchoolAdminDashboard = () => {
     } finally {
       setStaffActionId(null);
     }
-  };
-
-  const handleCancelInvite = async (inviteId: string, email: string) => {
-    setStaffActionId(inviteId);
-    const { error } = await supabase.from("school_requests").delete().eq("id", inviteId);
-    if (error) {
-      toast.error("Failed to cancel invitation");
-    } else {
-      toast.success(`Invitation to ${email} cancelled`);
-      loadStaff();
-    }
-    setStaffActionId(null);
   };
 
   const academicPeriods = useAcademicPeriods(school?.id);
@@ -871,40 +826,7 @@ const SchoolAdminDashboard = () => {
     setApprovingFeeId(null);
   };
 
-  // Debounced email check for bursar
-  useEffect(() => {
-    if (!bursarEmail.trim()) {
-      setEmailExists(null);
-      return;
-    }
-
-    const timer = setTimeout(async () => {
-      setCheckingEmail(true);
-      try {
-        const { data, error } = await supabase.functions.invoke("check-user-exists", {
-          body: { email: bursarEmail.trim().toLowerCase() },
-        });
-        if (error || data?.error) {
-          // Fail CLOSED: leave the state unknown rather than falsely offering
-          // "create new account" for an email that might already exist.
-          console.error("Error checking user:", error || data?.error);
-          setEmailExists(null);
-          toast.error("Couldn't verify that email. Please try again.");
-        } else {
-          setEmailExists(data?.exists ?? null);
-        }
-      } catch (err) {
-        console.error("Error:", err);
-        setEmailExists(null);
-      } finally {
-        setCheckingEmail(false);
-      }
-    }, 500);
-
-    return () => clearTimeout(timer);
-  }, [bursarEmail]);
-
-  // Load current staff + pending invites whenever an owner opens the dialog
+  // Load current staff whenever an owner opens the dialog
   useEffect(() => {
     if (addBursarOpen && userRole === "owner" && school?.id) {
       loadStaff();
@@ -918,7 +840,6 @@ const SchoolAdminDashboard = () => {
     setBursarPassword("");
     setBursarConfirmPassword("");
     setShowPassword(false);
-    setEmailExists(null);
     setCreatedCredentials(null);
   };
 
@@ -942,19 +863,12 @@ const SchoolAdminDashboard = () => {
       toast.error("Please enter a valid email address");
       return;
     }
-
-    const creating = emailExists === false;
-    if (creating) {
-      if (bursarPassword.length < 6) {
-        toast.error("Password must be at least 6 characters");
-        return;
-      }
-      if (bursarPassword !== bursarConfirmPassword) {
-        toast.error("Passwords do not match");
-        return;
-      }
-    } else if (emailExists !== true) {
-      toast.error("Please wait for the email check to finish");
+    if (bursarPassword.length < 6) {
+      toast.error("Password must be at least 6 characters");
+      return;
+    }
+    if (bursarPassword !== bursarConfirmPassword) {
+      toast.error("Passwords do not match");
       return;
     }
 
@@ -966,9 +880,8 @@ const SchoolAdminDashboard = () => {
           email: cleanEmail,
           schoolId: school.id,
           role: "bursar",
-          ...(creating
-            ? { password: bursarPassword, fullName: bursarFullName.trim() || undefined }
-            : {}),
+          password: bursarPassword,
+          fullName: bursarFullName.trim() || undefined,
         },
       });
 
@@ -977,21 +890,11 @@ const SchoolAdminDashboard = () => {
         return;
       }
 
-      if (data?.created) {
-        // Show the credentials so the owner can share them with the bursar
-        setCreatedCredentials({ email: cleanEmail, password: bursarPassword });
-        toast.success("Bursar account created and added to this school!");
-        loadData();
-        loadStaff();
-      } else {
-        toast.success("Invitation sent! The bursar will see it on their dashboard.");
-        setBursarEmail("");
-        setBursarFullName("");
-        setBursarPassword("");
-        setBursarConfirmPassword("");
-        setEmailExists(null);
-        loadStaff();
-      }
+      // Show the credentials so the owner can share them with the bursar
+      setCreatedCredentials({ email: cleanEmail, password: bursarPassword });
+      toast.success("Bursar account created and added to this school!");
+      loadData();
+      loadStaff();
     } catch (err) {
       console.error("Error adding bursar:", err);
       toast.error("An unexpected error occurred");
@@ -1121,7 +1024,6 @@ const SchoolAdminDashboard = () => {
             >
               <Home className="w-4 h-4" />
             </Button>
-            <InvitationsBell />
             {userRole === "owner" && (
               <Button
                 variant="ghost"
@@ -1763,8 +1665,8 @@ const SchoolAdminDashboard = () => {
             </div>
           ) : (
           <>
-            {/* Current staff + pending invitations */}
-            {(staffMembers.length > 0 || pendingInvites.length > 0 || pastInvites.length > 0 || loadingStaff) && (
+            {/* Current staff */}
+            {(staffMembers.length > 0 || loadingStaff) && (
               <div className="space-y-2 border-b pb-4 mb-2">
                 <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                   Current Staff
@@ -1795,37 +1697,6 @@ const SchoolAdminDashboard = () => {
                         )}
                       </div>
                     ))}
-                    {pendingInvites.map((inv) => (
-                      <div key={inv.id} className="flex items-center justify-between gap-2 text-sm rounded-md border border-dashed px-3 py-2">
-                        <div className="min-w-0">
-                          <span className="truncate block">{inv.email}</span>
-                          <span className="text-xs text-amber-600">Invitation pending</span>
-                        </div>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="text-destructive shrink-0 h-7"
-                          disabled={staffActionId === inv.id}
-                          onClick={() => handleCancelInvite(inv.id, inv.email)}
-                        >
-                          {staffActionId === inv.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Cancel"}
-                        </Button>
-                      </div>
-                    ))}
-                    {/* Outcome trace: invites that were declined or expired.
-                        Accepted invitees appear in the member list above. */}
-                    {pastInvites.map((inv) => (
-                      <div key={inv.id} className="flex items-center justify-between gap-2 text-sm rounded-md border px-3 py-2 opacity-75">
-                        <div className="min-w-0">
-                          <span className="truncate block">{inv.email}</span>
-                          <span className={`text-xs ${inv.status === "declined" ? "text-destructive" : "text-muted-foreground"}`}>
-                            Invitation {inv.status}
-                          </span>
-                        </div>
-                        <Badge variant="outline" className="shrink-0 text-xs capitalize">{inv.status}</Badge>
-                      </div>
-                    ))}
                   </div>
                 )}
               </div>
@@ -1833,7 +1704,7 @@ const SchoolAdminDashboard = () => {
           <form onSubmit={handleAddBursar}>
             <div className="grid gap-4 py-4">
               <div className="space-y-2">
-                <Label htmlFor="bursarEmail">Add a Bursar — Email *</Label>
+                <Label htmlFor="bursarEmail">Bursar's Email *</Label>
                 <div className="relative">
                   <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                   <Input
@@ -1846,95 +1717,68 @@ const SchoolAdminDashboard = () => {
                     required
                     disabled={addingBursar}
                   />
-                  {checkingEmail && (
-                    <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-muted-foreground" />
-                  )}
-                  {emailExists !== null && !checkingEmail && (
-                    <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                      {emailExists ? (
-                        <Badge variant="outline" className="bg-green-500/10 text-green-600 border-green-500/30">
-                          ✓ Exists
-                        </Badge>
-                      ) : (
-                        <Badge variant="outline" className="bg-primary/10 text-primary border-primary/30">
-                          New account
-                        </Badge>
-                      )}
-                    </div>
-                  )}
                 </div>
-                {emailExists === true && (
-                  <p className="text-xs text-green-600">
-                    ✅ Account found — this user will be invited and must accept from their dashboard.
-                  </p>
-                )}
-                {emailExists === false && (
-                  <p className="text-xs text-muted-foreground">
-                    No account exists for this email — fill in a password below to create the
-                    bursar's account now and share the details with them.
-                  </p>
-                )}
+                <p className="text-xs text-muted-foreground">
+                  This creates the bursar's account now. Share the email and temporary
+                  password below with them — they'll set their own password on first login.
+                </p>
               </div>
 
-              {emailExists === false && (
-                <>
-                  <div className="space-y-2">
-                    <Label htmlFor="bursarFullName">Bursar's Full Name</Label>
-                    <Input
-                      id="bursarFullName"
-                      placeholder="e.g. Ngozi Okeke"
-                      value={bursarFullName}
-                      onChange={(e) => setBursarFullName(e.target.value)}
-                      disabled={addingBursar}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <Label htmlFor="bursarPassword">Temporary Password *</Label>
-                      <Button type="button" variant="link" className="p-0 h-auto text-xs" onClick={generateBursarPassword}>
-                        Generate
-                      </Button>
-                    </div>
-                    <div className="relative">
-                      <Input
-                        id="bursarPassword"
-                        type={showPassword ? "text" : "password"}
-                        placeholder="Min. 6 characters"
-                        value={bursarPassword}
-                        onChange={(e) => setBursarPassword(e.target.value)}
-                        minLength={6}
-                        disabled={addingBursar}
-                        className="pr-10"
-                      />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 p-0"
-                        onClick={() => setShowPassword(!showPassword)}
-                      >
-                        {showPassword ? (
-                          <EyeOff className="w-4 h-4 text-muted-foreground" />
-                        ) : (
-                          <Eye className="w-4 h-4 text-muted-foreground" />
-                        )}
-                      </Button>
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="bursarConfirmPassword">Confirm Password *</Label>
-                    <Input
-                      id="bursarConfirmPassword"
-                      type={showPassword ? "text" : "password"}
-                      placeholder="Repeat the password"
-                      value={bursarConfirmPassword}
-                      onChange={(e) => setBursarConfirmPassword(e.target.value)}
-                      minLength={6}
-                      disabled={addingBursar}
-                    />
-                  </div>
-                </>
-              )}
+              <div className="space-y-2">
+                <Label htmlFor="bursarFullName">Bursar's Full Name</Label>
+                <Input
+                  id="bursarFullName"
+                  placeholder="e.g. Ngozi Okeke"
+                  value={bursarFullName}
+                  onChange={(e) => setBursarFullName(e.target.value)}
+                  disabled={addingBursar}
+                />
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="bursarPassword">Temporary Password *</Label>
+                  <Button type="button" variant="link" className="p-0 h-auto text-xs" onClick={generateBursarPassword}>
+                    Generate
+                  </Button>
+                </div>
+                <div className="relative">
+                  <Input
+                    id="bursarPassword"
+                    type={showPassword ? "text" : "password"}
+                    placeholder="Min. 6 characters"
+                    value={bursarPassword}
+                    onChange={(e) => setBursarPassword(e.target.value)}
+                    minLength={6}
+                    disabled={addingBursar}
+                    className="pr-10"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 p-0"
+                    onClick={() => setShowPassword(!showPassword)}
+                  >
+                    {showPassword ? (
+                      <EyeOff className="w-4 h-4 text-muted-foreground" />
+                    ) : (
+                      <Eye className="w-4 h-4 text-muted-foreground" />
+                    )}
+                  </Button>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="bursarConfirmPassword">Confirm Password *</Label>
+                <Input
+                  id="bursarConfirmPassword"
+                  type={showPassword ? "text" : "password"}
+                  placeholder="Repeat the password"
+                  value={bursarConfirmPassword}
+                  onChange={(e) => setBursarConfirmPassword(e.target.value)}
+                  minLength={6}
+                  disabled={addingBursar}
+                />
+              </div>
             </div>
             <DialogFooter>
               <Button
@@ -1952,20 +1796,17 @@ const SchoolAdminDashboard = () => {
                 type="submit"
                 disabled={
                   addingBursar ||
-                  checkingEmail ||
-                  emailExists === null ||
-                  (emailExists === false && (bursarPassword.length < 6 || bursarPassword !== bursarConfirmPassword))
+                  bursarPassword.length < 6 ||
+                  bursarPassword !== bursarConfirmPassword
                 }
               >
                 {addingBursar ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    {emailExists === false ? "Creating..." : "Sending..."}
+                    Creating...
                   </>
-                ) : emailExists === false ? (
-                  "Create Bursar Account"
                 ) : (
-                  "Send Invitation"
+                  "Create Bursar Account"
                 )}
               </Button>
             </DialogFooter>

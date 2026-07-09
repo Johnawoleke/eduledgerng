@@ -1,12 +1,11 @@
 // supabase/functions/add-bursar/index.ts
 //
-// Two modes, both restricted to OWNERS of the target school (the caller's JWT
-// is verified — previously anyone could invoke this):
-//   1. Target email already has an account  -> create a pending invitation
-//      (the user accepts it from their main dashboard).
-//   2. Target email has no account and a password is provided -> create the
-//      auth account directly, add it to school_admins as bursar, and let the
-//      owner share the credentials with the bursar.
+// Restricted to OWNERS of the target school (the caller's JWT is verified).
+// The owner provides the bursar's email + a temporary password; this creates
+// the auth account directly, adds it to school_admins as a bursar, and returns
+// so the owner can share the credentials. The bursar is forced to change the
+// password on first login. There is NO invitation flow — an email that already
+// has an account is rejected with a clear error.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
@@ -82,120 +81,70 @@ Deno.serve(async (req) => {
       if (data.users.length < 1000) break;
     }
 
-    // =========================================================================
-    // MODE 2: account does not exist — create it directly as a bursar
-    // =========================================================================
-    if (!existingUser) {
-      if (!password) {
-        return json({ error: "User not found. Provide a password to create the bursar account.", needsPassword: true }, 404);
-      }
-      if (typeof password !== "string" || password.length < 6) {
-        return json({ error: "Password must be at least 6 characters" }, 400);
-      }
+    // Bursars are added ONLY by the owner creating a new account for them and
+    // sharing the credentials — there is no invitation flow. An email that
+    // already has an account therefore cannot be added; surface a clear error.
+    if (existingUser) {
+      return json(
+        { error: "An account with this email already exists. Use a different email to create a new bursar account." },
+        400
+      );
+    }
 
-      const { data: created, error: createError } = await supabaseAdmin.auth.admin.createUser({
-        email: target,
-        password,
-        email_confirm: true,
-        user_metadata: { full_name: fullName || null },
-      });
-      if (createError || !created?.user) {
-        return json({ error: createError?.message || "Failed to create account" }, 400);
-      }
+    // --- Create the bursar account directly --------------------------------
+    if (!password) {
+      return json({ error: "A password is required to create the bursar account.", needsPassword: true }, 400);
+    }
+    if (typeof password !== "string" || password.length < 6) {
+      return json({ error: "Password must be at least 6 characters" }, 400);
+    }
 
-      const { error: memberError } = await supabaseAdmin.from("school_admins").insert({
-        school_id: schoolId,
-        user_id: created.user.id,
-        role: role || "bursar",
-      });
-      if (memberError) {
-        // Roll back the orphan account so a retry starts clean
-        await supabaseAdmin.auth.admin.deleteUser(created.user.id);
-        return json({ error: memberError.message }, 400);
-      }
+    const { data: created, error: createError } = await supabaseAdmin.auth.admin.createUser({
+      email: target,
+      password,
+      email_confirm: true,
+      user_metadata: { full_name: fullName || null },
+    });
+    if (createError || !created?.user) {
+      return json({ error: createError?.message || "Failed to create account" }, 400);
+    }
 
-      // Force the bursar to rotate the owner-chosen temp password on first login.
-      const { error: profileError } = await supabaseAdmin.from("profiles").upsert({
-        id: created.user.id,
-        email: target,
-        full_name: fullName || null,
-        must_change_password: true,
-      });
-      if (profileError) {
-        // The account + membership exist, but forced rotation didn't get set.
-        // Surface it so the owner knows to have the bursar change their password.
-        console.error("add-bursar: failed to set must_change_password:", profileError.message);
-        return json({
-          success: true,
-          created: true,
-          userId: created.user.id,
-          warning: "Account created, but we couldn't flag the temporary password for rotation — ask the bursar to change it after first login.",
-          message: "Bursar account created and added to the school. Share the login details with your bursar.",
-        });
-      }
+    const { error: memberError } = await supabaseAdmin.from("school_admins").insert({
+      school_id: schoolId,
+      user_id: created.user.id,
+      role: role || "bursar",
+    });
+    if (memberError) {
+      // Roll back the orphan account so a retry starts clean
+      await supabaseAdmin.auth.admin.deleteUser(created.user.id);
+      return json({ error: memberError.message }, 400);
+    }
 
+    // Force the bursar to rotate the owner-chosen temp password on first login.
+    const { error: profileError } = await supabaseAdmin.from("profiles").upsert({
+      id: created.user.id,
+      email: target,
+      full_name: fullName || null,
+      must_change_password: true,
+    });
+    if (profileError) {
+      // The account + membership exist, but forced rotation didn't get set.
+      // Surface it so the owner knows to have the bursar change their password.
+      console.error("add-bursar: failed to set must_change_password:", profileError.message);
       return json({
         success: true,
         created: true,
         userId: created.user.id,
+        warning: "Account created, but we couldn't flag the temporary password for rotation — ask the bursar to change it after first login.",
         message: "Bursar account created and added to the school. Share the login details with your bursar.",
       });
     }
 
-    // =========================================================================
-    // MODE 1: account exists — send an invitation (unchanged behavior)
-    // =========================================================================
-    const userId = existingUser.id;
-
-    const { data: existingMember } = await supabaseAdmin
-      .from("school_admins")
-      .select("id")
-      .eq("school_id", schoolId)
-      .eq("user_id", userId)
-      .maybeSingle();
-    if (existingMember) {
-      return json({ error: "User is already a member of this school" }, 400);
-    }
-
-    const { data: existingRequest } = await supabaseAdmin
-      .from("school_requests")
-      .select("id, status, expires_at")
-      .eq("school_id", schoolId)
-      .eq("user_id", userId)
-      .eq("status", "pending")
-      .maybeSingle();
-    if (existingRequest) {
-      // A still-valid pending invite blocks a duplicate; an EXPIRED one is a
-      // dead end (hidden from the invitee), so clear it and re-send instead.
-      if (new Date(existingRequest.expires_at) > new Date()) {
-        return json({ error: "A pending invitation already exists for this user" }, 400);
-      }
-      await supabaseAdmin.from("school_requests").delete().eq("id", existingRequest.id);
-    }
-
-    const { data: request, error: requestError } = await supabaseAdmin
-      .from("school_requests")
-      .insert({
-        school_id: schoolId,
-        user_id: userId,
-        requested_by: caller.id,
-        role: role || "bursar",
-        status: "pending",
-        email: target,
-        expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-      })
-      .select()
-      .single();
-    if (requestError) {
-      return json({ error: requestError.message }, 400);
-    }
-
     return json({
       success: true,
-      created: false,
-      requestId: request.id,
-      userId,
-      message: "Request sent to user. They will be added once accepted.",
+      created: true,
+      userId: created.user.id,
+      message: "Bursar account created and added to the school. Share the login details with your bursar.",
     });
   } catch (err) {
     console.error("Error in add-bursar:", err);
