@@ -17,7 +17,6 @@ import {
   Layers,
   Baby,
   School,
-  Check,
   Mail,
   MessageCircle,
 } from "lucide-react";
@@ -27,7 +26,6 @@ const NAV_LINKS = [
   { label: "About", id: "about" },
   { label: "Features", id: "features" },
   { label: "Solutions", id: "solutions" },
-  { label: "Pricing", id: "pricing" },
   { label: "Contact", id: "contact" },
 ];
 
@@ -282,52 +280,6 @@ const LandingPage = () => {
               </Card>
             ))}
           </div>
-        </div>
-      </section>
-
-      {/* Pricing */}
-      <section id="pricing" className="scroll-mt-20 py-16 px-4">
-        <div className="container mx-auto max-w-2xl">
-          <div className="text-center max-w-2xl mx-auto mb-10">
-            <p className="text-sm font-semibold uppercase tracking-wide text-primary mb-2">
-              Pricing
-            </p>
-            <h2 className="text-2xl sm:text-3xl font-bold mb-4 text-balance">
-              Simple, honest pricing
-            </h2>
-            <p className="text-muted-foreground">
-              No setup fees. No monthly subscription. You only ever pay when a parent pays online.
-            </p>
-          </div>
-          <Card className="border-primary/30">
-            <CardContent className="pt-8 pb-8 text-center space-y-6">
-              <div>
-                <div className="text-5xl font-bold text-primary">1%</div>
-                <p className="text-sm text-muted-foreground mt-1">per online payment</p>
-              </div>
-              <p className="text-muted-foreground max-w-md mx-auto">
-                You keep <span className="font-semibold text-foreground">100% of the fee you set</span>.
-                The 1% platform charge and the payment-gateway fee are added on top and paid by the
-                parent — so the exact fee you set is what lands in your bank account.
-              </p>
-              <ul className="space-y-2 text-sm text-left max-w-xs mx-auto">
-                {[
-                  "No setup or onboarding cost",
-                  "No monthly subscription",
-                  "You receive the full fee amount",
-                  "Charges are transparent to parents",
-                ].map((point) => (
-                  <li key={point} className="flex items-center gap-2">
-                    <Check className="w-4 h-4 text-primary shrink-0" />
-                    <span>{point}</span>
-                  </li>
-                ))}
-              </ul>
-              <Button size="lg" className="gap-2" onClick={() => navigate("/register")}>
-                Get started free <ArrowRight className="w-4 h-4" />
-              </Button>
-            </CardContent>
-          </Card>
         </div>
       </section>
 
