@@ -23,9 +23,9 @@ import {
 
 // Anchor links in the top nav — each scrolls to a section with the same id.
 const NAV_LINKS = [
-  { label: "About", id: "about" },
   { label: "Features", id: "features" },
   { label: "Solutions", id: "solutions" },
+  { label: "About", id: "about" },
   { label: "Contact", id: "contact" },
 ];
 
@@ -145,39 +145,8 @@ const LandingPage = () => {
         </div>
       </section>
 
-      {/* About */}
-      <section id="about" className="scroll-mt-20 py-16 px-4 bg-muted/50">
-        <div className="container mx-auto max-w-4xl">
-          <div className="text-center max-w-2xl mx-auto mb-10">
-            <p className="text-sm font-semibold uppercase tracking-wide text-primary mb-2">About</p>
-            <h2 className="text-2xl sm:text-3xl font-bold mb-4 text-balance">
-              Built for how Nigerian schools actually run
-            </h2>
-            <p className="text-muted-foreground">
-              EduLedgerNG replaces cash, paper receipts, and scattered spreadsheets with one simple
-              system. Owners and bursars manage fees per class, term, and session; parents and
-              students pay online; and every payment is recorded and receipted automatically.
-            </p>
-          </div>
-          <Card>
-            <CardContent className="pt-6 flex flex-col sm:flex-row items-center gap-4 text-center sm:text-left">
-              <div className="w-12 h-12 shrink-0 rounded-xl bg-primary/10 flex items-center justify-center">
-                <Shield className="w-6 h-6 text-primary" />
-              </div>
-              <div>
-                <h3 className="font-semibold mb-1">Complete data isolation</h3>
-                <p className="text-sm text-muted-foreground">
-                  Every school's data is fully separated. No school can see another's information,
-                  and no student can see another student's records. Your data stays yours.
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      </section>
-
       {/* Features */}
-      <section id="features" className="scroll-mt-20 py-16 px-4">
+      <section id="features" className="scroll-mt-20 py-16 px-4 bg-muted/50">
         <div className="container mx-auto max-w-5xl">
           <div className="text-center max-w-2xl mx-auto mb-10">
             <p className="text-sm font-semibold uppercase tracking-wide text-primary mb-2">
@@ -238,7 +207,7 @@ const LandingPage = () => {
       </section>
 
       {/* Solutions */}
-      <section id="solutions" className="scroll-mt-20 py-16 px-4 bg-muted/50">
+      <section id="solutions" className="scroll-mt-20 py-16 px-4">
         <div className="container mx-auto max-w-5xl">
           <div className="text-center max-w-2xl mx-auto mb-10">
             <p className="text-sm font-semibold uppercase tracking-wide text-primary mb-2">
@@ -283,8 +252,39 @@ const LandingPage = () => {
         </div>
       </section>
 
+      {/* About */}
+      <section id="about" className="scroll-mt-20 py-16 px-4 bg-muted/50">
+        <div className="container mx-auto max-w-4xl">
+          <div className="text-center max-w-2xl mx-auto mb-10">
+            <p className="text-sm font-semibold uppercase tracking-wide text-primary mb-2">About</p>
+            <h2 className="text-2xl sm:text-3xl font-bold mb-4 text-balance">
+              Built for how Nigerian schools actually run
+            </h2>
+            <p className="text-muted-foreground">
+              EduLedgerNG replaces cash, paper receipts, and scattered spreadsheets with one simple
+              system. Owners and bursars manage fees per class, term, and session; parents and
+              students pay online; and every payment is recorded and receipted automatically.
+            </p>
+          </div>
+          <Card>
+            <CardContent className="pt-6 flex flex-col sm:flex-row items-center gap-4 text-center sm:text-left">
+              <div className="w-12 h-12 shrink-0 rounded-xl bg-primary/10 flex items-center justify-center">
+                <Shield className="w-6 h-6 text-primary" />
+              </div>
+              <div>
+                <h3 className="font-semibold mb-1">Complete data isolation</h3>
+                <p className="text-sm text-muted-foreground">
+                  Every school's data is fully separated. No school can see another's information,
+                  and no student can see another student's records. Your data stays yours.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </section>
+
       {/* Contact */}
-      <section id="contact" className="scroll-mt-20 py-16 px-4 bg-muted/50">
+      <section id="contact" className="scroll-mt-20 py-16 px-4">
         <div className="container mx-auto max-w-2xl text-center">
           <p className="text-sm font-semibold uppercase tracking-wide text-primary mb-2">Contact</p>
           <h2 className="text-2xl sm:text-3xl font-bold mb-4 text-balance">
