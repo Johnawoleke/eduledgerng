@@ -295,15 +295,14 @@ const LandingPage = () => {
             fees online.
           </p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
-            {/* TODO: replace with your real support email and WhatsApp number */}
             <Button size="lg" variant="outline" className="gap-2" asChild>
-              <a href="mailto:hello@eduledgerng.com">
-                <Mail className="w-4 h-4" /> Email us
+              <a href="mailto:edulegerng@gmail.com">
+                <Mail className="w-4 h-4" /> edulegerng@gmail.com
               </a>
             </Button>
             <Button size="lg" className="gap-2" asChild>
-              <a href="https://wa.me/2340000000000" target="_blank" rel="noopener noreferrer">
-                <MessageCircle className="w-4 h-4" /> Chat on WhatsApp
+              <a href="https://wa.me/2349133586788" target="_blank" rel="noopener noreferrer">
+                <MessageCircle className="w-4 h-4" /> +234 913 358 6788
               </a>
             </Button>
           </div>
