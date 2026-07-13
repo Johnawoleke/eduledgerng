@@ -1018,21 +1018,22 @@ const SchoolAdminDashboard = () => {
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b bg-card">
-        <div className="container mx-auto flex items-center justify-between h-16 px-4">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
+        <div className="container mx-auto flex items-center justify-between gap-2 h-16 px-4">
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center shrink-0">
               <GraduationCap className="w-4 h-4 text-primary-foreground" />
             </div>
-            <span className="font-bold text-lg">{school?.name}</span>
-            <Badge variant="outline" className="ml-2 text-xs capitalize">
+            <span className="font-bold text-base sm:text-lg truncate">{school?.name}</span>
+            <Badge variant="outline" className="hidden sm:inline-flex text-xs capitalize shrink-0">
               {userRole || "Admin"}
             </Badge>
           </div>
-          <div className="flex items-center gap-1">
-            <Button 
-              variant="ghost" 
-              size="sm" 
-              onClick={() => navigate("/main-dashboard")} 
+          <div className="flex items-center gap-0.5 shrink-0">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-9 w-9 p-0"
+              onClick={() => navigate("/main-dashboard")}
               title="Dashboard"
             >
               <Home className="w-4 h-4" />
@@ -1041,16 +1042,17 @@ const SchoolAdminDashboard = () => {
               <Button
                 variant="ghost"
                 size="sm"
+                className="h-9 w-9 p-0"
                 onClick={() => navigate(`/school/${slug}/settings`)}
                 title="Settings"
               >
                 <Settings className="w-4 h-4" />
               </Button>
             )}
-            <Button variant="ghost" size="sm" onClick={() => navigate("/change-password")} title="Change password">
+            <Button variant="ghost" size="sm" className="h-9 w-9 p-0" onClick={() => navigate("/change-password")} title="Change password">
               <KeyRound className="w-4 h-4" />
             </Button>
-            <Button variant="ghost" size="sm" onClick={handleLogout} title="Log out">
+            <Button variant="ghost" size="sm" className="h-9 w-9 p-0" onClick={handleLogout} title="Log out">
               <LogOut className="w-4 h-4" />
             </Button>
           </div>
