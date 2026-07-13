@@ -3,7 +3,6 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
-  GraduationCap,
   Shield,
   Users,
   Wallet,
@@ -53,11 +52,9 @@ const LandingPage = () => {
               className="flex items-center gap-2"
               aria-label="EduLedgerNG home"
             >
-              <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
-                <GraduationCap className="w-4 h-4 text-primary-foreground" />
-              </div>
-              <span className="font-bold text-lg">
-                EduLedger<span className="text-primary font-bold">NG</span>
+              <img src="/logo.jpeg" alt="" className="w-8 h-8 rounded-lg object-contain" />
+              <span className="font-bold text-lg text-[#0A5C30]">
+                EduLedger<span className="text-[#F5C518]">NG</span>
               </span>
             </button>
 
