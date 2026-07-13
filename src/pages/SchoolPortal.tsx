@@ -192,9 +192,7 @@ const SchoolPortal = () => {
     <div className="min-h-screen flex items-center justify-center bg-primary/5 p-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary mb-4">
-            <GraduationCap className="w-8 h-8 text-primary-foreground" />
-          </div>
+          <img src="/logo.jpeg" alt="" className="mx-auto mb-4 block w-16 h-16 rounded-2xl object-contain" />
           <h1 className="text-2xl font-bold text-foreground">{schoolName}</h1>
           <p className="text-muted-foreground mt-1">Powered by EduLedger<span className="text-primary font-bold">NG</span></p>
         </div>

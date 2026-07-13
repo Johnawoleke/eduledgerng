@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { GraduationCap, Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -57,9 +57,7 @@ const RegisterPage = () => {
     <div className="min-h-screen flex items-center justify-center bg-primary/5 p-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary mb-4">
-            <GraduationCap className="w-8 h-8 text-primary-foreground" />
-          </div>
+          <img src="/logo.jpeg" alt="" className="mx-auto mb-4 block w-16 h-16 rounded-2xl object-contain" />
           <h1 className="text-3xl font-bold text-foreground">
             EduLedger<span className="text-primary font-bold">NG</span>
           </h1>

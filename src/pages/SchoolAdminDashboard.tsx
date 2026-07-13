@@ -11,8 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { 
-  GraduationCap, 
-  LogOut, 
+  LogOut,
   Users, 
   Wallet, 
   TrendingUp, 
@@ -1020,9 +1019,7 @@ const SchoolAdminDashboard = () => {
       <header className="border-b bg-card">
         <div className="container mx-auto flex items-center justify-between gap-2 h-16 px-4">
           <div className="flex items-center gap-2 min-w-0 flex-1">
-            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center shrink-0">
-              <GraduationCap className="w-4 h-4 text-primary-foreground" />
-            </div>
+            <img src="/logo.jpeg" alt="" className="w-8 h-8 rounded-lg object-contain shrink-0" />
             <span className="font-bold text-base sm:text-lg truncate">{school?.name}</span>
             <Badge variant="outline" className="hidden sm:inline-flex text-xs capitalize shrink-0">
               {userRole || "Admin"}

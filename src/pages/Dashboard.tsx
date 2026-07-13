@@ -8,7 +8,6 @@ import {
   Building2,
   Plus,
   LogOut,
-  GraduationCap,
   User,
   Sparkles,
   KeyRound,
@@ -119,9 +118,7 @@ const Dashboard = () => {
       <header className="border-b bg-card">
         <div className="container mx-auto flex items-center justify-between h-16 px-4">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
-              <GraduationCap className="w-4 h-4 text-primary-foreground" />
-            </div>
+            <img src="/logo.jpeg" alt="" className="w-8 h-8 rounded-lg object-contain" />
             <span className="font-bold text-lg">EduLedger<span className="text-primary font-bold">NG</span></span>
           </div>
           <div className="flex items-center gap-2">

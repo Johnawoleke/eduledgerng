@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import { GraduationCap, Printer, ArrowLeft, CheckCircle2, AlertCircle, Clock, Download } from "lucide-react";
+import { Printer, ArrowLeft, CheckCircle2, AlertCircle, Clock, Download } from "lucide-react";
 import { generateReceiptPdf, parsePaymentItems } from "@/lib/generateReceiptPdf";
 
 const formatNaira = (amount: number) =>
@@ -77,9 +77,7 @@ const ReceiptPage = () => {
         <Card className="shadow-lg">
           <CardHeader className="text-center border-b pb-6">
             <div className="flex items-center justify-center gap-2 mb-2">
-              <div className="w-10 h-10 rounded-lg bg-primary flex items-center justify-center">
-                <GraduationCap className="w-5 h-5 text-primary-foreground" />
-              </div>
+              <img src="/logo.jpeg" alt="" className="w-10 h-10 rounded-lg object-contain" />
             </div>
             <h1 className="text-xl font-bold">EduLedger<span className="text-primary font-bold">NG</span></h1>
             <p className="text-sm text-muted-foreground">{school?.name || "School"}</p>

@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { GraduationCap, LogOut, Wallet, CreditCard, History, Eye, Loader2 } from "lucide-react";
+import { LogOut, Wallet, CreditCard, History, Eye, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { readFunctionsError } from "@/lib/utils";
@@ -210,9 +210,7 @@ const SchoolStudentDashboard = () => {
       <header className="border-b bg-card no-print">
         <div className="container mx-auto flex items-center justify-between gap-2 h-16 px-4">
           <div className="flex items-center gap-2 min-w-0 flex-1">
-            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center shrink-0">
-              <GraduationCap className="w-4 h-4 text-primary-foreground" />
-            </div>
+            <img src="/logo.jpeg" alt="" className="w-8 h-8 rounded-lg object-contain shrink-0" />
             <span className="font-bold text-base sm:text-lg truncate">{school?.name || "School"}</span>
           </div>
           <div className="flex items-center gap-2 shrink-0">
