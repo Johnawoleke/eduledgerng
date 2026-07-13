@@ -326,8 +326,8 @@ const LandingPage = () => {
           </p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <Button size="lg" variant="outline" className="gap-2" asChild>
-              <a href="mailto:edulegerng@gmail.com">
-                <Mail className="w-4 h-4" /> edulegerng@gmail.com
+              <a href="mailto:eduledgerng@gmail.com">
+                <Mail className="w-4 h-4" /> eduledgerng@gmail.com
               </a>
             </Button>
             <Button size="lg" className="gap-2" asChild>
