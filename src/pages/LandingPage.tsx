@@ -125,23 +125,17 @@ const LandingPage = () => {
       </header>
 
       {/* Hero */}
-      <section className="py-16 sm:py-20 px-4">
+      <section className="py-20 px-4">
         <div className="container mx-auto max-w-3xl text-center">
-          {/* Brand lockup — already carries the "Secure Payments | Simplified Records" tagline */}
-          <h1 className="mb-8">
-            <span className="sr-only">EduLedgerNG — Secure Payments, Simplified Records</span>
-            <img
-              src="/logo-full.jpeg"
-              alt=""
-              className="mx-auto w-full max-w-xs rounded-2xl bg-white shadow-sm ring-1 ring-black/5"
-              width={320}
-              height={320}
-            />
-          </h1>
           <div className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-4 py-1.5 text-sm font-semibold text-primary mb-6">
             <Sparkles className="w-4 h-4" />
             Free for schools. Always.
           </div>
+          <h1 className="text-4xl sm:text-5xl font-bold text-foreground mb-6 text-balance">
+            Secure Payments
+            <br />
+            <span className="text-primary">Simplified Records</span>
+          </h1>
           <p className="text-lg text-muted-foreground mb-8 max-w-2xl mx-auto">
             The fee-management platform for Nigerian private schools — from nursery to senior
             secondary. Register your school, manage students and fees by session and term, and let
