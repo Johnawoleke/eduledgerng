@@ -68,6 +68,14 @@
     --sidebar-ring: 45 93% 47%;
   }
 
+  /* Landing page locks every `primary` green to the exact brand green
+     (#0A5C30 = hsl(148 80% 20%)), scoped so the rest of the app keeps its
+     own token. Applied via the .landing-brand class on the landing root. */
+  .landing-brand {
+    --primary: 148 80% 20%;
+    --ring: 148 80% 20%;
+  }
+
   * {
     @apply border-border;
   }
