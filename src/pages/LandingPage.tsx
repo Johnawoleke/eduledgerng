@@ -22,7 +22,7 @@ import {
   MessageCircle,
 } from "lucide-react";
 
-// Anchor links in the top nav — each scrolls to a section with the same id.
+// Anchor links in the top nav; each scrolls to a section with the same id.
 const NAV_LINKS = [
   { label: "Features", id: "features" },
   { label: "Solutions", id: "solutions" },
@@ -134,13 +134,13 @@ const LandingPage = () => {
             <span className="text-primary">Simplified Records</span>
           </h1>
           <p className="text-lg text-muted-foreground mb-8 max-w-2xl mx-auto">
-            The fee-management platform for Nigerian private schools — from nursery to senior
+            The fee-management platform for Nigerian private schools, from nursery to senior
             secondary. Register your school, manage students and fees by session and term, and let
             parents pay online in minutes.
           </p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <Button size="lg" onClick={() => navigate("/register")} className="gap-2">
-              Get Started — Free <ArrowRight className="w-4 h-4" />
+              Get Started for Free <ArrowRight className="w-4 h-4" />
             </Button>
             <Button size="lg" variant="outline" onClick={() => goToSection("features")}>
               See how it works
@@ -171,12 +171,12 @@ const LandingPage = () => {
               {
                 icon: CreditCard,
                 title: "Online fee payments",
-                body: "Parents pay online by bank transfer — money settles straight into your school's own bank account.",
+                body: "Parents pay online by bank transfer. Money settles straight into your school's own bank account.",
               },
               {
                 icon: Wallet,
                 title: "Fee management",
-                body: "Set fees per class, term, and session. Bursars propose, owners approve — then fees are locked for the year.",
+                body: "Set fees per class, term, and session. Bursars propose, owners approve, then fees are locked for the year.",
               },
               {
                 icon: Users,
@@ -196,7 +196,7 @@ const LandingPage = () => {
               {
                 icon: Building2,
                 title: "Multiple branches",
-                body: "Run several schools from one account — each with its own students, fees, and bank account.",
+                body: "Run several schools from one account, each with its own students, fees, and bank account.",
               },
             ].map((f) => (
               <Card key={f.title}>
@@ -224,7 +224,7 @@ const LandingPage = () => {
               For every kind of private school
             </h2>
             <p className="text-muted-foreground">
-              One platform that fits your structure — whether you run one campus or several.
+              One platform that fits your structure, whether you run one campus or several.
             </p>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
@@ -265,7 +265,7 @@ const LandingPage = () => {
           <p className="text-sm font-semibold uppercase tracking-wide text-primary mb-2">Pricing</p>
           <h2 className="text-2xl sm:text-3xl font-bold mb-4 text-balance">Your school pays nothing</h2>
           <p className="text-muted-foreground mb-8 max-w-md mx-auto">
-            No setup fee. No subscription. Parents pay a small processing fee at checkout — your
+            No setup fee. No subscription. Parents pay a small processing fee at checkout. Your
             school pays nothing.
           </p>
           <ul className="flex flex-col sm:flex-row items-center justify-center gap-4 sm:gap-8 mb-8 text-sm font-medium">
@@ -277,7 +277,7 @@ const LandingPage = () => {
             ))}
           </ul>
           <Button size="lg" className="gap-2" onClick={() => navigate("/register")}>
-            Get Started — Free <ArrowRight className="w-4 h-4" />
+            Get Started for Free <ArrowRight className="w-4 h-4" />
           </Button>
         </div>
       </section>
@@ -342,7 +342,7 @@ const LandingPage = () => {
       {/* Footer */}
       <footer className="border-t py-8 px-4">
         <div className="container mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-muted-foreground">
-          <p>EduLedgerNG &copy; {new Date().getFullYear()} — School Fee Management</p>
+          <p>EduLedgerNG &copy; {new Date().getFullYear()} &middot; School Fee Management</p>
           <nav className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
             {NAV_LINKS.map((link) => (
               <a
