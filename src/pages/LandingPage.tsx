@@ -17,6 +17,8 @@ import {
   Layers,
   Baby,
   School,
+  Check,
+  Sparkles,
   Mail,
   MessageCircle,
 } from "lucide-react";
@@ -25,6 +27,7 @@ import {
 const NAV_LINKS = [
   { label: "Features", id: "features" },
   { label: "Solutions", id: "solutions" },
+  { label: "Pricing", id: "pricing" },
   { label: "About", id: "about" },
   { label: "Contact", id: "contact" },
 ];
@@ -124,6 +127,10 @@ const LandingPage = () => {
       {/* Hero */}
       <section className="py-20 px-4">
         <div className="container mx-auto max-w-3xl text-center">
+          <div className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-4 py-1.5 text-sm font-semibold text-primary mb-6">
+            <Sparkles className="w-4 h-4" />
+            Free for schools. Always.
+          </div>
           <h1 className="text-4xl sm:text-5xl font-bold text-foreground mb-6 text-balance">
             Secure Payments
             <br />
@@ -136,12 +143,15 @@ const LandingPage = () => {
           </p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <Button size="lg" onClick={() => navigate("/register")} className="gap-2">
-              Register Your School <ArrowRight className="w-4 h-4" />
+              Get Started — Free <ArrowRight className="w-4 h-4" />
             </Button>
             <Button size="lg" variant="outline" onClick={() => goToSection("features")}>
               See how it works
             </Button>
           </div>
+          <p className="text-sm text-muted-foreground mt-6">
+            Currently onboarding our first schools before official launch.
+          </p>
         </div>
       </section>
 
@@ -164,7 +174,7 @@ const LandingPage = () => {
               {
                 icon: CreditCard,
                 title: "Online fee payments",
-                body: "Parents pay by card in a few taps. Money settles straight into your school's own bank account.",
+                body: "Parents pay online by bank transfer — money settles straight into your school's own bank account.",
               },
               {
                 icon: Wallet,
@@ -249,6 +259,29 @@ const LandingPage = () => {
               </Card>
             ))}
           </div>
+        </div>
+      </section>
+
+      {/* Pricing */}
+      <section id="pricing" className="scroll-mt-20 py-16 px-4 bg-primary/5">
+        <div className="container mx-auto max-w-2xl text-center">
+          <p className="text-sm font-semibold uppercase tracking-wide text-primary mb-2">Pricing</p>
+          <h2 className="text-2xl sm:text-3xl font-bold mb-4 text-balance">Your school pays nothing</h2>
+          <p className="text-muted-foreground mb-8 max-w-md mx-auto">
+            No setup fee. No subscription. Parents pay a small processing fee at checkout — your
+            school pays nothing.
+          </p>
+          <ul className="flex flex-col sm:flex-row items-center justify-center gap-4 sm:gap-8 mb-8 text-sm font-medium">
+            {["No setup fee", "No subscription", "No cost to your school"].map((point) => (
+              <li key={point} className="flex items-center gap-2">
+                <Check className="w-4 h-4 text-primary shrink-0" />
+                <span>{point}</span>
+              </li>
+            ))}
+          </ul>
+          <Button size="lg" className="gap-2" onClick={() => navigate("/register")}>
+            Get Started — Free <ArrowRight className="w-4 h-4" />
+          </Button>
         </div>
       </section>
 
