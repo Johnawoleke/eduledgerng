@@ -41,7 +41,7 @@ const LandingPage = () => {
   };
 
   return (
-    <div className="landing-brand min-h-screen bg-background">
+    <div className="min-h-screen bg-background">
       {/* Top navigation */}
       <header className="sticky top-0 z-50 border-b bg-card/90 backdrop-blur">
         <div className="container mx-auto px-4">
