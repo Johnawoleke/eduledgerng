@@ -552,13 +552,23 @@ const SchoolAdminDashboard = () => {
     } else {
       // Show the new student's login credentials at the TOP so they're clearly
       // visible on phones (the default toast sits bottom-right and is easy to
-      // miss on mobile). Longer duration + close button so the owner can note
-      // the ID and password before it disappears.
+      // miss on mobile). It stays until dismissed and offers a one-tap Copy so
+      // the owner can grab the ID + password to share.
+      const credentialText = `EduLedgerNG student login\nStudent ID: ${studentId}\nPassword: ${DEFAULT_STUDENT_PIN}`;
       toast.success("Student added", {
         description: `Login ID: ${studentId}   ·   Password: ${DEFAULT_STUDENT_PIN}`,
         position: "top-center",
-        duration: 12000,
+        duration: Infinity,
         closeButton: true,
+        action: {
+          label: "Copy",
+          onClick: (e) => {
+            // Keep the toast open after copying so the owner can still see it.
+            e.preventDefault();
+            navigator.clipboard?.writeText(credentialText);
+            toast.success("Credentials copied", { position: "top-center", duration: 2000 });
+          },
+        },
       });
       // Jump the roster to the class just added to, so the new student is visible
       // immediately (otherwise a new Nursery/Primary school lands on an empty tab).
