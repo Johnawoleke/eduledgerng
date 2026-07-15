@@ -550,7 +550,16 @@ const SchoolAdminDashboard = () => {
     if (error) {
       toast.error(error.message);
     } else {
-      toast.success(`Student added! ID: ${studentId}, Default Password: ${DEFAULT_STUDENT_PIN}`);
+      // Show the new student's login credentials at the TOP so they're clearly
+      // visible on phones (the default toast sits bottom-right and is easy to
+      // miss on mobile). Longer duration + close button so the owner can note
+      // the ID and password before it disappears.
+      toast.success("Student added", {
+        description: `Login ID: ${studentId}   ·   Password: ${DEFAULT_STUDENT_PIN}`,
+        position: "top-center",
+        duration: 12000,
+        closeButton: true,
+      });
       // Jump the roster to the class just added to, so the new student is visible
       // immediately (otherwise a new Nursery/Primary school lands on an empty tab).
       setStudentsClassFilter(newStudentClass);
