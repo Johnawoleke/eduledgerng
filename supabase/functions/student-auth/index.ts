@@ -78,7 +78,7 @@ serve(async (req) => {
 
     if (!students || students.length === 0) {
       return new Response(
-        JSON.stringify({ error: "Invalid Student ID or PIN" }),
+        JSON.stringify({ error: "Invalid Student ID or password" }),
         { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }

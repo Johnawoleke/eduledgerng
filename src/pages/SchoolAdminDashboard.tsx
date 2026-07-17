@@ -58,7 +58,7 @@ const NIGERIAN_CLASSES = [
 // The default credential a student receives on creation/reset. MUST be the same
 // everywhere (create, bulk upload, reset, and the messages shown to the owner) —
 // a mismatch locks the student out of first login.
-const DEFAULT_STUDENT_PIN = "password";
+const DEFAULT_STUDENT_PASSWORD = "password";
 
 const DEFAULT_FEE_TEMPLATES = [
   "Tuition Fee", "PTA Levy", "Exam Fee", "Sports Levy", "Computer Fee",
@@ -540,8 +540,8 @@ const SchoolAdminDashboard = () => {
       student_id: studentId,
       name: fullName,
       class: newStudentClass,
-      pin: DEFAULT_STUDENT_PIN,
-      default_pin: DEFAULT_STUDENT_PIN,
+      pin: DEFAULT_STUDENT_PASSWORD,
+      default_pin: DEFAULT_STUDENT_PASSWORD,
       must_change_pin: true,
       parent_email: newParentEmail.trim().toLowerCase(),
       status: "active",
@@ -554,9 +554,9 @@ const SchoolAdminDashboard = () => {
       // visible on phones (the default toast sits bottom-right and is easy to
       // miss on mobile). It stays until dismissed and offers a one-tap Copy so
       // the owner can grab the ID + password to share.
-      const credentialText = `EduLedgerNG student login\nStudent ID: ${studentId}\nPassword: ${DEFAULT_STUDENT_PIN}`;
+      const credentialText = `EduLedgerNG student login\nStudent ID: ${studentId}\nPassword: ${DEFAULT_STUDENT_PASSWORD}`;
       toast.success("Student added", {
-        description: `Login ID: ${studentId}   ·   Password: ${DEFAULT_STUDENT_PIN}`,
+        description: `Login ID: ${studentId}   ·   Password: ${DEFAULT_STUDENT_PASSWORD}`,
         position: "top-center",
         duration: Infinity,
         closeButton: true,
@@ -616,20 +616,20 @@ const SchoolAdminDashboard = () => {
     }
   };
 
-  const handleResetPin = async (studentDbId: string, studentName: string) => {
-    // Only owners can reset pins
+  const handleResetPassword = async (studentDbId: string, studentName: string) => {
+    // Only owners can reset student passwords
     if (userRole !== "owner") {
-      toast.error("Only owners can reset student PINs");
+      toast.error("Only owners can reset student passwords");
       return;
     }
     const { error } = await supabase.from("students").update({
-      pin: DEFAULT_STUDENT_PIN, default_pin: DEFAULT_STUDENT_PIN, must_change_pin: true,
+      pin: DEFAULT_STUDENT_PASSWORD, default_pin: DEFAULT_STUDENT_PASSWORD, must_change_pin: true,
     }).eq("id", studentDbId);
 
     if (error) {
       toast.error("Failed to reset password");
     } else {
-      toast.success(`Password reset for ${studentName}. Default: ${DEFAULT_STUDENT_PIN}`);
+      toast.success(`Password reset for ${studentName}. Default: ${DEFAULT_STUDENT_PASSWORD}`);
       loadData();
     }
   };
@@ -711,8 +711,8 @@ const SchoolAdminDashboard = () => {
             student_id: generateStudentCode(nameParts.surname, nameParts.firstName, nameParts.middleName),
             name: nameParts.fullName,
             class: className,
-            pin: DEFAULT_STUDENT_PIN,
-            default_pin: DEFAULT_STUDENT_PIN,
+            pin: DEFAULT_STUDENT_PASSWORD,
+            default_pin: DEFAULT_STUDENT_PASSWORD,
             must_change_pin: true,
             status: "active",
           };
@@ -1343,10 +1343,10 @@ const SchoolAdminDashboard = () => {
                                         <Button variant="ghost" size="sm" onClick={() => handleViewStudent(student)}>
                                           View Fees
                                         </Button>
-                                        {/* Owners can reset PIN and archive (students are never hard-deleted) */}
+                                        {/* Owners can reset password and archive (students are never hard-deleted) */}
                                         {userRole === "owner" && (
                                           <>
-                                            <Button variant="ghost" size="icon" onClick={() => handleResetPin(student.id, student.name)} title="Reset Password">
+                                            <Button variant="ghost" size="icon" onClick={() => handleResetPassword(student.id, student.name)} title="Reset Password">
                                               <KeyRound className="w-4 h-4 text-muted-foreground" />
                                             </Button>
                                             <Button variant="ghost" size="icon" onClick={() => handleArchiveStudent(student.id, student.name)} title="Archive Student">

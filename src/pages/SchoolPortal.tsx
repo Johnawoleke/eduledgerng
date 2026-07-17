@@ -66,13 +66,13 @@ const SchoolPortal = () => {
       });
 
       if (error || data?.error) {
-        toast.error(data?.error || (await readFunctionsError(error, "Invalid Student ID or PIN")));
+        toast.error(data?.error || (await readFunctionsError(error, "Invalid Student ID or password")));
         return;
       }
 
       const student = data.student;
       if (!student) {
-        toast.error("Invalid Student ID or PIN");
+        toast.error("Invalid Student ID or password");
         return;
       }
 
@@ -224,11 +224,11 @@ const SchoolPortal = () => {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label>PIN</Label>
+                    <Label>Password</Label>
                     <div className="relative">
                       <Input
                         type={showPin ? "text" : "password"}
-                        placeholder="Enter your PIN"
+                        placeholder="Enter your password"
                         value={pin}
                         onChange={(e) => setPin(e.target.value)}
                         required

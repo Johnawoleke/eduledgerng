@@ -13,7 +13,6 @@ import SchoolPortal from "./pages/SchoolPortal";
 import ResetPassword from "./pages/ResetPassword";
 import SchoolStudentDashboard from "./pages/SchoolStudentDashboard";
 import SchoolAdminDashboard from "./pages/SchoolAdminDashboard";
-import ChangePinPage from "./pages/ChangePinPage";
 import ReceiptPage from "./pages/ReceiptPage";
 import SchoolSettingsPage from "./pages/SchoolSettingsPage";
 import NotFound from "./pages/NotFound";
@@ -43,7 +42,6 @@ const App = () => {
                   <Route path="/school/:slug/reset-password" element={<ResetPassword />} />
                   <Route path="/school/:slug/student/*" element={<SchoolStudentDashboard />} />
                   <Route path="/school/:slug/admin/*" element={<SchoolAdminDashboard />} />
-                  <Route path="/school/:slug/change-pin" element={<ChangePinPage />} />
                   <Route path="/school/:slug/settings" element={<SchoolSettingsPage />} />
                   <Route path="/main-dashboard" element={<Dashboard />} />
                   <Route path="/school/:slug/receipt/:paymentId" element={<ReceiptPage />} />

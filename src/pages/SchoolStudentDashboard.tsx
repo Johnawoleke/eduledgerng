@@ -113,7 +113,7 @@ const SchoolStudentDashboard = () => {
         // session and send them to log in again.
         const status = (error as { context?: { status?: number } })?.context?.status;
         if (status === 401 || data?.error) {
-          toast.error("Your sign-in is no longer valid — your PIN may have been changed. Please log in again.");
+          toast.error("Your sign-in is no longer valid. Your password may have been changed. Please log in again.");
           logoutStudent();
           navigate(`/school/${slug}`);
         }
