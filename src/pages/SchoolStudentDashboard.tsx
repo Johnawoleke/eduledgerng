@@ -6,9 +6,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { LogOut, Wallet, CreditCard, History, Eye, Loader2 } from "lucide-react";
+import { LogOut, Wallet, CreditCard, History, Eye, EyeOff, KeyRound, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { readFunctionsError } from "@/lib/utils";
@@ -39,13 +40,62 @@ const grossUpKobo = (baseKobo: number) => {
 const SchoolStudentDashboard = () => {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
-  const { student, school, feeItems = [], payments = [], logoutStudent, setStudentData, studentCredentials } = useSchool();
+  const { student, school, feeItems = [], payments = [], logoutStudent, setStudentData, studentCredentials, updateStudentCredentials } = useSchool();
 
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [selectedFees, setSelectedFees] = useState<Record<string, boolean>>({});
   const [feeAmounts, setFeeAmounts] = useState<Record<string, string>>({});
   const [processingPayment, setProcessingPayment] = useState(false);
   const [paymentRefreshKey, setPaymentRefreshKey] = useState(0);
+
+  // Change-password dialog
+  const [changePwOpen, setChangePwOpen] = useState(false);
+  const [currentPw, setCurrentPw] = useState("");
+  const [newPw, setNewPw] = useState("");
+  const [confirmPw, setConfirmPw] = useState("");
+  const [showPw, setShowPw] = useState(false);
+  const [changingPw, setChangingPw] = useState(false);
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!student || !studentCredentials) return;
+    if (newPw.length < 4) {
+      toast.error("New password must be at least 4 characters");
+      return;
+    }
+    if (newPw !== confirmPw) {
+      toast.error("New passwords do not match");
+      return;
+    }
+    if (newPw === currentPw) {
+      toast.error("New password must be different from your current one");
+      return;
+    }
+    setChangingPw(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("student-set-pin", {
+        body: {
+          school_slug: slug,
+          student_id: student.student_id,
+          current_pin: currentPw,
+          new_pin: newPw,
+        },
+      });
+      if (error || data?.error) {
+        toast.error(data?.error || (await readFunctionsError(error, "Failed to change password")));
+        return;
+      }
+      // Keep the session's stored credential in sync so refresh/pay keep working.
+      updateStudentCredentials({ student_id: studentCredentials.student_id, pin: newPw });
+      toast.success("Password changed successfully");
+      setChangePwOpen(false);
+      setCurrentPw(""); setNewPw(""); setConfirmPw(""); setShowPw(false);
+    } catch {
+      toast.error("An unexpected error occurred");
+    } finally {
+      setChangingPw(false);
+    }
+  };
 
   const academicPeriods = useAcademicPeriods(school?.id);
 
@@ -215,7 +265,10 @@ const SchoolStudentDashboard = () => {
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <span className="text-sm text-muted-foreground hidden sm:inline max-w-[160px] truncate">{student.name}</span>
-            <Button variant="ghost" size="sm" className="h-9 w-9 p-0" onClick={() => { logoutStudent(); navigate(`/school/${slug}`); }}>
+            <Button variant="ghost" size="sm" className="h-9 w-9 p-0" onClick={() => setChangePwOpen(true)} title="Change password">
+              <KeyRound className="w-4 h-4" />
+            </Button>
+            <Button variant="ghost" size="sm" className="h-9 w-9 p-0" onClick={() => { logoutStudent(); navigate(`/school/${slug}`); }} title="Log out">
               <LogOut className="w-4 h-4" />
             </Button>
           </div>
@@ -515,6 +568,71 @@ const SchoolStudentDashboard = () => {
               </Button>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Change password */}
+      <Dialog open={changePwOpen} onOpenChange={(o) => { setChangePwOpen(o); if (!o) { setCurrentPw(""); setNewPw(""); setConfirmPw(""); setShowPw(false); } }}>
+        <DialogContent className="sm:max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle>Change your password</DialogTitle>
+            <DialogDescription>
+              Enter your current password and choose a new one. You'll use the new password next time you log in.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleChangePassword} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="currentPw">Current password</Label>
+              <Input
+                id="currentPw"
+                type={showPw ? "text" : "password"}
+                value={currentPw}
+                onChange={(e) => setCurrentPw(e.target.value)}
+                required
+                disabled={changingPw}
+              />
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="newPw">New password</Label>
+                <Button type="button" variant="ghost" size="sm" className="h-7 gap-1.5 text-xs" onClick={() => setShowPw((s) => !s)}>
+                  {showPw ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  {showPw ? "Hide" : "Show"}
+                </Button>
+              </div>
+              <Input
+                id="newPw"
+                type={showPw ? "text" : "password"}
+                placeholder="At least 4 characters"
+                value={newPw}
+                onChange={(e) => setNewPw(e.target.value)}
+                minLength={4}
+                required
+                disabled={changingPw}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="confirmPw">Confirm new password</Label>
+              <Input
+                id="confirmPw"
+                type={showPw ? "text" : "password"}
+                placeholder="Repeat the new password"
+                value={confirmPw}
+                onChange={(e) => setConfirmPw(e.target.value)}
+                minLength={4}
+                required
+                disabled={changingPw}
+              />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setChangePwOpen(false)} disabled={changingPw}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={changingPw || newPw.length < 4 || newPw !== confirmPw}>
+                {changingPw ? (<><Loader2 className="mr-2 h-4 w-4 animate-spin" />Changing...</>) : "Change password"}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
     </div>

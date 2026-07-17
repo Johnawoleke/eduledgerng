@@ -48,6 +48,7 @@ interface SchoolContextType {
   setSchool: (school: SchoolData | null) => void;
   loginStudent: (student: StudentData, fees: FeeItem[], payments: PaymentRecord[], credentials: { student_id: string; pin: string }) => void;
   setStudentData: (fees: FeeItem[], payments: PaymentRecord[]) => void;
+  updateStudentCredentials: (credentials: { student_id: string; pin: string }) => void;
   logoutStudent: () => void;
 }
 
@@ -118,6 +119,14 @@ export const SchoolProvider = ({ children }: { children: ReactNode }) => {
     writeStored("pity_payments", paymentList);
   }, []);
 
+  // After an in-session password change, keep the session's stored credential in
+  // sync so subsequent authenticated actions (refresh, pay) don't re-send the old
+  // password and get invalidated.
+  const updateStudentCredentials = useCallback((credentials: { student_id: string; pin: string }) => {
+    setStudentCredentials(credentials);
+    writeStored("pity_credentials", credentials);
+  }, []);
+
   const logoutStudent = useCallback(() => {
     setSchoolState(null);
     setStudent(null);
@@ -146,6 +155,7 @@ export const SchoolProvider = ({ children }: { children: ReactNode }) => {
         setSchool,
         loginStudent,
         setStudentData,
+        updateStudentCredentials,
         logoutStudent,
       }}
     >

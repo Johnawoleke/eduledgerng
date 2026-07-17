@@ -51,7 +51,7 @@ Deno.serve(async (req) => {
       p_pin: current_pin,
     });
     if (verifyError || !students || students.length === 0) {
-      return json({ error: "Current PIN is incorrect" }, 401);
+      return json({ error: "Current password is incorrect" }, 401);
     }
 
     const student = students[0];
