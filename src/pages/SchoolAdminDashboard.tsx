@@ -37,6 +37,8 @@ import {
   ArchiveRestore
 } from "lucide-react";
 import { generateReceiptPdf, parsePaymentItems } from "@/lib/generateReceiptPdf";
+import { isSettledPayment } from "@/lib/paymentStatus";
+import { sumPaidForFee, countStudentsInClass as countInClass } from "@/lib/fees";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { readFunctionsError } from "@/lib/utils";
@@ -378,9 +380,7 @@ const SchoolAdminDashboard = () => {
   // Only SETTLED payments count toward balances and collection stats. Pending
   // and failed Paystack attempts are visible in the list but never reduce an
   // outstanding balance. Legacy rows have no status -> treated as settled.
-  const settledPaymentsByPeriod = filteredPaymentsByPeriod.filter(
-    (p) => p.status !== "pending" && p.status !== "failed"
-  );
+  const settledPaymentsByPeriod = filteredPaymentsByPeriod.filter(isSettledPayment);
 
   // Helper: get published class fees applicable to a student class for the selected term
   const getFeesForClass = (studentClass: string) => {
@@ -391,22 +391,8 @@ const SchoolAdminDashboard = () => {
 
   // Helper: calculate paid amount for a fee from filtered payments
   const getPaidForFee = (studentId: string, feeName: string, feeAmount: number) => {
-    let totalPaid = 0;
-    settledPaymentsByPeriod
-      .filter((p) => p.student_id === studentId)
-      .forEach((p) => {
-        (p.items || []).forEach((item: string) => {
-          const pipeIdx = item.lastIndexOf("|");
-          if (pipeIdx > 0) {
-            const itemName = item.substring(0, pipeIdx);
-            const itemAmount = Number(item.substring(pipeIdx + 1));
-            if (itemName === feeName && !isNaN(itemAmount)) {
-              totalPaid += itemAmount;
-            }
-          }
-        });
-      });
-    return Math.min(totalPaid, feeAmount);
+    const forStudent = settledPaymentsByPeriod.filter((p) => p.student_id === studentId);
+    return Math.min(sumPaidForFee(forStudent, feeName), feeAmount);
   };
 
   const loadData = async () => {
@@ -498,8 +484,7 @@ const SchoolAdminDashboard = () => {
   // How many active students a fee applies to (a fee targets one class, or ALL).
   // A fee that applies to 0 students shows "Published" but adds nothing to any
   // balance until a student is added to that class — this makes that visible.
-  const countStudentsInClass = (classTarget: string) =>
-    activeStudents.filter((s) => classTarget === "ALL" || s.class === classTarget).length;
+  const countStudentsInClass = (classTarget: string) => countInClass(activeStudents, classTarget);
 
   // Recalculate student totals when period filter changes (term-specific).
   // Only ACTIVE students count toward the roster and stats.

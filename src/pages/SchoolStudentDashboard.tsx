@@ -13,29 +13,12 @@ import { LogOut, Wallet, CreditCard, History, Eye, EyeOff, KeyRound, Loader2 } f
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { readFunctionsError } from "@/lib/utils";
+import { computeCheckoutKobo } from "@/lib/paystackFees";
 import AcademicPeriodSelector from "@/components/AcademicPeriodSelector";
 import { useAcademicPeriods } from "@/hooks/useAcademicPeriods";
 
 const formatNaira = (amount: number) =>
   new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN", minimumFractionDigits: 0 }).format(amount || 0);
-
-// Paystack NGN pricing: 1.5% + ₦100 (the ₦100 waived under ₦2,500), capped at
-// ₦2,000. The checkout total is grossed-up so the school still receives the
-// full fee amount — must stay in sync with create-paystack-payment.
-const paystackFeeKobo = (amountKobo: number) => {
-  let fee = 0.015 * amountKobo;
-  if (amountKobo >= 250_000) fee += 10_000;
-  return Math.min(Math.ceil(fee), 200_000);
-};
-
-const grossUpKobo = (baseKobo: number) => {
-  if (baseKobo <= 0) return 0;
-  let total =
-    baseKobo >= 246_250 ? Math.ceil((baseKobo + 10_000) / 0.985) : Math.ceil(baseKobo / 0.985);
-  if (0.015 * total + 10_000 > 200_000) total = baseKobo + 200_000;
-  while (total - paystackFeeKobo(total) < baseKobo) total += 100;
-  return total;
-};
 
 const SchoolStudentDashboard = () => {
   const { slug } = useParams<{ slug: string }>();
@@ -223,15 +206,13 @@ const SchoolStudentDashboard = () => {
   }, [selectedFees, feeAmounts, unpaidFees]);
 
   // The school receives the full fee; our 1% platform charge and Paystack's
-  // gateway fee are both added on top (paid by the parent). Must stay in sync
-  // with create-paystack-payment's money model.
-  const baseKobo = Math.round(basePaymentTotal * 100);
-  const platformFeeKobo = Math.round(baseKobo * 0.01);
-  const targetSettledKobo = baseKobo + platformFeeKobo;
-  const totalKobo = grossUpKobo(targetSettledKobo);
-  const platformFee = platformFeeKobo / 100;
-  const processingFee = Math.max((totalKobo - targetSettledKobo) / 100, 0);
-  const paymentTotal = totalKobo / 100;
+  // gateway fee are both added on top (paid by the parent). All the math lives
+  // in src/lib/paystackFees.ts (shared, unit-tested, kept in sync with
+  // create-paystack-payment's Deno copy by the test suite).
+  const breakdown = computeCheckoutKobo(basePaymentTotal);
+  const platformFee = breakdown.platformFeeKobo / 100;
+  const processingFee = breakdown.processingFeeKobo / 100;
+  const paymentTotal = breakdown.totalKobo / 100;
 
   const openPaymentModal = () => {
     setSelectedFees({});
