@@ -29,7 +29,7 @@ const Calculator = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Top navigation — mirrors the landing page chrome */}
+      {/* Top navigation: mirrors the landing page chrome */}
       <header className="sticky top-0 z-50 border-b bg-card/90 backdrop-blur">
         <div className="container mx-auto px-4">
           <div className="flex items-center justify-between h-16">
@@ -64,7 +64,7 @@ const Calculator = () => {
           </h1>
           <p className="text-muted-foreground max-w-xl mx-auto">
             Your school receives the <strong>exact fee</strong> you set. The parent covers a small
-            gateway fee at checkout, and EduLedgerNG keeps a flat {platformPct}% — nothing is
+            gateway fee at checkout, and EduLedgerNG keeps a flat {platformPct}%. Nothing is
             deducted from your school.
           </p>
         </div>
@@ -116,7 +116,7 @@ const Calculator = () => {
                 label="Your school receives"
                 value={naira(baseKobo)}
                 highlight="school"
-                hint="Settled to your bank — the exact fee, nothing deducted"
+                hint="Settled to your bank: the exact fee, nothing deducted"
               />
               <Row
                 label="EduLedgerNG keeps"
@@ -154,7 +154,7 @@ const Calculator = () => {
           <h2 className="font-semibold mb-3">How the model works</h2>
           <ul className="space-y-2.5 text-sm text-muted-foreground">
             {[
-              "You set your fees. Your school receives the exact amount — we never deduct from it.",
+              "You set your fees. Your school receives the exact amount, and we never deduct from it.",
               `EduLedgerNG earns a flat ${platformPct}% per payment, added on top at checkout.`,
               "Paystack's gateway fee (1.5% + ₦100, waived under ₦2,500, capped at ₦2,000) is also added on top, so the parent covers it.",
               "No setup fee. No subscription. You only ever pay for what parents actually pay.",
