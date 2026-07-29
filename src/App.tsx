@@ -20,6 +20,7 @@ import Dashboard from "./pages/Dashboard";
 import Register from "./pages/RegisterPage";
 import AccountRecovery from "./pages/AccountRecovery";
 import ChangePassword from "./pages/ChangePassword";
+import Calculator from "./pages/Calculator";
 
 const queryClient = new QueryClient();
 
@@ -35,6 +36,7 @@ const App = () => {
               <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
                 <Routes>
                   <Route path="/" element={<LandingPage />} />
+                  <Route path="/calculator" element={<Calculator />} />
                   <Route path="/register-school" element={<RegisterSchool />} />
                   <Route path="/register" element={<Register />} />
                   <Route path="/login" element={<OwnerLogin />} />

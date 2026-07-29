@@ -73,6 +73,12 @@ const LandingPage = () => {
                   {link.label}
                 </a>
               ))}
+              <button
+                onClick={() => navigate("/calculator")}
+                className="px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors rounded-md"
+              >
+                Calculator
+              </button>
             </nav>
 
             {/* Desktop actions */}
@@ -110,6 +116,15 @@ const LandingPage = () => {
                   {link.label}
                 </a>
               ))}
+              <button
+                onClick={() => {
+                  setMobileOpen(false);
+                  navigate("/calculator");
+                }}
+                className="block w-full text-left px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition-colors"
+              >
+                Calculator
+              </button>
               <div className="flex flex-col gap-2 pt-2 px-1">
                 <Button variant="outline" onClick={() => navigate("/login")}>
                   Log In
@@ -276,9 +291,14 @@ const LandingPage = () => {
               </li>
             ))}
           </ul>
-          <Button size="lg" className="gap-2" onClick={() => navigate("/register")}>
-            Get Started for Free <ArrowRight className="w-4 h-4" />
-          </Button>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+            <Button size="lg" className="gap-2" onClick={() => navigate("/register")}>
+              Get Started for Free <ArrowRight className="w-4 h-4" />
+            </Button>
+            <Button size="lg" variant="outline" onClick={() => navigate("/calculator")}>
+              See the full breakdown
+            </Button>
+          </div>
         </div>
       </section>
 
