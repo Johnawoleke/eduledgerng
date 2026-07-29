@@ -6,6 +6,7 @@
 // idempotent on reference, so webhook + verify can both run safely.
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { notifyPaymentReceived } from "../_shared/notify.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -52,7 +53,7 @@ serve(async (req) => {
     // if the pending insert was skipped/raced).
     const { data: existingPayment } = await supabaseAdmin
       .from("payments")
-      .select("id, status")
+      .select("id, status, amount, school_id, student_id")
       .eq("reference", reference)
       .maybeSingle();
 
@@ -116,6 +117,12 @@ serve(async (req) => {
         status: "success",
         payload: { reference, source: "verify-paystack-payment", flipped: "pending->success" },
       });
+      await notifyPaymentReceived(supabaseAdmin, {
+        schoolId: existingPayment.school_id || metadata.school_id,
+        reference,
+        amountNGN: totalBaseAmount > 0 ? totalBaseAmount : Number(existingPayment.amount) || 0,
+        studentDbId: existingPayment.student_id || metadata.student_db_id,
+      });
       return json({ success: true, recorded: true, amount: totalBaseAmount });
     }
 
@@ -151,6 +158,13 @@ serve(async (req) => {
       payment_id: reference,
       status: "success",
       payload: { reference, source: "verify-paystack-payment" },
+    });
+
+    await notifyPaymentReceived(supabaseAdmin, {
+      schoolId: metadata.school_id,
+      reference,
+      amountNGN: totalBaseAmount,
+      studentDbId: metadata.student_db_id,
     });
 
     return json({ success: true, recorded: true, amount: totalBaseAmount });

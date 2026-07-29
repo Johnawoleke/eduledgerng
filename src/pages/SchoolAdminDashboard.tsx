@@ -44,6 +44,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { readFunctionsError } from "@/lib/utils";
 import { useAcademicPeriods } from "@/hooks/useAcademicPeriods";
 import AcademicPeriodSelector from "@/components/AcademicPeriodSelector";
+import NotificationBell from "@/components/NotificationBell";
 
 const formatNaira = (amount: number) =>
   new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN", minimumFractionDigits: 0 }).format(amount);
@@ -1030,6 +1031,7 @@ const SchoolAdminDashboard = () => {
             </Badge>
           </div>
           <div className="flex items-center gap-0.5 shrink-0">
+            <NotificationBell schoolId={school?.id} />
             <Button
               variant="ghost"
               size="sm"

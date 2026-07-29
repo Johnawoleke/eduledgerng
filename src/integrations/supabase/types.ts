@@ -104,6 +104,45 @@ export type Database = {
         }
         Relationships: []
       }
+      notifications: {
+        Row: {
+          amount: number | null
+          body: string | null
+          created_at: string
+          id: string
+          metadata: Json
+          read_at: string | null
+          reference: string | null
+          school_id: string
+          title: string
+          type: string
+        }
+        Insert: {
+          amount?: number | null
+          body?: string | null
+          created_at?: string
+          id?: string
+          metadata?: Json
+          read_at?: string | null
+          reference?: string | null
+          school_id: string
+          title: string
+          type?: string
+        }
+        Update: {
+          amount?: number | null
+          body?: string | null
+          created_at?: string
+          id?: string
+          metadata?: Json
+          read_at?: string | null
+          reference?: string | null
+          school_id?: string
+          title?: string
+          type?: string
+        }
+        Relationships: []
+      }
       payment_events: {
         Row: {
           amount_usd: number | null

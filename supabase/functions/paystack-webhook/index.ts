@@ -8,6 +8,7 @@
 //   https://<project-ref>.supabase.co/functions/v1/paystack-webhook
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { notifyPaymentReceived } from "../_shared/notify.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -96,7 +97,7 @@ serve(async (req) => {
     const { data: existingPayment } = reference
       ? await supabaseAdmin
           .from("payments")
-          .select("id, status")
+          .select("id, status, amount, school_id, student_id")
           .eq("reference", reference)
           .maybeSingle()
       : { data: null };
@@ -149,6 +150,14 @@ serve(async (req) => {
         return json({ error: "Failed to record payment" }, 500);
       }
       console.log("Paystack payment flipped to success:", reference);
+      await notifyPaymentReceived(supabaseAdmin, {
+        schoolId: (existingPayment.school_id as string) || (metadata.school_id as string),
+        reference,
+        amountNGN:
+          totalBaseAmount > 0 ? totalBaseAmount : Number(existingPayment.amount) || 0,
+        studentDbId:
+          (existingPayment.student_id as string) || (metadata.student_db_id as string),
+      });
       return json({ received: true, reference, flipped: true });
     }
 
@@ -179,6 +188,12 @@ serve(async (req) => {
     }
 
     console.log("Paystack payment recorded:", reference, "Amount:", totalBaseAmount);
+    await notifyPaymentReceived(supabaseAdmin, {
+      schoolId: metadata.school_id as string,
+      reference,
+      amountNGN: totalBaseAmount,
+      studentDbId: metadata.student_db_id as string,
+    });
     return json({ received: true, reference, amount: totalBaseAmount });
   } catch (error) {
     console.error("Webhook error:", error);
