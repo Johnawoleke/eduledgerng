@@ -106,14 +106,39 @@ describe("agrees with the LIVE checkout math for Paystack standard", () => {
   });
 });
 
-describe("computeChannel — the school is always made whole", () => {
-  it("school receives exactly the fee it set; parent covers both add-ons", () => {
-    const out = computeChannel(provider("paystack"), "card", NGN(50_000), 0.01);
+describe("computeChannel — who bears the gateway fee", () => {
+  it("parentShare = 1 (today): school gets the exact fee, parent covers everything", () => {
+    const out = computeChannel(provider("paystack"), "card", NGN(50_000), 0.01, 1);
     expect(out.baseKobo).toBe(NGN(50_000));
-    expect(out.platformKobo).toBe(NGN(500)); // 1%
-    expect(out.targetKobo).toBe(NGN(50_500));
-    expect(out.parentPaysKobo).toBeGreaterThan(out.targetKobo);
-    expect(out.parentPaysKobo - out.gatewayFeeKobo).toBe(out.targetKobo);
+    expect(out.platformKobo).toBe(NGN(500));
+    expect(out.schoolReceivesKobo).toBe(NGN(50_000));
+    expect(out.schoolBearsKobo).toBe(0);
+    expect(out.parentBearsKobo).toBe(out.gatewayFeeKobo);
+    expect(out.parentPaysKobo).toBe(NGN(50_500) + out.gatewayFeeKobo);
+  });
+
+  it("parentShare = 0: parent pays fee + platform only, school absorbs the gateway cut", () => {
+    const out = computeChannel(provider("paystack"), "card", NGN(50_000), 0.01, 0);
+    expect(out.parentPaysKobo).toBe(NGN(50_500));
+    expect(out.parentBearsKobo).toBe(0);
+    expect(out.schoolBearsKobo).toBe(out.gatewayFeeKobo);
+    expect(out.schoolReceivesKobo).toBe(NGN(50_000) - out.gatewayFeeKobo);
+  });
+
+  it("a half share splits the cut, and the pieces always reconcile", () => {
+    for (const share of [0, 0.25, 0.5, 0.75, 1]) {
+      const out = computeChannel(provider("paystack"), "card", NGN(50_000), 0.01, share);
+      // Every naira is accounted for: what the parent pays = what the school
+      // receives + the platform's cut + the gateway's cut.
+      expect(out.schoolReceivesKobo + out.platformKobo + out.gatewayFeeKobo)
+        .toBe(out.parentPaysKobo);
+      expect(out.parentBearsKobo + out.schoolBearsKobo).toBe(out.gatewayFeeKobo);
+    }
+  });
+
+  it("marks an unsupported channel", () => {
+    expect(computeChannel(provider("paystack-dva"), "card", NGN(10_000), 0.01).unsupported).toBe(true);
+    expect(computeChannel(provider("paystack-dva"), "transfer", NGN(10_000), 0.01).unsupported).toBe(false);
   });
 });
 
@@ -121,9 +146,10 @@ describe("routing strategies", () => {
   const inputs = {
     baseKobo: NGN(100_000),
     students: 200,
-    cardShare: 0.5,
+    mix: { card: 50, transfer: 50, ussd: 0 },
     platformRate: 0.01,
     providers: DEFAULT_PROVIDERS,
+    parentShare: 1,
   };
 
   it("Education beats standard on a large fee", () => {
@@ -142,7 +168,7 @@ describe("routing strategies", () => {
 
   it("split routing picks the named provider per channel", () => {
     const split = runStrategy(
-      { kind: "split", cardProviderId: "paystack-edu", transferProviderId: "paystack-dva" },
+      { kind: "split", byChannel: { card: "paystack-edu", transfer: "paystack-dva", ussd: "paystack-edu" } },
       inputs
     );
     expect(split.perChannel.card.providerId).toBe("paystack-edu");
@@ -156,9 +182,35 @@ describe("routing strategies", () => {
     expect(a.totalPlatformKobo).toBe(b.totalPlatformKobo);
   });
 
+  it("threshold routing switches provider at the fee size", () => {
+    const rule = { kind: "threshold" as const, thresholdKobo: NGN(30_000), belowId: "paystack-dva", aboveId: "paystack-edu" };
+    const small = runStrategy(rule, { ...inputs, baseKobo: NGN(10_000) });
+    const large = runStrategy(rule, { ...inputs, baseKobo: NGN(100_000) });
+    expect(small.perChannel.transfer.providerId).toBe("paystack-dva");
+    expect(large.perChannel.transfer.providerId).toBe("paystack-edu");
+  });
+
+  it("cheapest routing skips providers that don't offer the channel", () => {
+    // paystack-dva is transfer-only, so it must never win the card channel.
+    const r = runStrategy({ kind: "cheapest" }, inputs);
+    expect(r.perChannel.card.providerId).not.toBe("paystack-dva");
+    expect(r.perChannel.card.unsupported).toBe(false);
+  });
+
+  it("the channel mix is normalised, so it need not sum to 100", () => {
+    const a = runStrategy({ kind: "single", providerId: "paystack" }, { ...inputs, mix: { card: 1, transfer: 1, ussd: 0 } });
+    const b = runStrategy({ kind: "single", providerId: "paystack" }, { ...inputs, mix: { card: 50, transfer: 50, ussd: 0 } });
+    expect(a.blendedGatewayKobo).toBeCloseTo(b.blendedGatewayKobo, 6);
+  });
+
+  it("USSD is modelled and Education's flat ₦300 applies to it", () => {
+    const edu = runStrategy({ kind: "single", providerId: "paystack-edu" }, { ...inputs, mix: { card: 0, transfer: 0, ussd: 100 } });
+    expect(edu.blendedGatewayKobo).toBe(NGN(300));
+  });
+
   it("card share of 0 or 1 uses only that channel", () => {
-    const allCard = runStrategy({ kind: "single", providerId: "paystack-edu" }, { ...inputs, cardShare: 1 });
-    const allTransfer = runStrategy({ kind: "single", providerId: "paystack-edu" }, { ...inputs, cardShare: 0 });
+    const allCard = runStrategy({ kind: "single", providerId: "paystack-edu" }, { ...inputs, mix: { card: 100, transfer: 0, ussd: 0 } });
+    const allTransfer = runStrategy({ kind: "single", providerId: "paystack-edu" }, { ...inputs, mix: { card: 0, transfer: 100, ussd: 0 } });
     expect(allCard.blendedGatewayKobo).toBe(allCard.perChannel.card.gatewayFeeKobo);
     expect(allTransfer.blendedGatewayKobo).toBe(allTransfer.perChannel.transfer.gatewayFeeKobo);
   });
