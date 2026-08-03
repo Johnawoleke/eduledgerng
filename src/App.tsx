@@ -21,6 +21,7 @@ import Register from "./pages/RegisterPage";
 import AccountRecovery from "./pages/AccountRecovery";
 import ChangePassword from "./pages/ChangePassword";
 import Calculator from "./pages/Calculator";
+import GatewayLab from "./pages/GatewayLab";
 
 const queryClient = new QueryClient();
 
@@ -37,6 +38,9 @@ const App = () => {
                 <Routes>
                   <Route path="/" element={<LandingPage />} />
                   <Route path="/calculator" element={<Calculator />} />
+                  {/* Internal gateway-cost modelling. Deliberately unlinked from
+                      the marketing nav — /calculator stays the school-facing one. */}
+                  <Route path="/gateway-lab" element={<GatewayLab />} />
                   <Route path="/register-school" element={<RegisterSchool />} />
                   <Route path="/register" element={<Register />} />
                   <Route path="/login" element={<OwnerLogin />} />
