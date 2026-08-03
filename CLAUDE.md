@@ -78,13 +78,22 @@ Tables: `schools`, `students`, `profiles`, `school_admins`, `school_requests` (b
 
 Parsing and per-fee totals live in `src/lib/feeItems.ts`, mirrored for Deno in `supabase/functions/_shared/feeItems.ts`. **The two files must stay identical below their header comments** — `src/lib/feeItems.test.ts` asserts it, because if they drift the amount a student is charged and the amount they're credited stop agreeing. Regenerate the mirror from the source rather than hand-editing both.
 
+### RPC EXECUTE grants are part of the security model (migration 20260803150000)
+
+RLS is not the only gate. Postgres grants EXECUTE on new functions to PUBLIC by default and PostgREST publishes everything in `public` as `/rest/v1/rpc/<name>`, so a `SECURITY DEFINER` function is reachable from any browser holding the anon key unless you revoke it. Before that migration this meant **anyone could POST to `create_student_session` and mint a valid session token for any student id, with no password at all** — and `verify_student_pin` was an unlimited password-guessing oracle that bypassed the per-IP throttle entirely (it had been anon-callable since the baseline schema).
+
+`verify_student_pin`, `verify_student_session`, `create_student_session`, `revoke_student_sessions`, `student_auth_throttle_check/reset`, every trigger function, and `is_bcrypt_hash` are now **service_role only**. `is_school_member` / `is_school_owner` MUST stay executable by `anon` and `authenticated` — they are evaluated inside RLS policy expressions as the querying role, and revoking them locks the app out of its own data.
+
+Default privileges in `public` now revoke EXECUTE from `public`/`anon`/`authenticated`, so a new function is private unless it grants itself out. **When you add a function, decide explicitly which roles may call it**, and remember `service_role` needs a grant too — it bypasses RLS, not GRANTs.
+
 ### RLS: what is and is not client-readable
 
 Money and credentials are scoped to school members; nothing financial is public:
 
 - `payments`, `fee_items` — SELECT requires `is_school_member(school_id)`. **No INSERT/UPDATE policy at all** — every write goes through a service-role edge function, so a client can never fabricate or alter a payment.
 - `payment_events` — RLS on, **no policy**: unreachable from a browser, service-role only, and off the Realtime publication.
-- `students`, `school_admins`, `profiles`, `class_fees`, `school_requests` — see 20260707140000 / 20260707120000.
+- `class_fees` — SELECT requires `is_school_member`. It was `status = 'published' or is_school_member` until 20260803160000, which leaked every school's fee schedule and pricing to anyone with the anon key. Students never read this table from the browser; `student-auth` computes their fee summaries server-side.
+- `students`, `school_admins`, `profiles`, `school_requests` — see 20260707140000 / 20260707120000.
 - `schools` and `sessions`/`terms` SELECT stay `using(true)`: the portal shows a school's name before login, and the student dashboard reads periods with the anon key (students hold no JWT). Only low-sensitivity naming data is exposed this way — do not put anything else in those tables.
 
 `payments` and `payment_events` were both `using(true)` until migration 20260803100000, which is how every school's payment history and every raw webhook payload (card BIN/last4, payer email, IP) sat readable by anyone holding the public anon key. If you add a table that touches money, give it a member-scoped SELECT and no client write policy.

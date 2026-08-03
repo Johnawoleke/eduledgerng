@@ -1,5 +1,28 @@
 # Production deploy — 2026-08-03 security release
 
+> ## 🚨 If you have already applied migrations 20260803100000–140000 to production, apply `20260803150000` NOW
+>
+> A second audit pass found that **every `SECURITY DEFINER` function was callable
+> directly from any browser holding the public anon key.** Postgres grants
+> EXECUTE to PUBLIC by default and PostgREST publishes them as RPC endpoints.
+> In particular, one POST to `/rest/v1/rpc/create_student_session` mints a valid
+> session token for **any student id, with no password** — full account takeover
+> for every student. `verify_student_pin` was likewise an unmetered
+> password-guessing oracle that bypassed the per-IP throttle, and it has been
+> anon-callable since the baseline schema, long before this release.
+>
+> `20260803150000_lock_down_rpc_execute.sql` closes it. It is a pure
+> GRANT/REVOKE migration — no data changes, no downtime, safe to run on its own
+> and safe to run before the rest. Run it first if you are mid-deploy.
+>
+> Verify afterwards — this must return `permission denied`, not a timestamp:
+>
+> ```sh
+> curl -s -X POST "https://ifonivphhfplntzshtsb.supabase.co/rest/v1/rpc/create_student_session" \
+>   -H "apikey: <prod anon key>" -H "Content-Type: application/json" \
+>   -d '{"p_student_id":"00000000-0000-0000-0000-000000000000","p_school_id":"00000000-0000-0000-0000-000000000000","p_token":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}'
+> ```
+
 Production is `ifonivphhfplntzshtsb` ("Johnawoleke's Project"). The CLI is
 deliberately linked to **staging**, so every command below targets production
 explicitly. Everything here has already been applied and verified on staging.
@@ -42,6 +65,8 @@ Six migrations are pending:
 | `20260803120000_student_sessions_and_throttle.sql` | session tokens, per-IP login throttle, settlement-account guard |
 | `20260803130000_default_pin_invariant.sql` | clears plaintext passwords out of `default_pin` and enforces the invariant |
 | `20260803140000_protect_academic_periods.sql` | FKs so a period with money cannot be deleted; owner-only period writes |
+| `20260803150000_lock_down_rpc_execute.sql` | **revokes browser EXECUTE on the auth RPCs — see the banner at the top** |
+| `20260803160000_scope_class_fees_reads.sql` | fee schedules become member-only instead of world-readable |
 
 ### Before running `20260803140000`, record what it will repair
 
