@@ -16,12 +16,14 @@ import { supabase } from "@/integrations/supabase/client";
 
 const ChangePassword = () => {
   const navigate = useNavigate();
+  const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [saving, setSaving] = useState(false);
   const [forced, setForced] = useState(false);
   const [ready, setReady] = useState(false);
+  const [email, setEmail] = useState<string | null>(null);
 
   useEffect(() => {
     const check = async () => {
@@ -30,6 +32,7 @@ const ChangePassword = () => {
         navigate("/login");
         return;
       }
+      setEmail(user.email ?? null);
       const { data: profile } = await supabase
         .from("profiles")
         .select("must_change_password")
@@ -43,8 +46,16 @@ const ChangePassword = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!currentPassword) {
+      toast.error("Please enter your current password");
+      return;
+    }
     if (newPassword.length < 6) {
       toast.error("Password must be at least 6 characters");
+      return;
+    }
+    if (newPassword === currentPassword) {
+      toast.error("New password must be different from your current one");
       return;
     }
     if (newPassword !== confirmPassword) {
@@ -56,6 +67,25 @@ const ChangePassword = () => {
     const { data: { user }, error: userErr } = await supabase.auth.getUser();
     if (userErr || !user) {
       navigate("/login");
+      return;
+    }
+
+    // Re-authenticate before changing the password. Supabase's updateUser will
+    // happily change it on session alone, which means a hijacked session (or an
+    // unattended logged-in machine in a school office) could lock the real owner
+    // out of the account that receives their fee settlements.
+    if (!email) {
+      toast.error("Could not verify your account. Please sign in again.");
+      setSaving(false);
+      return;
+    }
+    const { error: reauthError } = await supabase.auth.signInWithPassword({
+      email,
+      password: currentPassword,
+    });
+    if (reauthError) {
+      toast.error("Your current password is incorrect");
+      setSaving(false);
       return;
     }
 
@@ -105,6 +135,21 @@ const ChangePassword = () => {
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="currentPassword">
+                  {forced ? "Temporary Password" : "Current Password"}
+                </Label>
+                <Input
+                  id="currentPassword"
+                  type={showPassword ? "text" : "password"}
+                  placeholder={forced ? "The password your administrator gave you" : "Your current password"}
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  required
+                  disabled={saving}
+                  autoComplete="current-password"
+                />
+              </div>
               <div className="space-y-2">
                 <Label htmlFor="newPassword">New Password</Label>
                 <div className="relative">

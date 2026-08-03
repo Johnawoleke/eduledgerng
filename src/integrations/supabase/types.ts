@@ -427,9 +427,16 @@ export type Database = {
           },
         ]
       }
+      // student_sessions and student_auth_throttle (20260803120000) are
+      // deliberately absent: RLS is enabled on both with NO policy, so they are
+      // unreachable with the anon key and only the service-role edge functions
+      // touch them. Adding Row types here would imply a client can read them.
       students: {
         Row: {
           class: string
+          // The one-time temporary password the school issued, in plaintext, so
+          // an owner can read it back to hand over. Cleared to null the moment
+          // the student sets their own (student-set-pin / change-pin).
           default_pin: string | null
           first_name: string | null
           full_name: string | null
@@ -438,6 +445,10 @@ export type Database = {
           must_change_pin: boolean | null
           name: string
           parent_email: string | null
+          // bcrypt digest. The hash_student_pin trigger (20260803110000) hashes
+          // whatever is written here, so callers still assign a plaintext value
+          // and the database stores the digest. Only verify_student_pin can
+          // check it.
           pin: string
           school_id: string
           session: string | null
@@ -538,8 +549,37 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      is_bcrypt_hash: { Args: { p_value: string }; Returns: boolean }
       is_school_member: { Args: { school_id_param: string }; Returns: boolean }
       is_school_owner: { Args: { school_id_param: string }; Returns: boolean }
+      // Student session lifecycle (20260803120000). Called only by the
+      // service-role edge functions — student_sessions has no RLS policy.
+      create_student_session: {
+        Args: {
+          p_school_id: string
+          p_student_id: string
+          p_token: string
+          p_ttl_hours?: number
+        }
+        Returns: string
+      }
+      revoke_student_sessions: { Args: { p_student_id: string }; Returns: undefined }
+      verify_student_session: {
+        Args: { p_token: string }
+        Returns: {
+          class: string
+          id: string
+          must_change_pin: boolean
+          name: string
+          school_id: string
+          session: string
+          student_id: string
+          term: string
+        }[]
+      }
+      // Per-IP login throttle (20260803120000).
+      student_auth_throttle_check: { Args: { p_ip: string }; Returns: boolean }
+      student_auth_throttle_reset: { Args: { p_ip: string }; Returns: undefined }
       verify_student_pin: {
         Args: { p_pin: string; p_school_id: string; p_student_id: string }
         Returns: {

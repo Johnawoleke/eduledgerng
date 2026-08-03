@@ -1,4 +1,5 @@
 import jsPDF from "jspdf";
+import { parseFeeItem } from "./feeItems";
 
 const formatNaira = (amount: number) =>
   new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN", minimumFractionDigits: 0 }).format(amount);
@@ -27,16 +28,18 @@ interface ReceiptData {
   };
 }
 
-/** Parse item strings that may contain "|amount" suffix */
+/**
+ * Turn stored payment items into printable receipt lines.
+ *
+ * Handles both the current "<fee uuid>|FeeName|amount" encoding and the legacy
+ * "FeeName|amount" one — the uuid is an internal key and never shown on a
+ * receipt, so it is parsed off and dropped.
+ */
 export const parsePaymentItems = (items: string[] | null | undefined): ReceiptItem[] => {
   return (items || []).filter(Boolean).map((item) => {
-    const pipeIdx = item.lastIndexOf("|");
-    if (pipeIdx > 0) {
-      const name = item.substring(0, pipeIdx);
-      const amount = Number(item.substring(pipeIdx + 1));
-      if (!isNaN(amount) && amount > 0) return { name, amount };
-    }
-    return { name: item, amount: 0 };
+    const parsed = parseFeeItem(item);
+    if (parsed && parsed.amount > 0) return { name: parsed.name, amount: parsed.amount };
+    return { name: parsed?.name ?? item, amount: 0 };
   });
 };
 

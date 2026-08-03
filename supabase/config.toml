@@ -12,22 +12,23 @@ additional_redirect_urls = [
   "http://localhost:8080",
 ]
 
-[functions.register-school]
-verify_jwt = false
+# verify_jwt = false ONLY where the caller genuinely cannot hold a Supabase JWT:
+# the student auth system (students are not Supabase users) and Paystack's
+# server-to-server webhook. Every other function relies on the platform check
+# PLUS its own auth.getUser() call — the anon key is itself a valid JWT, so
+# verify_jwt alone proves nothing about who is calling.
+#
+# Each of these does its own authorization: student-* verify a password or a
+# session token, create/verify-paystack-payment require a session token, and
+# paystack-webhook verifies the HMAC signature on the raw body.
+#
+# register-school used to be here. It is not any more: it takes the owner from
+# the caller's JWT, so it must have one.
 
 [functions.student-auth]
 verify_jwt = false
 
-[functions.student-payment]
-verify_jwt = false
-
 [functions.change-pin]
-verify_jwt = false
-
-[functions.create-zendfi-payment]
-verify_jwt = false
-
-[functions.zendfi-webhook]
 verify_jwt = false
 
 [functions.student-set-pin]

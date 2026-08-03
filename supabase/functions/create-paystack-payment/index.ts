@@ -20,6 +20,7 @@
 // Requires the PAYSTACK_SECRET_KEY edge function secret.
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { encodeFeeItem, sumPaidForFee } from "../_shared/feeItems.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -67,16 +68,16 @@ serve(async (req) => {
   }
 
   try {
-    const { school_slug, student_id, pin, fee_payments, session_id, term_id, callback_url } =
+    const { school_slug, session_token, fee_payments, session_id, term_id, callback_url } =
       await req.json();
 
-    if (!school_slug || !student_id || !pin || !fee_payments?.length) {
+    if (!school_slug || !session_token || !fee_payments?.length) {
       return json({ error: "Missing required fields" }, 400);
     }
     if (
-      typeof student_id !== "string" || student_id.length > 30 ||
-      typeof pin !== "string" || pin.length > 50 ||
-      typeof school_slug !== "string" || school_slug.length > 100
+      typeof session_token !== "string" || session_token.length > 200 ||
+      typeof school_slug !== "string" || school_slug.length > 100 ||
+      !Array.isArray(fee_payments) || fee_payments.length > 50
     ) {
       return json({ error: "Invalid input" }, 400);
     }
@@ -100,16 +101,24 @@ serve(async (req) => {
 
     if (!school) return json({ error: "School not found" }, 404);
 
-    const { data: students, error: verifyError } = await supabaseAdmin.rpc("verify_student_pin", {
-      p_school_id: school.id,
-      p_student_id: student_id,
-      p_pin: pin,
-    });
+    // The checkout is authorised by the session token minted at login, not by
+    // re-sending the password. A token is bound to one school.
+    const { data: students, error: verifyError } = await supabaseAdmin.rpc(
+      "verify_student_session",
+      { p_token: session_token }
+    );
 
     if (verifyError || !students || students.length === 0) {
-      return json({ error: "Invalid credentials" }, 401);
+      return json({ error: "Your session has expired. Please log in again." }, 401);
     }
     const student = students[0];
+    if (student.school_id !== school.id) {
+      return json({ error: "Your session has expired. Please log in again." }, 401);
+    }
+    if (student.must_change_pin) {
+      return json({ error: "Please set your own password before paying." }, 403);
+    }
+    const studentIdCode: string = student.student_id;
 
     // --- Validate requested payments against PUBLISHED class fees ----------
     let feeQuery = supabaseAdmin
@@ -134,38 +143,46 @@ serve(async (req) => {
     // prior in-flight checkout) and failed attempts must NOT count, or a parent
     // could never retry a failed payment or re-initiate an abandoned one.
     // Legacy rows have no status -> treated as settled.
-    const paidMap: Record<string, number> = {};
-    (existingPayments || [])
-      .filter((p: { status?: string | null }) => p.status !== "pending" && p.status !== "failed")
-      .forEach((p: { items: string[] | null }) => {
-      (p.items || []).forEach((item: string) => {
-        const pipeIdx = item.lastIndexOf("|");
-        if (pipeIdx > 0) {
-          const itemName = item.substring(0, pipeIdx);
-          const itemAmount = Number(item.substring(pipeIdx + 1));
-          if (!isNaN(itemAmount)) {
-            paidMap[itemName] = (paidMap[itemName] || 0) + itemAmount;
-          }
-        }
-      });
-    });
+    const settledPayments = (existingPayments || []).filter(
+      (p: { status?: string | null }) => p.status !== "pending" && p.status !== "failed"
+    );
+
+    // Collapse the request by fee id FIRST. Without this, sending the same
+    // fee_item_id twice charged for it twice: each iteration measured `owing`
+    // against the same stored payments, which this loop never updates.
+    const requestedByFee = new Map<string, number>();
+    for (const fp of fee_payments) {
+      const feeId = typeof fp?.fee_item_id === "string" ? fp.fee_item_id : null;
+      const amount = Number(fp?.amount);
+      if (!feeId || !Number.isFinite(amount) || amount <= 0) continue;
+      requestedByFee.set(feeId, (requestedByFee.get(feeId) || 0) + amount);
+    }
 
     let baseAmountNGN = 0;
     const validatedItems: { fee_item_id: string; amount: number; name: string }[] = [];
-    for (const fp of fee_payments) {
-      const classFee = (classFees || []).find((cf: { id: string }) => cf.id === fp.fee_item_id);
+    for (const [feeId, requested] of requestedByFee) {
+      const classFee = (classFees || []).find((cf: { id: string }) => cf.id === feeId);
       if (!classFee) continue;
-      const totalPaid = Math.min(paidMap[classFee.name] || 0, Number(classFee.amount));
+      // Matched by fee id, so two fees sharing a name can no longer cross-credit.
+      const totalPaid = Math.min(
+        sumPaidForFee(settledPayments, { id: classFee.id, name: classFee.name }),
+        Number(classFee.amount)
+      );
       const owing = Number(classFee.amount) - totalPaid;
-      const payAmount = Math.min(Math.max(Number(fp.amount), 0), owing);
+      const payAmount = Math.min(requested, owing);
       if (payAmount <= 0) continue;
       baseAmountNGN += payAmount;
-      validatedItems.push({ fee_item_id: fp.fee_item_id, amount: payAmount, name: classFee.name });
+      validatedItems.push({ fee_item_id: classFee.id, amount: payAmount, name: classFee.name });
     }
 
     if (baseAmountNGN <= 0) return json({ error: "No valid payments" }, 400);
 
     const baseKobo = Math.round(baseAmountNGN * 100);
+    // A sub-naira request rounds to zero kobo, which Paystack rejects with an
+    // opaque error after we've already written a pending row. Refuse it here.
+    if (baseKobo < 100) {
+      return json({ error: "The minimum payment is ₦1." }, 400);
+    }
     const platformFeeKobo = Math.round(baseKobo * PLATFORM_FEE_RATE);
     // The school must receive the full fee (base), so the amount that clears
     // Paystack must be base + our platform fee. Gross that up so the parent also
@@ -257,7 +274,7 @@ serve(async (req) => {
       typeof e === "string" && /^[^\s@]+@[^\s@]+\.[a-zA-Z]{2,}$/.test(e) && !e.endsWith(".test");
     const customerEmail = emailOk(studentRecord?.parent_email)
       ? studentRecord!.parent_email!
-      : `${student_id.replace(/[^a-zA-Z0-9]/g, "").toLowerCase() || "student"}@eduledgerng.ng`;
+      : `${studentIdCode.replace(/[^a-zA-Z0-9]/g, "").toLowerCase() || "student"}@eduledgerng.ng`;
 
     const initRes = await fetch(`${PAYSTACK_API}/transaction/initialize`, {
       method: "POST",
@@ -279,11 +296,14 @@ serve(async (req) => {
           school_id: school.id,
           school_slug,
           student_db_id: student.id,
-          student_id,
+          student_id: studentIdCode,
           base_amount: baseAmountNGN,
           platform_fee: platformFeeKobo / 100,
           processing_fee: processingFeeKobo / 100,
           total_ngn: totalKobo / 100,
+          // What Paystack must actually collect for this reference. The webhook
+          // and the redirect-verify both refuse to settle a charge for less.
+          expected_total_kobo: totalKobo,
           session_id: session_id || null,
           term_id: term_id || null,
           items: validatedItems,
@@ -301,7 +321,7 @@ serve(async (req) => {
     // Paystack. The webhook / redirect-verify flips it to 'success' (or 'failed')
     // once the outcome is known. Best-effort: if this insert fails, the webhook
     // still records the payment on success, so don't block the checkout.
-    const pendingItems = validatedItems.map((i) => `${i.name}|${i.amount}`);
+    const pendingItems = validatedItems.map((i) => encodeFeeItem(i.fee_item_id, i.name, i.amount));
     const { error: pendingError } = await supabaseAdmin.from("payments").insert({
       school_id: school.id,
       student_id: student.id,

@@ -39,8 +39,12 @@ const ResetPassword = () => {
       return;
     }
 
-    if (newPassword.length < 4) {
-      toast.error("Password must be at least 4 characters long");
+    if (newPassword.length < 6) {
+      toast.error("Password must be at least 6 characters long");
+      return;
+    }
+    if (newPassword.toLowerCase() === String(studentId).toLowerCase()) {
+      toast.error("Password cannot be the same as your Student ID");
       return;
     }
 
@@ -116,7 +120,7 @@ const ResetPassword = () => {
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     required
-                    minLength={4}
+                    minLength={6}
                     maxLength={50}
                     disabled={isLoading}
                     className="pr-10"

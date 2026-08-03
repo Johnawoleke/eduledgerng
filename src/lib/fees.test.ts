@@ -9,32 +9,32 @@ describe("sumPaidForFee — how much has been paid toward a fee", () => {
       { items: ["Tuition|2000"] },
       { items: ["Uniform|1500"] },
     ];
-    expect(sumPaidForFee(payments, "Tuition")).toBe(5000);
-    expect(sumPaidForFee(payments, "Books")).toBe(500);
-    expect(sumPaidForFee(payments, "Uniform")).toBe(1500);
-    expect(sumPaidForFee(payments, "Nonexistent")).toBe(0);
+    expect(sumPaidForFee(payments, { name: "Tuition" })).toBe(5000);
+    expect(sumPaidForFee(payments, { name: "Books" })).toBe(500);
+    expect(sumPaidForFee(payments, { name: "Uniform" })).toBe(1500);
+    expect(sumPaidForFee(payments, { name: "Nonexistent" })).toBe(0);
   });
 
   it("uses the LAST pipe, so fee names containing '|' still parse", () => {
     const payments = [{ items: ["Term 1 | Tuition|4000"] }];
-    expect(sumPaidForFee(payments, "Term 1 | Tuition")).toBe(4000);
+    expect(sumPaidForFee(payments, { name: "Term 1 | Tuition" })).toBe(4000);
   });
 
   it("ignores malformed items (no pipe, non-numeric amount)", () => {
     const payments = [{ items: ["JustAName", "Tuition|abc", "Tuition|1000"] }];
-    expect(sumPaidForFee(payments, "Tuition")).toBe(1000);
-    expect(sumPaidForFee(payments, "JustAName")).toBe(0);
+    expect(sumPaidForFee(payments, { name: "Tuition" })).toBe(1000);
+    expect(sumPaidForFee(payments, { name: "JustAName" })).toBe(0);
   });
 
   it("is robust to null/empty items and empty payment list", () => {
-    expect(sumPaidForFee([], "Tuition")).toBe(0);
-    expect(sumPaidForFee([{ items: null }, { items: [] }, {}], "Tuition")).toBe(0);
+    expect(sumPaidForFee([], { name: "Tuition" })).toBe(0);
+    expect(sumPaidForFee([{ items: null }, { items: [] }, {}], { name: "Tuition" })).toBe(0);
   });
 
   it("does not match a different fee whose name is a prefix", () => {
     const payments = [{ items: ["Tuition Fee|1000", "Tuition|2000"] }];
-    expect(sumPaidForFee(payments, "Tuition")).toBe(2000);
-    expect(sumPaidForFee(payments, "Tuition Fee")).toBe(1000);
+    expect(sumPaidForFee(payments, { name: "Tuition" })).toBe(2000);
+    expect(sumPaidForFee(payments, { name: "Tuition Fee" })).toBe(1000);
   });
 });
 

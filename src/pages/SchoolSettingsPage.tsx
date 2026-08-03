@@ -188,6 +188,11 @@ const SchoolSettingsPage = () => {
                 <Label>Account Name</Label>
                 <Input value={accountName} onChange={(e) => setAccountName(e.target.value)} placeholder="Account holder name" maxLength={100} />
               </div>
+              <p className="text-xs text-muted-foreground border-t pt-3">
+                Payments settle into this account. If you change the bank or account
+                number, the next payment re-verifies the new account with Paystack
+                before any money moves, so double-check the digits before saving.
+              </p>
             </CardContent>
           </Card>
 

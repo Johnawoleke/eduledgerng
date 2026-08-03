@@ -22,6 +22,18 @@ export interface PaymentNotifyInput {
   studentDbId?: string | null;
 }
 
+// Student and school names are attacker-influenced free text (a school owner
+// types them, and a CSV upload can carry anything). They are interpolated into
+// an HTML email that arrives from our domain, so they must be escaped or a
+// crafted name can inject markup — a convincing phishing vector.
+const escapeHtml = (value: string): string =>
+  value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
 const nairaFmt = (amount: number): string => {
   try {
     return new Intl.NumberFormat("en-NG", {
@@ -72,7 +84,8 @@ async function sendOwnerEmail(
   amountNGN: number,
 ): Promise<void> {
   const amount = nairaFmt(amountNGN);
-  const who = studentName ? `<strong>${studentName}</strong>` : "A student";
+  const who = studentName ? `<strong>${escapeHtml(studentName)}</strong>` : "A student";
+  const safeSchool = escapeHtml(schoolName);
   const from = Deno.env.get("NOTIFY_FROM_EMAIL") || "EduLedgerNG <onboarding@resend.dev>";
 
   const html = `
@@ -80,7 +93,7 @@ async function sendOwnerEmail(
       <h2 style="color:#0A5C30;margin:0 0 8px">Payment received</h2>
       <p style="font-size:15px;line-height:1.5;margin:0 0 4px">
         ${who} just paid <strong>${amount}</strong> in fees at
-        <strong>${schoolName}</strong>.
+        <strong>${safeSchool}</strong>.
       </p>
       <p style="font-size:13px;color:#555;line-height:1.5;margin:16px 0 0">
         This amount has been settled to your school's bank account (less the

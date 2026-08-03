@@ -2,26 +2,11 @@
 // unit-tested. Mirrors the logic used in student-auth, SchoolAdminDashboard,
 // and create-paystack-payment.
 
-export interface ItemRow {
-  items?: string[] | null;
-}
-
-// Sum how much has been paid toward a specific fee name across payment rows.
-// Payment items are "FeeName|amount" strings; the amount is everything after the
-// LAST "|", so fee names may themselves contain a "|".
-export const sumPaidForFee = (payments: ItemRow[], feeName: string): number => {
-  let total = 0;
-  for (const p of payments || []) {
-    for (const raw of p.items || []) {
-      const pipe = raw.lastIndexOf("|");
-      if (pipe <= 0) continue;
-      const name = raw.substring(0, pipe);
-      const amount = Number(raw.substring(pipe + 1));
-      if (name === feeName && !Number.isNaN(amount)) total += amount;
-    }
-  }
-  return total;
-};
+// Payment line-item parsing and per-fee totals live in ./feeItems, which owns
+// both the current "<fee uuid>|FeeName|amount" encoding and the legacy
+// "FeeName|amount" one. Re-exported here so existing callers keep one import.
+export type { ItemRow, ParsedFeeItem } from "./feeItems";
+export { sumPaidForFee, parseFeeItem, parseFeeItems, encodeFeeItem } from "./feeItems";
 
 // A fee's status for a student, given how much they've paid toward it. Paid is
 // clamped to the fee amount by callers, but this is robust to over-payment too.

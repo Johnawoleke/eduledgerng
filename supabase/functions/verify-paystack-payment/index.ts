@@ -7,6 +7,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { notifyPaymentReceived } from "../_shared/notify.ts";
+import { encodeFeeItem } from "../_shared/feeItems.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -78,7 +79,26 @@ serve(async (req) => {
 
     // --- Success ------------------------------------------------------------
     const metadata = data.metadata || {};
-    const items = metadata.items as { name: string; amount: number }[] | undefined;
+    const items = metadata.items as { fee_item_id?: string; name: string; amount: number }[] | undefined;
+
+    // Never credit fees for a charge that collected less than we asked for.
+    // Mirrors the same guard in paystack-webhook.
+    const expectedKobo = Number(metadata.expected_total_kobo);
+    const paidKobo = Number(data.amount);
+    if (Number.isFinite(expectedKobo) && expectedKobo > 0) {
+      if (!Number.isFinite(paidKobo) || paidKobo < expectedKobo) {
+        console.error(
+          `Underpaid charge rejected: ${reference} paid ${paidKobo} of ${expectedKobo} kobo`
+        );
+        await supabaseAdmin.from("payment_events").insert({
+          event_type: "verify.underpaid",
+          payment_id: reference,
+          status: "underpaid",
+          payload: { reference, expected_kobo: expectedKobo, paid_kobo: paidKobo },
+        });
+        return json({ success: false, status: "amount_mismatch" });
+      }
+    }
 
     let totalBaseAmount = 0;
     const itemNames: string[] = [];
@@ -86,7 +106,7 @@ serve(async (req) => {
       const payAmount = Math.max(Number(item.amount), 0);
       if (payAmount <= 0) continue;
       totalBaseAmount += payAmount;
-      itemNames.push(`${item.name}|${payAmount}`);
+      itemNames.push(encodeFeeItem(item.fee_item_id, item.name, payAmount));
     }
 
     // Already recorded as success (webhook beat us) — nothing to do.

@@ -9,6 +9,24 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { notifyPaymentReceived } from "../_shared/notify.ts";
+import { encodeFeeItem } from "../_shared/feeItems.ts";
+
+// Paystack echoes the payer's card and network details back on every event. We
+// have no use for them and no obligation to hold them, so they never reach the
+// audit table. Keep the parts that make an event reconcilable.
+const redactPayload = (payload: Record<string, unknown>): Record<string, unknown> => {
+  const clone = JSON.parse(JSON.stringify(payload ?? {}));
+  for (const container of [clone?.data, clone?.payment]) {
+    if (container && typeof container === "object") {
+      delete container.authorization;
+      delete container.customer;
+      delete container.ip_address;
+      delete container.log;
+      delete container.fees_breakdown;
+    }
+  }
+  return clone;
+};
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -82,13 +100,13 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    // Audit log for every verified event
+    // Audit log for every verified event (card/customer/IP branches stripped)
     await supabaseAdmin.from("payment_events").insert({
       event_type: event || null,
       payment_id: reference || String(data.id || "") || null,
       status: status || null,
       amount_usd: null,
-      payload,
+      payload: redactPayload(payload as Record<string, unknown>),
     });
 
     const metadata = (data.metadata || {}) as Record<string, unknown>;
@@ -117,11 +135,32 @@ serve(async (req) => {
       return json({ received: true, ignored: event || status || "unknown" });
     }
 
-    const items = metadata.items as { name: string; amount: number }[] | undefined;
+    const items = metadata.items as { fee_item_id?: string; name: string; amount: number }[] | undefined;
 
     // Already recorded as success (verify beat us) — nothing to do.
     if (existingPayment && existingPayment.status === "success") {
       return json({ received: true, already_processed: true });
+    }
+
+    // Never credit fees for a charge that collected less than we asked for.
+    // `expected_total_kobo` is written by create-paystack-payment; charges from
+    // before that field existed have nothing to compare against and are trusted
+    // as they were previously.
+    const expectedKobo = Number(metadata.expected_total_kobo);
+    const paidKobo = Number(data.amount);
+    if (Number.isFinite(expectedKobo) && expectedKobo > 0) {
+      if (!Number.isFinite(paidKobo) || paidKobo < expectedKobo) {
+        console.error(
+          `Underpaid charge rejected: ${reference} paid ${paidKobo} of ${expectedKobo} kobo`
+        );
+        await supabaseAdmin.from("payment_events").insert({
+          event_type: "charge.underpaid",
+          payment_id: reference,
+          status: "underpaid",
+          payload: { reference, expected_kobo: expectedKobo, paid_kobo: paidKobo },
+        });
+        return json({ received: true, note: "amount_mismatch" });
+      }
     }
 
     let totalBaseAmount = 0;
@@ -130,7 +169,7 @@ serve(async (req) => {
       const payAmount = Math.max(Number(item.amount), 0);
       if (payAmount <= 0) continue;
       totalBaseAmount += payAmount;
-      itemNames.push(`${item.name}|${payAmount}`);
+      itemNames.push(encodeFeeItem(item.fee_item_id, item.name, payAmount));
     }
 
     // Pending row exists -> flip it to success.

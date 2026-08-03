@@ -23,7 +23,7 @@ const formatNaira = (amount: number) =>
 const SchoolStudentDashboard = () => {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
-  const { student, school, feeItems = [], payments = [], logoutStudent, setStudentData, studentCredentials, updateStudentCredentials } = useSchool();
+  const { student, school, feeItems = [], payments = [], logoutStudent, setStudentData, studentSession, updateStudentSession } = useSchool();
 
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [selectedFees, setSelectedFees] = useState<Record<string, boolean>>({});
@@ -41,9 +41,9 @@ const SchoolStudentDashboard = () => {
 
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!student || !studentCredentials) return;
-    if (newPw.length < 4) {
-      toast.error("New password must be at least 4 characters");
+    if (!student || !studentSession) return;
+    if (newPw.length < 6) {
+      toast.error("New password must be at least 6 characters");
       return;
     }
     if (newPw !== confirmPw) {
@@ -56,11 +56,13 @@ const SchoolStudentDashboard = () => {
     }
     setChangingPw(true);
     try {
-      const { data, error } = await supabase.functions.invoke("student-set-pin", {
+      // Changing a password requires the CURRENT one, not just a session token —
+      // otherwise a stolen token would be enough to take the account over.
+      const { data, error } = await supabase.functions.invoke("change-pin", {
         body: {
           school_slug: slug,
           student_id: student.student_id,
-          current_pin: currentPw,
+          old_pin: currentPw,
           new_pin: newPw,
         },
       });
@@ -68,11 +70,18 @@ const SchoolStudentDashboard = () => {
         toast.error(data?.error || (await readFunctionsError(error, "Failed to change password")));
         return;
       }
-      // Keep the session's stored credential in sync so refresh/pay keep working.
-      updateStudentCredentials({ student_id: studentCredentials.student_id, pin: newPw });
-      toast.success("Password changed successfully");
-      setChangePwOpen(false);
-      setCurrentPw(""); setNewPw(""); setConfirmPw(""); setShowPw(false);
+
+      // Every session minted under the old password was just revoked server-side.
+      if (data?.session_token) {
+        updateStudentSession({ token: data.session_token, expiresAt: data.session_expires_at ?? null });
+        toast.success("Password changed. You've been signed out on any other devices.");
+        setChangePwOpen(false);
+        setCurrentPw(""); setNewPw(""); setConfirmPw(""); setShowPw(false);
+      } else {
+        toast.success("Password changed. Please log in again.");
+        logoutStudent();
+        navigate(`/school/${slug}`);
+      }
     } catch {
       toast.error("An unexpected error occurred");
     } finally {
@@ -115,7 +124,7 @@ const SchoolStudentDashboard = () => {
   // recomputes fee items (class fees minus payments) server-side, so the
   // browser never touches the students/pin tables directly.
   useEffect(() => {
-    if (!student?.id || !studentCredentials) return;
+    if (!student?.id || !studentSession) return;
 
     // Upcoming (virtual) sessions have no data by definition — show blank
     if (academicPeriods.isFutureSession) {
@@ -128,8 +137,7 @@ const SchoolStudentDashboard = () => {
         const { data, error } = await supabase.functions.invoke("student-auth", {
           body: {
             school_slug: slug,
-            student_id: studentCredentials.student_id,
-            pin: studentCredentials.pin,
+            session_token: studentSession.token,
             session_id: academicPeriods.selectedSessionId || undefined,
             term_id: academicPeriods.selectedTermId || undefined,
           },
@@ -140,13 +148,12 @@ const SchoolStudentDashboard = () => {
           return;
         }
 
-        // The cached credential no longer works (e.g. the school reset this
-        // student's PIN). Don't keep silently replaying it — that both shows
-        // stale data AND runs the account toward the 5-strike lockout. End the
-        // session and send them to log in again.
+        // The session expired, or was revoked by a password change / the school
+        // resetting this student. Don't keep replaying it — end the session and
+        // send them to log in again.
         const status = (error as { context?: { status?: number } })?.context?.status;
         if (status === 401 || data?.error) {
-          toast.error("Your sign-in is no longer valid. Your password may have been changed. Please log in again.");
+          toast.error("Your session has ended. Please log in again.");
           logoutStudent();
           navigate(`/school/${slug}`);
         }
@@ -156,7 +163,7 @@ const SchoolStudentDashboard = () => {
     };
 
     fetchLiveDashboardData();
-  }, [student?.id, studentCredentials, slug, academicPeriods.isFutureSession, academicPeriods.selectedSessionId, academicPeriods.selectedTermId, setStudentData, paymentRefreshKey, logoutStudent, navigate]);
+  }, [student?.id, studentSession, slug, academicPeriods.isFutureSession, academicPeriods.selectedSessionId, academicPeriods.selectedTermId, setStudentData, paymentRefreshKey, logoutStudent, navigate]);
 
   // Filter fee items safely fallback
   const filteredFeeItems = useMemo(() => {
@@ -514,8 +521,7 @@ const SchoolStudentDashboard = () => {
                     const { data, error } = await supabase.functions.invoke("create-paystack-payment", {
                       body: {
                         school_slug: slug,
-                        student_id: student.student_id,
-                        pin: studentCredentials?.pin,
+                        session_token: studentSession?.token,
                         fee_payments: feePayments,
                         session_id: academicPeriods.selectedSessionId,
                         term_id: academicPeriods.selectedTermId,

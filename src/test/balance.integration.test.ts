@@ -8,14 +8,14 @@ import { sumPaidForFee, feeStatus, outstandingForFee } from "@/lib/fees";
 // amount, and derive status + outstanding. Verifying it here guards the balance
 // math end-to-end (pending/failed attempts must never reduce what's owed).
 
-interface Fee { name: string; amount: number; status: "published" | "pending" }
+interface Fee { id?: string; name: string; amount: number; status: "published" | "pending" }
 interface Payment { items: string[]; status?: string | null }
 
 const computeBalance = (fees: Fee[], payments: Payment[]) => {
   const published = fees.filter((f) => f.status === "published");
   const settled = payments.filter(isSettledPayment);
   const items = published.map((f) => {
-    const paid = Math.min(sumPaidForFee(settled, f.name), f.amount);
+    const paid = Math.min(sumPaidForFee(settled, { id: f.id, name: f.name }), f.amount);
     return {
       name: f.name,
       amount: f.amount,

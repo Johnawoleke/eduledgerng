@@ -70,19 +70,20 @@ const SchoolPortal = () => {
         return;
       }
 
-      const student = data.student;
-      if (!student) {
-        toast.error("Invalid Student ID or password");
+      // First-time login: the server returns no data and no session until the
+      // issued temporary password has been replaced. Pass the current one along
+      // so the reset page can prove it server-side.
+      if (data.must_change_pin) {
+        toast.info("First-time login detected. Redirecting to set your new password...");
+        navigate(`/school/${slug}/reset-password`, {
+          state: { studentId: data.student?.student_id || cleanStudentId, currentPin: cleanPin },
+        });
         return;
       }
 
-      // First-time login: force a password reset before entering the dashboard.
-      // Pass the current PIN so the reset page can prove it server-side.
-      if (student.must_change_pin) {
-        toast.info("First-time login detected. Redirecting to set your new password...");
-        navigate(`/school/${slug}/reset-password`, {
-          state: { studentId: student.student_id, currentPin: cleanPin },
-        });
+      const student = data.student;
+      if (!student || !data.session_token) {
+        toast.error("Invalid Student ID or password");
         return;
       }
 
@@ -98,7 +99,7 @@ const SchoolPortal = () => {
         },
         data.feeItems || [],
         data.payments || [],
-        { student_id: cleanStudentId, pin: cleanPin }
+        { token: data.session_token, expiresAt: data.session_expires_at ?? null }
       );
 
       toast.success("Login successful! Welcome back.");

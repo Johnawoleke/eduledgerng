@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { mockSupabase, type Invocation } from "./fixtures";
+import { mockSupabase, SESSION_TOKEN, type Invocation } from "./fixtures";
 
 // Log in as the mocked student and land on the dashboard.
 async function login(page: import("@playwright/test").Page) {
@@ -53,7 +53,10 @@ test.describe("Student payment flow", () => {
 
     const created = invocations.find((i) => i.name === "create-paystack-payment");
     expect(created).toBeTruthy();
-    expect(created!.body.student_id).toBe("TST-1234");
+    // Checkout is authorised by the session token — the student's password must
+    // never be sent again after login.
+    expect(created!.body.session_token).toBe(SESSION_TOKEN);
+    expect(created!.body).not.toHaveProperty("pin");
     const feePayments = created!.body.fee_payments as { fee_item_id: string; amount: number }[];
     expect(feePayments).toEqual([{ fee_item_id: "fee-tuition", amount: 5000 }]);
   });
@@ -72,13 +75,15 @@ test.describe("Student self-service password change", () => {
     await dialog.getByLabel("Confirm new password").fill("newpass123");
     await dialog.getByRole("button", { name: "Change password" }).click();
 
-    await expect(page.getByText(/Password changed successfully/i)).toBeVisible();
+    await expect(page.getByText(/signed out on any other devices/i)).toBeVisible();
 
-    const call = invocations.find((i) => i.name === "student-set-pin");
+    // Goes through change-pin, which re-authenticates with the CURRENT password:
+    // a session token alone must not be enough to take over an account.
+    const call = invocations.find((i) => i.name === "change-pin");
     expect(call).toBeTruthy();
     expect(call!.body).toMatchObject({
       student_id: "TST-1234",
-      current_pin: "password",
+      old_pin: "password",
       new_pin: "newpass123",
     });
   });

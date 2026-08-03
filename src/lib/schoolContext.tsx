@@ -37,6 +37,17 @@ interface PaymentRecord {
   term_id?: string | null;
 }
 
+// The student session is an opaque bearer token issued by student-auth, with a
+// server-side expiry. It replaces the old scheme, which kept the student's
+// PASSWORD in localStorage forever and re-sent it on every privileged call —
+// any XSS or shared school computer meant permanent account compromise, and
+// there was nothing to revoke. A token can be revoked (and is, on every
+// password change) and dies on its own.
+export interface StudentSession {
+  token: string;
+  expiresAt: string | null;
+}
+
 interface SchoolContextType {
   school: SchoolData | null;
   student: StudentData | null;
@@ -44,11 +55,11 @@ interface SchoolContextType {
   payments: PaymentRecord[];
   schoolSlug: string;
   isStudentLoggedIn: boolean;
-  studentCredentials: { student_id: string; pin: string } | null;
+  studentSession: StudentSession | null;
   setSchool: (school: SchoolData | null) => void;
-  loginStudent: (student: StudentData, fees: FeeItem[], payments: PaymentRecord[], credentials: { student_id: string; pin: string }) => void;
+  loginStudent: (student: StudentData, fees: FeeItem[], payments: PaymentRecord[], session: StudentSession) => void;
   setStudentData: (fees: FeeItem[], payments: PaymentRecord[]) => void;
-  updateStudentCredentials: (credentials: { student_id: string; pin: string }) => void;
+  updateStudentSession: (session: StudentSession) => void;
   logoutStudent: () => void;
 }
 
@@ -85,9 +96,19 @@ export const SchoolProvider = ({ children }: { children: ReactNode }) => {
   const [feeItems, setFeeItems] = useState<FeeItem[]>(() => readStored("pity_fees", []));
   const [payments, setPayments] = useState<PaymentRecord[]>(() => readStored("pity_payments", []));
   const [schoolSlug] = useState(() => localStorage.getItem("pity_slug") || "");
-  const [studentCredentials, setStudentCredentials] = useState<{ student_id: string; pin: string } | null>(
-    () => readStored("pity_credentials", null)
-  );
+  const [studentSession, setStudentSession] = useState<StudentSession | null>(() => {
+    // Any credential stored by an older build is a plaintext password. Drop it
+    // on sight rather than leaving it sitting in localStorage.
+    localStorage.removeItem("pity_credentials");
+
+    const stored = readStored<StudentSession | null>("pity_session", null);
+    if (!stored?.token) return null;
+    if (stored.expiresAt && new Date(stored.expiresAt).getTime() <= Date.now()) {
+      localStorage.removeItem("pity_session");
+      return null;
+    }
+    return stored;
+  });
 
   // Custom setter for school to update localStorage simultaneously
   const setSchool = useCallback((schoolData: SchoolData | null) => {
@@ -99,17 +120,17 @@ export const SchoolProvider = ({ children }: { children: ReactNode }) => {
     studentData: StudentData,
     fees: FeeItem[],
     paymentList: PaymentRecord[],
-    credentials: { student_id: string; pin: string }
+    session: StudentSession
   ) => {
     setStudent(studentData);
     setFeeItems(fees);
     setPayments(paymentList);
-    setStudentCredentials(credentials);
+    setStudentSession(session);
 
     writeStored("pity_student", studentData);
     writeStored("pity_fees", fees);
     writeStored("pity_payments", paymentList);
-    writeStored("pity_credentials", credentials);
+    writeStored("pity_session", session);
   }, []);
 
   const setStudentData = useCallback((fees: FeeItem[], paymentList: PaymentRecord[]) => {
@@ -119,12 +140,11 @@ export const SchoolProvider = ({ children }: { children: ReactNode }) => {
     writeStored("pity_payments", paymentList);
   }, []);
 
-  // After an in-session password change, keep the session's stored credential in
-  // sync so subsequent authenticated actions (refresh, pay) don't re-send the old
-  // password and get invalidated.
-  const updateStudentCredentials = useCallback((credentials: { student_id: string; pin: string }) => {
-    setStudentCredentials(credentials);
-    writeStored("pity_credentials", credentials);
+  // A password change revokes every prior session server-side and issues a new
+  // one; swap it in so the current tab stays logged in.
+  const updateStudentSession = useCallback((session: StudentSession) => {
+    setStudentSession(session);
+    writeStored("pity_session", session);
   }, []);
 
   const logoutStudent = useCallback(() => {
@@ -132,12 +152,13 @@ export const SchoolProvider = ({ children }: { children: ReactNode }) => {
     setStudent(null);
     setFeeItems([]);
     setPayments([]);
-    setStudentCredentials(null);
+    setStudentSession(null);
 
     localStorage.removeItem("pity_school");
     localStorage.removeItem("pity_student");
     localStorage.removeItem("pity_fees");
     localStorage.removeItem("pity_payments");
+    localStorage.removeItem("pity_session");
     localStorage.removeItem("pity_credentials");
     localStorage.removeItem("pity_slug");
   }, []);
@@ -150,12 +171,12 @@ export const SchoolProvider = ({ children }: { children: ReactNode }) => {
         feeItems,
         payments,
         schoolSlug,
-        isStudentLoggedIn: !!student,
-        studentCredentials,
+        isStudentLoggedIn: !!student && !!studentSession,
+        studentSession,
         setSchool,
         loginStudent,
         setStudentData,
-        updateStudentCredentials,
+        updateStudentSession,
         logoutStudent,
       }}
     >

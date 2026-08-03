@@ -61,7 +61,24 @@ const NIGERIAN_CLASSES = [
 // The default credential a student receives on creation/reset. MUST be the same
 // everywhere (create, bulk upload, reset, and the messages shown to the owner) —
 // a mismatch locks the student out of first login.
-const DEFAULT_STUDENT_PASSWORD = "password";
+// Every student used to be created with the literal password "password". Since
+// student IDs are a guessable INITIALS-NNNN code, that made any account whose
+// holder hadn't logged in yet a one-request takeover. Initial passwords are now
+// random per student: the owner reads it off the dashboard once and hands it
+// over, and the student is forced to replace it on first login.
+//
+// Ambiguous glyphs (0/O, 1/l/I) are excluded because these get copied by hand
+// off a screen and read aloud in a classroom.
+const TEMP_PASSWORD_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
+
+const generateTempPassword = (length = 10): string => {
+  const bytes = new Uint8Array(length);
+  crypto.getRandomValues(bytes);
+  // Reject-free modulo bias is irrelevant at this alphabet size, but keep the
+  // alphabet length a clean divisor-free pick and draw plenty of entropy:
+  // 55^10 ≈ 2.5e17 possibilities.
+  return Array.from(bytes, (b) => TEMP_PASSWORD_ALPHABET[b % TEMP_PASSWORD_ALPHABET.length]).join("");
+};
 
 const DEFAULT_FEE_TEMPLATES = [
   "Tuition Fee", "PTA Levy", "Exam Fee", "Sports Levy", "Computer Fee",
@@ -391,9 +408,12 @@ const SchoolAdminDashboard = () => {
   };
 
   // Helper: calculate paid amount for a fee from filtered payments
-  const getPaidForFee = (studentId: string, feeName: string, feeAmount: number) => {
+  // Matched by fee id where the payment recorded one, falling back to name for
+  // rows written before the ledger carried ids. Name-only matching silently
+  // cross-credited two fees that shared a name in the same period.
+  const getPaidForFee = (studentId: string, fee: { id: string; name: string }, feeAmount: number) => {
     const forStudent = settledPaymentsByPeriod.filter((p) => p.student_id === studentId);
-    return Math.min(sumPaidForFee(forStudent, feeName), feeAmount);
+    return Math.min(sumPaidForFee(forStudent, fee), feeAmount);
   };
 
   const loadData = async () => {
@@ -429,7 +449,14 @@ const SchoolAdminDashboard = () => {
 
     setSchool(schoolData);
 
-    // Fetch user's role for this school
+    // Fetch user's role for this school.
+    //
+    // This is a membership CHECK, not just a role lookup: a signed-in user who
+    // is neither the owner nor in school_admins has no business on this page.
+    // Previously a null role just rendered a read-only dashboard, and since the
+    // payments table was world-readable that leaked another school's entire
+    // payment history to anyone with an account. RLS is the real boundary now,
+    // but the page must not pretend to be an admin view either.
     const { data: adminEntry } = await supabase
       .from("school_admins")
       .select("role")
@@ -437,7 +464,13 @@ const SchoolAdminDashboard = () => {
       .eq("user_id", user.id)
       .maybeSingle();
 
-    setUserRole(adminEntry?.role || null);
+    const role = adminEntry?.role || (schoolData.owner_id === user.id ? "owner" : null);
+    if (!role) {
+      toast.error("You do not have access to this school");
+      navigate(`/school/${slug}`);
+      return;
+    }
+    setUserRole(role);
 
     // Fetch all students but filter to only active ones
     const { data: studentsData } = await supabase
@@ -520,14 +553,18 @@ const SchoolAdminDashboard = () => {
 
     const fullName = [newSurname.trim(), newFirstName.trim(), newMiddleName.trim()].filter(Boolean).join(" ");
     const studentId = generateStudentCode(newSurname.trim(), newFirstName.trim(), newMiddleName.trim());
+    // `pin` is hashed by the hash_student_pin DB trigger on write; `default_pin`
+    // keeps the plaintext so the owner can read it back to hand over, and is
+    // cleared the moment the student sets their own.
+    const tempPassword = generateTempPassword();
 
     const { error } = await supabase.from("students").insert({
       school_id: school.id,
       student_id: studentId,
       name: fullName,
       class: newStudentClass,
-      pin: DEFAULT_STUDENT_PASSWORD,
-      default_pin: DEFAULT_STUDENT_PASSWORD,
+      pin: tempPassword,
+      default_pin: tempPassword,
       must_change_pin: true,
       parent_email: newParentEmail.trim().toLowerCase(),
       status: "active",
@@ -540,9 +577,9 @@ const SchoolAdminDashboard = () => {
       // visible on phones (the default toast sits bottom-right and is easy to
       // miss on mobile). It stays until dismissed and offers a one-tap Copy so
       // the owner can grab the ID + password to share.
-      const credentialText = `EduLedgerNG student login\nStudent ID: ${studentId}\nPassword: ${DEFAULT_STUDENT_PASSWORD}`;
+      const credentialText = `EduLedgerNG student login\nStudent ID: ${studentId}\nTemporary password: ${tempPassword}\n\nThis password works once — you'll be asked to choose your own at first login.`;
       toast.success("Student added", {
-        description: `Login ID: ${studentId}   ·   Password: ${DEFAULT_STUDENT_PASSWORD}`,
+        description: `Login ID: ${studentId}   ·   Temporary password: ${tempPassword}`,
         position: "top-center",
         duration: Infinity,
         closeButton: true,
@@ -608,16 +645,35 @@ const SchoolAdminDashboard = () => {
       toast.error("Only owners can reset student passwords");
       return;
     }
+    const tempPassword = generateTempPassword();
     const { error } = await supabase.from("students").update({
-      pin: DEFAULT_STUDENT_PASSWORD, default_pin: DEFAULT_STUDENT_PASSWORD, must_change_pin: true,
+      pin: tempPassword, default_pin: tempPassword, must_change_pin: true,
     }).eq("id", studentDbId);
 
     if (error) {
       toast.error("Failed to reset password");
-    } else {
-      toast.success(`Password reset for ${studentName}. Default: ${DEFAULT_STUDENT_PASSWORD}`);
-      loadData();
+      return;
     }
+
+    // Any session this student had is now stale; verify_student_session keys off
+    // the students row, and must_change_pin blocks data and checkout until the
+    // new temporary password has been replaced.
+    const credentialText = `EduLedgerNG student login\nStudent: ${studentName}\nTemporary password: ${tempPassword}`;
+    toast.success(`Password reset for ${studentName}`, {
+      description: `Temporary password: ${tempPassword}`,
+      position: "top-center",
+      duration: Infinity,
+      closeButton: true,
+      action: {
+        label: "Copy",
+        onClick: (e) => {
+          e.preventDefault();
+          navigator.clipboard?.writeText(credentialText);
+          toast.success("Credentials copied", { position: "top-center", duration: 2000 });
+        },
+      },
+    });
+    loadData();
   };
 
   const toStudentNameParts = (fullName: string) => {
@@ -692,13 +748,16 @@ const SchoolAdminDashboard = () => {
           if (!rawName || !className) return null;
 
           const nameParts = toStudentNameParts(rawName);
+          // A distinct temporary password per row — a shared one would put the
+          // whole uploaded roster behind a single guess.
+          const tempPassword = generateTempPassword();
           return {
             school_id: school.id,
             student_id: generateStudentCode(nameParts.surname, nameParts.firstName, nameParts.middleName),
             name: nameParts.fullName,
             class: className,
-            pin: DEFAULT_STUDENT_PASSWORD,
-            default_pin: DEFAULT_STUDENT_PASSWORD,
+            pin: tempPassword,
+            default_pin: tempPassword,
             must_change_pin: true,
             status: "active",
           };
@@ -716,7 +775,37 @@ const SchoolAdminDashboard = () => {
         return;
       }
 
-      toast.success(`${inserts.length} student(s) uploaded successfully`);
+      // Every uploaded student got their OWN random temporary password, so
+      // unlike the old shared default there is nothing for the owner to guess.
+      // Offer the credentials as a download — this is the only moment they are
+      // all in one place, and the roster shows them individually afterwards.
+      const csvEscape = (v: string) => `"${String(v).replace(/"/g, '""')}"`;
+      const credentialsCsv = [
+        "Student ID,Name,Class,Temporary Password",
+        ...inserts.map((s) =>
+          [s.student_id, s.name, s.class, s.default_pin].map(csvEscape).join(",")
+        ),
+      ].join("\n");
+
+      toast.success(`${inserts.length} student(s) uploaded`, {
+        description: "Download their login details — each student has a unique temporary password.",
+        position: "top-center",
+        duration: Infinity,
+        closeButton: true,
+        action: {
+          label: "Download",
+          onClick: (e) => {
+            e.preventDefault();
+            const blob = new Blob([credentialsCsv], { type: "text/csv;charset=utf-8" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `${school.slug || "school"}-student-logins.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
+          },
+        },
+      });
       loadData();
     } catch (error: any) {
       if (String(error?.message || "").includes("Failed to resolve module specifier")) {
@@ -938,7 +1027,7 @@ const SchoolAdminDashboard = () => {
 
     const applicableFees = getFeesForClass(student.class);
     const feeBreakdown = applicableFees.map((cf) => {
-      const paid = getPaidForFee(student.id, cf.name, Number(cf.amount));
+      const paid = getPaidForFee(student.id, { id: cf.id, name: cf.name }, Number(cf.amount));
       const status = paid >= Number(cf.amount) ? "Cleared" : paid > 0 ? "Partial" : "Unpaid";
       const termObj = academicPeriods.terms.find((t) => t.id === cf.term_id);
       const sessionObj = academicPeriods.sessions.find((s) => s.id === cf.session_id);
@@ -1302,7 +1391,18 @@ const SchoolAdminDashboard = () => {
                             return (
                               <TableRow key={student.id}>
                                 <TableCell className="font-mono text-sm">{student.student_id}</TableCell>
-                                <TableCell className="font-medium">{student.name}</TableCell>
+                                <TableCell className="font-medium">
+                                  {student.name}
+                                  {/* Each student now gets their own random temporary password, so
+                                      after a CSV upload the owner has no other way to learn them.
+                                      Shown only until the student sets their own — the DB clears
+                                      default_pin at that point (20260803130000). */}
+                                  {student.must_change_pin && student.default_pin && (
+                                    <span className="block text-xs font-normal text-muted-foreground mt-0.5">
+                                      Temp password: <span className="font-mono select-all">{student.default_pin}</span>
+                                    </span>
+                                  )}
+                                </TableCell>
                                 <TableCell>{student.class}</TableCell>
                                 <TableCell>
                                   {hasNoFees ? (

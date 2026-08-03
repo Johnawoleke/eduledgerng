@@ -18,6 +18,10 @@ export const FEE_ITEMS = [
   { id: "fee-books", name: "Books", amount: 2000, paid: 2000, status: "paid", session_id: "sess-1", term_id: "term-1" },
 ];
 
+// student-auth mints an opaque session token on login; every later privileged
+// call carries that instead of the student's password.
+export const SESSION_TOKEN = "e2e0000000000000000000000000000000000000000000000000000000000000";
+
 export const studentAuthResponse = {
   student: STUDENT,
   school: SCHOOL,
@@ -25,6 +29,8 @@ export const studentAuthResponse = {
   payments: [] as unknown[],
   sessions: [SESSION],
   terms: [TERM],
+  session_token: SESSION_TOKEN,
+  session_expires_at: new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString(),
 };
 
 export type Invocation = { name: string; body: Record<string, unknown> };
@@ -48,7 +54,15 @@ export async function mockSupabase(page: Page, invocations: Invocation[] = []): 
       }
       invocations.push({ name, body });
       if (name === "student-auth") return json(studentAuthResponse);
-      if (name === "student-set-pin") return json({ success: true });
+      if (name === "student-set-pin") return json({ success: true, session_token: SESSION_TOKEN });
+      // A password change revokes every prior session and issues a fresh one.
+      if (name === "change-pin") {
+        return json({
+          success: true,
+          session_token: `${SESSION_TOKEN.slice(0, -1)}1`,
+          session_expires_at: new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString(),
+        });
+      }
       if (name === "create-paystack-payment") {
         return json({
           authorization_url: "http://localhost:8080/e2e/paystack-stub",
