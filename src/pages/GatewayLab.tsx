@@ -95,6 +95,70 @@ const FeeBar: React.FC<{ kobo: number; maxKobo: number; best: boolean }> = ({
   </div>
 );
 
+/**
+ * Which gateway handles which payment method, and what that costs.
+ *
+ * A routing rule reads as a sentence like "card → Paystack, transfer → Squad",
+ * which says nothing about whether the split is worth having. This shows the
+ * share of payments flowing down each path and the money it costs, so a
+ * combination can be judged rather than just described.
+ */
+const RoutingBreakdown: React.FC<{
+  r: StrategyResult; mix: Record<Channel, number>; students: number;
+}> = ({ r, mix, students }) => {
+  const total = CHANNELS.reduce((s, c) => s + Math.max(mix[c.id] || 0, 0), 0) || 1;
+  const rows = CHANNELS.map((c) => {
+    const shareFrac = Math.max(mix[c.id] || 0, 0) / total;
+    const o = r.perChannel[c.id];
+    return {
+      channel: c.label,
+      share: Math.round(shareFrac * 100),
+      payments: Math.round(shareFrac * students),
+      gateway: o.providerName,
+      each: o.gatewayFeeKobo,
+      total: o.gatewayFeeKobo * shareFrac * students,
+    };
+  }).filter((row) => row.share > 0);
+
+  const gateways = [...new Set(rows.map((r) => r.gateway))];
+
+  return (
+    <div className="space-y-3">
+      <div className="space-y-2">
+        {rows.map((row) => (
+          <div key={row.channel} className="flex items-center gap-3 text-sm flex-wrap sm:flex-nowrap">
+            <span className="w-28 shrink-0 text-muted-foreground">{row.channel}</span>
+            <span className="w-12 shrink-0 text-right font-medium tabular-nums">{row.share}%</span>
+            <div className="flex-1 min-w-[60px] h-1.5 rounded-full bg-muted overflow-hidden">
+              <div className="h-full bg-primary/60 rounded-full" style={{ width: `${row.share}%` }} />
+            </div>
+            <span className="text-muted-foreground shrink-0">→</span>
+            <span className="w-48 shrink-0 font-medium truncate">{row.gateway}</span>
+            <span className="w-20 shrink-0 text-right tabular-nums">{naira(row.each)}</span>
+            <span className="w-24 shrink-0 text-right tabular-nums text-muted-foreground">
+              {naira(row.total)}
+            </span>
+          </div>
+        ))}
+      </div>
+      <div className="flex items-center justify-between gap-3 text-xs pt-2 border-t flex-wrap">
+        <span className="text-muted-foreground">
+          {gateways.length === 1
+            ? `One gateway to integrate: ${gateways[0]}.`
+            : `${gateways.length} gateways to integrate: ${gateways.join(" and ")}.`}
+        </span>
+        <span className="tabular-nums">
+          <span className="text-muted-foreground">Gateway fees across {students.toLocaleString()} payments: </span>
+          <strong>{naira(r.totalGatewayKobo)}</strong>
+        </span>
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        Columns: share of payments · gateway · charge on one payment · charge across that share.
+      </p>
+    </div>
+  );
+};
+
 /** Where one payment's money ends up, as a plain line of figures. */
 const MoneySplit: React.FC<{ r: StrategyResult }> = ({ r }) => (
   <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
@@ -155,29 +219,65 @@ const GatewayLab = () => {
   const [belowId, setBelowId] = useState("squad");
   const [aboveId, setAboveId] = useState("paystack-edu");
 
+  // Which gateways we can actually use. Paystack for Education has to be
+  // applied for and may be refused, so being able to switch it off and see the
+  // whole picture change is the point of this control, not a nicety.
+  const [available, setAvailable] = useState<Record<string, boolean>>(
+    () => Object.fromEntries(DEFAULT_PROVIDERS.map((p) => [p.id, true]))
+  );
+  const usable = useMemo(
+    () => providers.filter((p) => available[p.id] !== false),
+    [providers, available]
+  );
+
+  const toggleAvailable = (id: string) => {
+    setAvailable((prev) => {
+      const next = { ...prev, [id]: prev[id] === false };
+      // Don't leave a routing rule pointing at a gateway we just turned off.
+      const stillOn = providers.filter((p) => next[p.id] !== false).map((p) => p.id);
+      if (stillOn.length) {
+        const fallback = stillOn[0];
+        setSplitBy((m) => Object.fromEntries(
+          CHANNELS.map((c) => [c.id, stillOn.includes(m[c.id]) ? m[c.id] : fallback])
+        ) as Record<Channel, string>);
+        setBelowId((v) => (stillOn.includes(v) ? v : fallback));
+        setAboveId((v) => (stillOn.includes(v) ? v : fallback));
+      }
+      return next;
+    });
+  };
+
   const inputs = useMemo(() => ({
     baseKobo: Math.round(Math.max(num(feeInput), 0) * 100),
     students: Math.max(Math.floor(num(studentsInput)), 0),
     mix: { card: mixCard, transfer: mixTransfer, ussd: mixUssd } as Record<Channel, number>,
     platformRate: platformPct / 100,
     parentShare: parentSharePct / 100,
-    providers,
-  }), [feeInput, studentsInput, mixCard, mixTransfer, mixUssd, platformPct, parentSharePct, providers]);
+    providers: usable,
+  }), [feeInput, studentsInput, mixCard, mixTransfer, mixUssd, platformPct, parentSharePct, usable]);
 
-  const strategies: Strategy[] = useMemo(() => [
-    ...providers.map((p) => ({ kind: "single" as const, providerId: p.id })),
-    { kind: "split", byChannel: splitBy },
-    { kind: "threshold", thresholdKobo: Math.round(num(thresholdInput) * 100), belowId, aboveId },
-  ], [providers, splitBy, thresholdInput, belowId, aboveId]);
+  const strategies: Strategy[] = useMemo(() => {
+    const singles = usable.map((p) => ({ kind: "single" as const, providerId: p.id }));
+    // A split or a threshold is only a distinct option when more than one
+    // gateway is on the table.
+    if (usable.length < 2) return singles;
+    return [
+      ...singles,
+      { kind: "split" as const, byChannel: splitBy },
+      { kind: "threshold" as const, thresholdKobo: Math.round(num(thresholdInput) * 100), belowId, aboveId },
+    ];
+  }, [usable, splitBy, thresholdInput, belowId, aboveId]);
 
   const options = useMemo(
     () => strategies.map((s) => ({ key: JSON.stringify(s), strategy: s, ...runStrategy(s, inputs) })),
     [strategies, inputs]
   );
   // "Today" is always plain Paystack — that is what production actually runs.
+  // Computed against the FULL provider list, not the usable one, so the
+  // comparison point survives switching Paystack standard off.
   const today = useMemo(
-    () => runStrategy({ kind: "single", providerId: "paystack" }, inputs),
-    [inputs]
+    () => runStrategy({ kind: "single", providerId: "paystack" }, { ...inputs, providers }),
+    [inputs, providers]
   );
   const best = useMemo(
     () => options.reduce((a, b) => (b.blendedParentKobo < a.blendedParentKobo ? b : a)),
@@ -306,6 +406,46 @@ const GatewayLab = () => {
           </CardContent>
         </Card>
 
+        {/* ------------------- WHICH GATEWAYS CAN WE USE? ----------------- */}
+        <Card>
+          <CardContent className="pt-6">
+            <p className="font-medium mb-1">Which gateways can we actually use?</p>
+            <p className="text-sm text-muted-foreground mb-4">
+              Switch one off to see the answer without it. Paystack for Education has to be applied
+              for and can be refused, so it is worth knowing where that leaves us.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {providers.map((p) => {
+                const on = available[p.id] !== false;
+                return (
+                  <button key={p.id} onClick={() => toggleAvailable(p.id)}
+                    className={`flex items-start gap-2.5 text-left rounded-lg border p-3 transition-colors ${
+                      on ? "border-primary/40 bg-primary/[0.04]" : "opacity-55 hover:opacity-80"
+                    }`}>
+                    <span className={`mt-0.5 w-4 h-4 rounded shrink-0 flex items-center justify-center border ${
+                      on ? "bg-primary border-primary" : "border-muted-foreground/40"
+                    }`}>
+                      {on && <Check className="w-3 h-3 text-primary-foreground" />}
+                    </span>
+                    <span className="min-w-0">
+                      <span className="text-sm font-medium block">{p.name}</span>
+                      <span className="text-xs text-muted-foreground block leading-snug">
+                        {on ? "Available" : "Not available — excluded from every option below"}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            {available["paystack-edu"] === false && (
+              <p className="text-xs mt-3 px-3 py-2 rounded bg-amber-50 dark:bg-amber-950/30 text-amber-900 dark:text-amber-200">
+                Without Paystack for Education, Squad becomes the cheapest option on cards too —
+                its 1.2% beats standard Paystack's 1.5% + ₦100 at every fee size.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+
         {/* ---------------------------- THE ANSWER ------------------------ */}
         <Card className="border-primary/30 bg-primary/[0.03]">
           <CardContent className="pt-6">
@@ -384,6 +524,14 @@ const GatewayLab = () => {
                       <FeeBar kobo={o.blendedGatewayKobo} maxKobo={worstFee} best={isBest} />
                     </div>
                     <div className="pt-1 border-t"><MoneySplit r={o} /></div>
+                    {/* Only the winner gets the full routing breakdown — showing it on
+                        every card would bury the comparison it is meant to support. */}
+                    {isBest && (
+                      <div className="pt-3 border-t">
+                        <p className="text-xs font-medium mb-2.5">How this works in practice</p>
+                        <RoutingBreakdown r={o} mix={inputs.mix} students={inputs.students} />
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               );
@@ -482,7 +630,7 @@ const GatewayLab = () => {
                     <Select value={splitBy[c.id]} onValueChange={(v) => setSplitBy((m) => ({ ...m, [c.id]: v }))}>
                       <SelectTrigger className="h-9 mt-1"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        {providers.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                        {usable.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>
@@ -506,7 +654,7 @@ const GatewayLab = () => {
                   <Select value={belowId} onValueChange={setBelowId}>
                     <SelectTrigger className="h-9 mt-1"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {providers.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                      {usable.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
@@ -515,7 +663,7 @@ const GatewayLab = () => {
                   <Select value={aboveId} onValueChange={setAboveId}>
                     <SelectTrigger className="h-9 mt-1"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {providers.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                      {usable.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
@@ -526,7 +674,7 @@ const GatewayLab = () => {
 
         <Disclose
           title="Gateway rates"
-          hint="Published rates as of 3 Aug 2026 — edit them to model a deal you have negotiated"
+          hint="Published rates as of 4 Aug 2026 — edit them to model a deal you have negotiated"
         >
           <CardContent className="pt-5">
             <div className="flex justify-end mb-3">
