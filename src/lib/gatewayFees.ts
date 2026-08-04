@@ -219,9 +219,19 @@ export interface StrategyResult {
   label: string;
   detail: string;
   perChannel: Record<Channel, ChannelOutcome>;
+  /** Per payment: what the parent is charged. */
   blendedParentKobo: number;
+  /** Per payment: what the gateway keeps. */
   blendedGatewayKobo: number;
+  /** Per payment: what reaches the school's bank. */
   blendedSchoolReceivesKobo: number;
+  /**
+   * Per payment: the platform's cut. Identical on every channel and under every
+   * strategy, so it never decides which option wins — but the three blended
+   * figures plus this one must always sum to what the parent paid, which is what
+   * makes the money-flow bar honest.
+   */
+  blendedPlatformKobo: number;
   totalParentKobo: number;
   totalGatewayKobo: number;
   totalSchoolKobo: number;
@@ -304,6 +314,7 @@ export const runStrategy = (strategy: Strategy, inputs: ModelInputs): StrategyRe
     blendedParentKobo,
     blendedGatewayKobo,
     blendedSchoolReceivesKobo,
+    blendedPlatformKobo: Math.round(baseKobo * platformRate),
     totalParentKobo: blendedParentKobo * students,
     totalGatewayKobo: blendedGatewayKobo * students,
     totalSchoolKobo: blendedSchoolReceivesKobo * students,

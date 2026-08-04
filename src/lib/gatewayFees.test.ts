@@ -175,6 +175,23 @@ describe("routing strategies", () => {
     expect(split.perChannel.transfer.providerId).toBe("paystack-dva");
   });
 
+  it("the blended figures always sum to what the parent paid", () => {
+    // This is what makes the money-flow bar in the UI honest — the three
+    // segments must tile the whole bar with nothing unaccounted for.
+    for (const share of [0, 0.5, 1]) {
+      for (const s of [
+        { kind: "single" as const, providerId: "paystack" },
+        { kind: "single" as const, providerId: "paystack-edu" },
+        { kind: "cheapest" as const },
+      ]) {
+        const r = runStrategy(s, { ...inputs, parentShare: share });
+        expect(
+          r.blendedSchoolReceivesKobo + r.blendedPlatformKobo + r.blendedGatewayKobo
+        ).toBeCloseTo(r.blendedParentKobo, 6);
+      }
+    }
+  });
+
   it("the school's total never depends on the routing choice", () => {
     const a = runStrategy({ kind: "single", providerId: "paystack" }, inputs);
     const b = runStrategy({ kind: "cheapest" }, inputs);
