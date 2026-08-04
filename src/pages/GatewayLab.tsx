@@ -144,11 +144,15 @@ const GatewayLab = () => {
   const [mixUssd, setMixUssd] = useState(5);
 
   const [providers, setProviders] = useState<Provider[]>(() => clone(DEFAULT_PROVIDERS));
+  // Defaults are the genuinely competitive combination, so the tool opens on
+  // something worth looking at: Education is unbeatable on cards, and Squad's
+  // 0.25% virtual account beats everything on transfers until it reaches the
+  // ₦300 that Paystack charges flat — which happens at about ₦120,000.
   const [splitBy, setSplitBy] = useState<Record<Channel, string>>({
-    card: "paystack-edu", transfer: "paystack-dva", ussd: "paystack-edu",
+    card: "paystack-edu", transfer: "squad", ussd: "paystack-edu",
   });
-  const [thresholdInput, setThresholdInput] = useState("30000");
-  const [belowId, setBelowId] = useState("paystack-dva");
+  const [thresholdInput, setThresholdInput] = useState("120000");
+  const [belowId, setBelowId] = useState("squad");
   const [aboveId, setAboveId] = useState("paystack-edu");
 
   const inputs = useMemo(() => ({
@@ -395,7 +399,7 @@ const GatewayLab = () => {
               {[
                 [Wallet, "One parent pays", "The whole amount charged at checkout for a single student's fee — the school's fee, our cut, and the gateway's charge on top, depending on who bears it."],
                 [Building2, "School gets", "What actually lands in the school's bank account after everyone has taken their cut."],
-                [Landmark, "Gateway takes", "What Paystack or Kora keeps for processing the payment. This is the only figure that changes between options, which is why the bars compare it."],
+                [Landmark, "Gateway takes", "What Paystack or Squad keeps for processing the payment. This is the only figure that changes between options, which is why the bars compare it."],
               ].map(([Icon, term, def]) => {
                 const I = Icon as React.ElementType;
                 return (
@@ -603,8 +607,10 @@ const GatewayLab = () => {
               It is not the rate a new account gets.
             </p>
             <p>
-              <strong className="text-foreground">Kora</strong> publishes no rate card — the defaults
-              here come from third-party comparisons and are a negotiating start, not a quote.
+              <strong className="text-foreground">Squad</strong> publishes its card and virtual-account
+              rates, and offers custom pricing on high volume — so these are a ceiling, not a floor.
+              Its USSD rate is not published; the 1% here comes from a third-party summary and is the
+              least reliable number on this page.
             </p>
             <p>Confirm both directly before integrating. This model is only as good as the rates in it.</p>
           </div>

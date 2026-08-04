@@ -4,10 +4,10 @@
 // That file is the live checkout math (mirrored into the Deno edge function and
 // asserted identical by tests); nothing here touches a real payment.
 //
-// Published rates, verified 2026-08-03 — treat them as defaults to model with,
-// not as contract terms. Paystack Education must be applied for, and Kora's
-// public position is that pricing is quote-based, so its numbers are the ones
-// most worth editing in the UI.
+// Published rates, verified 2026-08-04 — treat them as defaults to model with,
+// not as contract terms. Paystack Education must be applied for, and Squad
+// offers custom pricing on high volume, so both are worth re-checking against a
+// real quote before anything is decided on them.
 //
 // All amounts are in KOBO (₦1 = 100 kobo).
 
@@ -77,14 +77,18 @@ export const DEFAULT_PROVIDERS: Provider[] = [
     },
   },
   {
-    id: "kora",
-    name: "Kora (Korapay)",
-    note: "1.5% capped ₦2,000 is the commonly quoted rate. Kora says pricing is custom — edit these to model a negotiated deal.",
-    negotiated: true,
+    id: "squad",
+    name: "Squad (HabariPay)",
+    note: "GTCO's gateway. 1.2% capped ₦1,500 on cards; 0.25% capped ₦1,000 on virtual accounts — the cheapest published transfer rate for mid-size fees. No setup cost.",
     channels: {
-      card: { percent: 0.015, flat: 0, cap: 200_000 },
-      transfer: { percent: 0.015, flat: 0, cap: 200_000 },
-      ussd: { percent: 0.015, flat: 0, cap: 200_000 },
+      // Squad's published "payment links (local)" rate.
+      card: { percent: 0.012, flat: 0, cap: 150_000 },
+      // Virtual account. This is the number that makes Squad interesting: 0.25%
+      // beats Paystack's virtual-account cap of ₦300 on anything under ~₦120k.
+      transfer: { percent: 0.0025, flat: 0, cap: 100_000 },
+      // Squad doesn't publish a USSD rate; 1% comes from third-party summaries.
+      // Treat it as the least reliable figure here.
+      ussd: { percent: 0.01, flat: 0, cap: 100_000 },
     },
   },
 ];

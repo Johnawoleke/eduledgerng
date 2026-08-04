@@ -47,10 +47,28 @@ describe("channelFeeKobo — published rates", () => {
     expect(channelFeeKobo(dva, NGN(100_000))).toBe(NGN(300)); // cap
   });
 
-  it("Kora: 1.5% capped ₦2,000, no flat", () => {
-    const k = provider("kora").channels.card;
-    expect(channelFeeKobo(k, NGN(10_000))).toBe(NGN(150));
-    expect(channelFeeKobo(k, NGN(1_000_000))).toBe(NGN(2_000));
+  it("Squad card: 1.2% capped ₦1,500", () => {
+    const s = provider("squad").channels.card;
+    expect(channelFeeKobo(s, NGN(10_000))).toBe(NGN(120));
+    expect(channelFeeKobo(s, NGN(1_000_000))).toBe(NGN(1_500)); // cap
+  });
+
+  it("Squad virtual account: 0.25% capped ₦1,000", () => {
+    const s = provider("squad").channels.transfer;
+    expect(channelFeeKobo(s, NGN(10_000))).toBe(NGN(25));
+    expect(channelFeeKobo(s, NGN(100_000))).toBe(NGN(250));
+    expect(channelFeeKobo(s, NGN(1_000_000))).toBe(NGN(1_000)); // cap
+  });
+
+  it("Squad's transfer rate beats Paystack's virtual account below ~₦120k, and loses above", () => {
+    // Squad is a flat 0.25% until its ₦1,000 cap; Paystack DVA is 1% but caps
+    // at ₦300 much earlier. They cross where 0.25% reaches ₦300.
+    const sq = provider("squad").channels.transfer;
+    const ps = provider("paystack-dva").channels.transfer;
+    expect(channelFeeKobo(sq, NGN(50_000))).toBeLessThan(channelFeeKobo(ps, NGN(50_000)));
+    expect(channelFeeKobo(sq, NGN(100_000))).toBeLessThan(channelFeeKobo(ps, NGN(100_000)));
+    expect(channelFeeKobo(sq, NGN(120_000))).toBe(channelFeeKobo(ps, NGN(120_000))); // both ₦300
+    expect(channelFeeKobo(sq, NGN(300_000))).toBeGreaterThan(channelFeeKobo(ps, NGN(300_000)));
   });
 
   it("is zero for a zero or negative charge", () => {
