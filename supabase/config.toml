@@ -34,11 +34,26 @@ verify_jwt = false
 [functions.student-set-pin]
 verify_jwt = false
 
+[functions.create-payment]
+verify_jwt = false
+
+[functions.verify-payment]
+verify_jwt = false
+
+# Squad calls this server-to-server and holds no Supabase JWT. The
+# x-squad-encrypted-body HMAC IS the authorization.
+[functions.squad-webhook]
+verify_jwt = false
+
+# Paystack's webhook stays registered: it is the active gateway's predecessor
+# and will be needed again if Paystack for Education is routed back in.
+[functions.paystack-webhook]
+verify_jwt = false
+
+# Superseded by create-payment / verify-payment. Kept deployed only until the
+# frontend rollout completes, then delete from the hosted project.
 [functions.create-paystack-payment]
 verify_jwt = false
 
 [functions.verify-paystack-payment]
-verify_jwt = false
-
-[functions.paystack-webhook]
 verify_jwt = false

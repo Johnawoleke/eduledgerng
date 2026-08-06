@@ -54,7 +54,25 @@ Secrets (`SUPABASE_SERVICE_ROLE_KEY`, `PAYSTACK_SECRET_KEY`, `RESEND_API_KEY`) a
 
 The legacy Zendfi flow (`create-zendfi-payment`, `zendfi-webhook`), `student-payment`, and `check-user-exists` were **deleted** in the 2026-08-03 security pass. `student-payment` could write `payments` rows that defaulted to `status = 'success'` with no gateway involved; `check-user-exists` was an unauthenticated email-enumeration oracle with no callers. If they still exist in the hosted project, delete them there too (`supabase functions delete <name>`).
 
-### Paystack payment flow (split settlement)
+### Payment gateways: Squad today, pluggable by design
+
+**Squad (HabariPay) is the routed gateway. Paystack is retained but unrouted**, so Paystack for Education can be added later for large fees without restructuring anything.
+
+Three pieces:
+
+- `src/lib/gatewayMoney.ts` (mirrored to `supabase/functions/_shared/gatewayMoney.ts`, sync asserted by `gatewayMoney.test.ts`) — rates, the gross-up, and `selectGateway()`. This is the LIVE checkout maths. Do not confuse it with `src/lib/gatewayFees.ts`, which is the modelling library behind `/gateway-lab` and touches no real payment.
+- `supabase/functions/_shared/gateways.ts` — one adapter per provider (initialize, verify, webhook signature, webhook parse, settlement-account creation) behind a common `Gateway` interface. Backend only; it reads secrets.
+- `supabase/functions/_shared/recordPayment.ts` — settling a payment, in ONE place. The webhook and the redirect-verify both call it, so the underpayment guard and the item encoding cannot drift apart the way they had under the Paystack-only build.
+
+Functions: `create-payment`, `verify-payment`, `squad-webhook`, `paystack-webhook`. `payments.gateway` records which provider took each row (migration 20260806100000), so `verify-payment` knows which API to ask — falling back to the reference prefix (`EDU-SQ-` / `EDU-PS-`) when no row exists.
+
+**To route Paystack for Education back in:** add its rate to `GATEWAYS` in `gatewayMoney.ts`, give `selectGateway()` a threshold, set `PAYSTACK_SECRET_KEY`. Nothing else changes — the adapter, the webhook, the ledger column and the settlement-key split all already exist. `settlementKey()` keeps each provider's account id under a separate key in `schools.settings`, so provisioning on one never clobbers the other.
+
+**The gross-up uses the DEAREST channel a gateway offers** (`gatewayFeeKobo` takes a max). The parent picks card/transfer at the gateway's own checkout, after we have fixed the amount — pricing on anything but the worst case would let a card payment under-settle the school. A cheaper channel just leaves a small surplus, which settles to the school.
+
+Secrets: `SQUAD_SECRET_KEY` (required), `PAYSTACK_SECRET_KEY` (still needed — `resolveBankCode` uses Paystack's `/bank` list for both providers). `SQUAD_ENV=sandbox` switches Squad to its sandbox host.
+
+### Paystack payment flow (split settlement) — retained, currently unrouted
 
 Each school row (a "branch" — one owner can register many, each with its own bank details) gets a Paystack **subaccount** provisioned lazily on first payment: `create-paystack-payment` resolves the bank code from `schools.bank_name` via Paystack's `/bank` API, creates the subaccount with `schools.account_number`, and caches the code in `schools.settings.paystack_subaccount_code` (JSONB — no schema change). Every transaction is initialized with `subaccount` + a flat `transaction_charge` equal to **1% of the fee amount (the platform's cut)** and `bearer: "subaccount"`. The checkout total is **grossed-up** so the student bears Paystack's processing fee (1.5% + ₦100, waived < ₦2,500, capped ₦2,000) — the gross-up math lives in both `create-paystack-payment/index.ts` and `SchoolStudentDashboard.tsx` and must stay in sync. Net effect: student pays fees + gateway fee; school's bank receives fees − 1%; platform keeps 1%.
 

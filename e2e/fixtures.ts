@@ -63,16 +63,18 @@ export async function mockSupabase(page: Page, invocations: Invocation[] = []): 
           session_expires_at: new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString(),
         });
       }
-      if (name === "create-paystack-payment") {
+      // Squad is the routed gateway; create-payment is gateway-agnostic.
+      if (name === "create-payment") {
         return json({
-          authorization_url: "http://localhost:8080/e2e/paystack-stub",
-          reference: "EDU-PS-E2E-TEST",
+          authorization_url: "http://localhost:8080/e2e/gateway-stub",
+          gateway: "squad",
+          reference: "EDU-SQ-E2E-TEST",
           base_amount: 5000,
-          processing_fee: 178.43,
-          total_ngn: 5228.43,
+          processing_fee: 61.34,
+          total_ngn: 5111.34,
         });
       }
-      if (name === "verify-paystack-payment") return json({ success: false, status: "pending" });
+      if (name === "verify-payment") return json({ success: false, status: "pending" });
       return json({});
     }
 
@@ -83,12 +85,12 @@ export async function mockSupabase(page: Page, invocations: Invocation[] = []): 
     return json({});
   });
 
-  // Stub the Paystack checkout the app redirects to, so we never hit real Paystack.
-  await page.route("**/e2e/paystack-stub", (route) =>
+  // Stub the checkout the app redirects to, so we never hit a real gateway.
+  await page.route("**/e2e/gateway-stub", (route) =>
     route.fulfill({
       status: 200,
       contentType: "text/html",
-      body: "<html><body><h1>Paystack Stub Checkout</h1></body></html>",
+      body: "<html><body><h1>Gateway Stub Checkout</h1></body></html>",
     })
   );
 

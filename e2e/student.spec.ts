@@ -35,23 +35,23 @@ test.describe("Student payment flow", () => {
     await expect(dialog.getByText("Platform Charge (1%)")).toBeVisible();
     await expect(dialog.getByText("₦50", { exact: true })).toBeVisible(); // 1% of ₦5,000
     await expect(dialog.getByText("Payment Processing Fee")).toBeVisible();
-    // Total is grossed up above the base + platform (₦5,228.43 from the tested math).
-    await expect(page.getByRole("button", { name: /Pay ₦5,228\.43 with Paystack/ })).toBeVisible();
+    // Total is grossed up above base + platform, using Squad's 1.2% (tested math).
+    await expect(page.getByRole("button", { name: /Pay ₦5,111\.34/ })).toBeVisible();
   });
 
-  test("paying calls create-paystack-payment with the fee and redirects to checkout", async ({ page }) => {
+  test("paying calls create-payment with the fee and redirects to checkout", async ({ page }) => {
     const invocations: Invocation[] = [];
     await mockSupabase(page, invocations);
     await login(page);
 
     await page.getByRole("button", { name: /Pay Fees Online/i }).click();
     await page.getByRole("checkbox").first().check();
-    await page.getByRole("button", { name: /with Paystack/ }).click();
+    await page.getByRole("button", { name: /^Pay ₦/ }).click();
 
-    // Redirected to the (stubbed) Paystack checkout — never the real thing.
-    await expect(page.getByRole("heading", { name: "Paystack Stub Checkout" })).toBeVisible();
+    // Redirected to the (stubbed) gateway checkout — never the real thing.
+    await expect(page.getByRole("heading", { name: "Gateway Stub Checkout" })).toBeVisible();
 
-    const created = invocations.find((i) => i.name === "create-paystack-payment");
+    const created = invocations.find((i) => i.name === "create-payment");
     expect(created).toBeTruthy();
     // Checkout is authorised by the session token — the student's password must
     // never be sent again after login.

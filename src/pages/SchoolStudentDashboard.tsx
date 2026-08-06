@@ -13,7 +13,7 @@ import { LogOut, Wallet, CreditCard, History, Eye, EyeOff, KeyRound, Loader2 } f
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { readFunctionsError } from "@/lib/utils";
-import { computeCheckoutKobo } from "@/lib/paystackFees";
+import { quoteCheckout } from "@/lib/gatewayMoney";
 import AcademicPeriodSelector from "@/components/AcademicPeriodSelector";
 import { useAcademicPeriods } from "@/hooks/useAcademicPeriods";
 
@@ -91,7 +91,7 @@ const SchoolStudentDashboard = () => {
 
   const academicPeriods = useAcademicPeriods(school?.id);
 
-  // Paystack redirects back with ?trxref=...&reference=... — confirm the
+  // The gateway redirects back with ?trxref=...&reference=... — confirm the
   // transaction server-side, then refresh the dashboard data.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -102,7 +102,7 @@ const SchoolStudentDashboard = () => {
     (async () => {
       toast.info("Confirming your payment...");
       try {
-        const { data, error } = await supabase.functions.invoke("verify-paystack-payment", {
+        const { data, error } = await supabase.functions.invoke("verify-payment", {
           body: { reference },
         });
         if (!error && data?.success) {
@@ -212,12 +212,12 @@ const SchoolStudentDashboard = () => {
     }, 0);
   }, [selectedFees, feeAmounts, unpaidFees]);
 
-  // The school receives the full fee; our 1% platform charge and Paystack's
-  // gateway fee are both added on top (paid by the parent). All the math lives
-  // in src/lib/paystackFees.ts (shared, unit-tested, kept in sync with
-  // create-paystack-payment's Deno copy by the test suite).
-  const breakdown = computeCheckoutKobo(basePaymentTotal);
-  const platformFee = breakdown.platformFeeKobo / 100;
+  // The school receives the full fee; our 1% platform charge and the gateway's
+  // fee are both added on top (paid by the parent). All the math lives in
+  // src/lib/gatewayMoney.ts, which picks the same gateway the server will
+  // (selectGateway) and is kept in sync with its Deno copy by the test suite.
+  const breakdown = quoteCheckout(basePaymentTotal);
+  const platformFee = breakdown.platformKobo / 100;
   const processingFee = breakdown.processingFeeKobo / 100;
   const paymentTotal = breakdown.totalKobo / 100;
 
@@ -518,7 +518,7 @@ const SchoolStudentDashboard = () => {
                       }))
                       .filter((fp) => fp.amount > 0);
 
-                    const { data, error } = await supabase.functions.invoke("create-paystack-payment", {
+                    const { data, error } = await supabase.functions.invoke("create-payment", {
                       body: {
                         school_slug: slug,
                         session_token: studentSession?.token,
@@ -537,11 +537,11 @@ const SchoolStudentDashboard = () => {
                       return;
                     }
 
-                    toast.success("Redirecting to secure Paystack checkout...");
+                    toast.success("Redirecting to secure checkout...");
                     setPaymentOpen(false);
                     window.location.href = data.authorization_url;
                   } catch (err) {
-                    console.error("Paystack payment error:", err);
+                    console.error("Payment error:", err);
                     toast.error("Something went wrong. Please try again.");
                     setProcessingPayment(false);
                   }
@@ -550,7 +550,7 @@ const SchoolStudentDashboard = () => {
                 {processingPayment ? (
                   <><Loader2 className="w-4 h-4 animate-spin" /> Processing...</>
                 ) : (
-                  <><CreditCard className="w-4 h-4" /> Pay {formatNaira(paymentTotal)} with Paystack</>
+                  <><CreditCard className="w-4 h-4" /> Pay {formatNaira(paymentTotal)}</>
                 )}
               </Button>
             </div>

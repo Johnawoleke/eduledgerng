@@ -179,6 +179,8 @@ export type Database = {
           amount_paid: number | null
           created_at: string
           date: string
+          // Which provider processed this row: squad | paystack (20260806100000).
+          gateway: string | null
           id: string
           items: string[] | null
           method: string | null
@@ -194,6 +196,7 @@ export type Database = {
           amount_paid?: number | null
           created_at?: string
           date?: string
+          gateway?: string | null
           id?: string
           items?: string[] | null
           method?: string | null
@@ -209,6 +212,7 @@ export type Database = {
           amount_paid?: number | null
           created_at?: string
           date?: string
+          gateway?: string | null
           id?: string
           items?: string[] | null
           method?: string | null
