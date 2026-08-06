@@ -33,6 +33,36 @@ const json = (body: unknown, status = 200) =>
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 
+// Origins the gateway may send a payer back to after checkout.
+// ALLOWED_REDIRECT_ORIGINS is a comma-separated override for new domains.
+const DEFAULT_ORIGINS = [
+  "https://www.eduledgerng.com",
+  "https://eduledgerng.com",
+  "https://eduledgerng.vercel.app",
+  "http://localhost:8080",
+];
+
+/**
+ * callback_url arrives in the request body, so it is caller-controlled. Passing
+ * it through unchecked makes this an open redirect: the gateway would bounce the
+ * payer to any URL the caller names, from the middle of a genuine payment flow.
+ * Only our own origins are accepted; anything else falls back to the gateway's
+ * configured default rather than failing the payment.
+ */
+const safeCallbackUrl = (raw: unknown): string | undefined => {
+  if (typeof raw !== "string" || raw.length === 0 || raw.length >= 500) return undefined;
+  const allowed = (Deno.env.get("ALLOWED_REDIRECT_ORIGINS") ?? "")
+    .split(",").map((s) => s.trim()).filter(Boolean);
+  const origins = allowed.length ? allowed : DEFAULT_ORIGINS;
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "https:" && url.hostname !== "localhost") return undefined;
+    return origins.includes(url.origin) ? url.toString() : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -201,8 +231,7 @@ serve(async (req) => {
         platformFeeKobo: quote.platformKobo,
         email: customerEmail,
         customerName: String(student.name || student.student_id),
-        callbackUrl:
-          typeof callback_url === "string" && callback_url.length < 500 ? callback_url : undefined,
+        callbackUrl: safeCallbackUrl(callback_url),
         settlementAccountId,
         metadata: {
           reference,
@@ -236,6 +265,9 @@ serve(async (req) => {
       reference,
       method: gateway.id === "squad" ? "Squad" : "Paystack",
       gateway: gatewayId,
+      // The underpayment guard reads this off the row rather than trusting the
+      // gateway to echo our metadata back — see _shared/recordPayment.ts.
+      expected_total_kobo: quote.totalKobo,
       status: "pending",
       items: validatedItems.map((i) => encodeFeeItem(i.fee_item_id, i.name, i.amount)),
       session_id: session_id || null,

@@ -41,7 +41,13 @@ export const markFailed = async (
     .select("id, status")
     .eq("reference", reference)
     .maybeSingle();
-  if (row && row.status === "pending") {
+
+  // Only log against a reference we actually issued. verify-payment takes an
+  // unauthenticated reference, so writing an event unconditionally let anyone
+  // append to the audit table at will just by POSTing junk references.
+  if (!row) return;
+
+  if (row.status === "pending") {
     await admin.from("payments").update({ status: "failed" }).eq("id", row.id);
   }
   await admin.from("payment_events").insert({
@@ -60,7 +66,7 @@ export const settlePayment = async (
 
   const { data: existing } = await admin
     .from("payments")
-    .select("id, status, amount, school_id, student_id")
+    .select("id, status, amount, school_id, student_id, expected_total_kobo")
     .eq("reference", reference)
     .maybeSingle();
 
@@ -69,9 +75,16 @@ export const settlePayment = async (
   }
 
   // Never credit fees for a charge that collected less than we asked for.
-  // expected_total_kobo is set by create-payment; charges from before that
-  // field existed have nothing to compare and are trusted as they were.
-  const expected = Number(metadata.expected_total_kobo);
+  //
+  // Prefer the figure OUR row recorded at checkout over the one the gateway
+  // echoes back. Relying on the echo meant that if a provider returned metadata
+  // under a key we did not anticipate, Number(undefined) was NaN, this guard was
+  // skipped, and the pending row was flipped to success crediting the full fees
+  // unchecked. Squad's response shape is inferred from partial documentation,
+  // so that was a live risk on every payment, not a theoretical one.
+  //
+  // A row with no stored value predates the column and is trusted as before.
+  const expected = Number(existing?.expected_total_kobo ?? metadata.expected_total_kobo);
   if (Number.isFinite(expected) && expected > 0) {
     if (!Number.isFinite(Number(amountPaidKobo)) || Number(amountPaidKobo) < expected) {
       console.error(
