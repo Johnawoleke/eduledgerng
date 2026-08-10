@@ -125,17 +125,17 @@ export const squad: Gateway = {
       pass_charge: false,
       metadata: args.metadata,
     };
-    // ⚠️ UNVERIFIED — the one field in this file not confirmed against Squad's
-    // documentation. /Payments/Initiate-payment is the only page that would
-    // specify it and it returns 403 to every fetch; the aggregator pages cover
-    // creating a sub-merchant (which returns `account_id`, e.g. "AGGERYG8WF34")
-    // but never how to route a transaction to one. `sub_merchant_id` is an
-    // inference by analogy with Paystack's `subaccount`.
+    // Verified against docs.squadco.com/Payments/Initiate-payment on
+    // 2026-08-10. Squad's wording: "the ID of a merchant that was created by an
+    // aggregator which allows the aggregator initiate a transaction on behalf of
+    // the submerchant. This parameter is an optional field that is passed only
+    // by a registered aggregator."
     //
-    // If the name is wrong Squad will not error — it ignores the unknown field,
-    // takes the payment, and settles 100% into the PLATFORM account instead of
-    // the school's. Everything downstream looks healthy. Confirm with Squad, and
-    // check where the money actually landed after the first live payment.
+    // REQUIRES the platform's Squad account to be registered as an aggregator.
+    // If it is not, Squad ignores this field rather than erroring, and the whole
+    // payment settles into the PLATFORM account instead of the school's — with
+    // everything downstream still looking healthy. That is a business
+    // arrangement with Squad, not something the code can assert.
     if (args.settlementAccountId) body.sub_merchant_id = args.settlementAccountId;
 
     const res = await fetch(`${SQUAD_API()}/transaction/initiate`, {
@@ -155,10 +155,12 @@ export const squad: Gateway = {
   // docs.squadco.com on 2026-08-10. Response: { status, success, message,
   // data: { transaction_amount, transaction_ref, transaction_status, ... } }.
   //
-  // IMPORTANT: the verify response carries NO metadata — unlike the webhook,
-  // whose Body includes `meta`. That is precisely why the underpayment guard
-  // reads expected_total_kobo off our own payments row (see recordPayment.ts):
-  // on this path there is nothing echoed back to compare against.
+  // Squad's field spec says metadata "will be returned via webhook and the
+  // payment verification endpoint", but their documented sample verify response
+  // does not include it, and the key it would arrive under is unstated. So the
+  // underpayment guard does not depend on it: it reads expected_total_kobo off
+  // our own payments row (see recordPayment.ts) and falls back to the echo only
+  // for rows that predate that column.
   async verify(reference) {
     const key = this.secret();
     if (!key) throw new Error("SQUAD_SECRET_KEY not set");

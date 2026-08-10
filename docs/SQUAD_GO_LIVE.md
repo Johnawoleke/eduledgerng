@@ -100,13 +100,20 @@ never be credited until they revisit.
 
 **Do this before any parent is told to pay.**
 
-The one thing I could not verify from Squad's public docs is how a transaction
-is routed to a sub-merchant. `create-payment` sends `sub_merchant_id` on the
-initiate call, which is the obvious reading of their API, **but it is an
-inference**. If it is wrong, the money settles into the PLATFORM account instead
-of the school's, and nothing in the code would notice or complain.
+The field name is now confirmed — `sub_merchant_id`, per Squad's own docs. But
+their wording carries a condition:
 
-So make the first payment one you can afford to have go to the wrong place:
+> *"This parameter is an optional field that is passed only by a **registered
+> aggregator**."*
+
+**Your Squad account must be registered as an aggregator.** If it is not, Squad
+does not error on the field — it ignores it, takes the payment, and settles the
+whole thing into the PLATFORM account instead of the school's, with everything
+downstream still looking healthy. That is an onboarding arrangement with Squad,
+not something the code can check.
+
+Confirm with Squad that your account is aggregator-enabled, then make the first
+payment one you can afford to have go to the wrong place anyway:
 
 1. Pick or create a school whose bank account **you** control.
 2. Add a student to it, give them a fee of about **₦100**.
@@ -173,17 +180,29 @@ Two bugs this turned up, both now fixed:
 - `Abandoned` was not treated as a failure, so an abandoned checkout sat in the
   admin's list as pending forever.
 
+### The initiate call, confirmed
+
+`POST https://api-d.squadco.com/transaction/initiate`, `Authorization: Bearer
+<secret key>`. Every field the adapter sends is documented and correct:
+
+| Field | Squad's definition |
+|---|---|
+| `amount` | in kobo |
+| `initiate_type` | `"inline"` is the only allowed value |
+| `currency` | `NGN` |
+| `transaction_ref` | merchant-defined, must be unique |
+| `customer_name`, `email` | payer identity |
+| `callback_url` | where the payer is redirected — **explicitly not** the webhook URL |
+| `metadata` | returned via webhook and the verification endpoint |
+| `pass_charge` | `false` (default) = charge deducted from the merchant's settlement. We send `false` and gross up ourselves, so the school still receives its exact fee |
+| `sub_merchant_id` | routes settlement to a sub-merchant — **aggregator accounts only** |
+
 ## Still unanswered by Squad
 
-1. **Which field routes settlement to a sub-merchant on `/transaction/initiate`?**
-   `/Payments/Initiate-payment` is the only page that would say and it returns
-   403 to every fetch; the aggregator pages cover creating a sub-merchant
-   (returning `account_id`, e.g. `AGGERYG8WF34`) but never how to route a
-   payment to one. **This is step 5's risk — get it in writing.**
+1. **Is your account registered as an aggregator?** Not a code question — ask
+   them directly. Step 5 is the fallback check.
 2. Does the **0.25% / ₦1,000-cap** virtual-account rate apply to *dynamic*
    (one-time) accounts, or only dedicated ones?
-3. With `pass_charge: true`, is the expected amount the gross or the net? We
-   send `false` and gross up ourselves.
 
 ---
 
