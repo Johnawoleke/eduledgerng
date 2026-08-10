@@ -125,7 +125,17 @@ export const squad: Gateway = {
       pass_charge: false,
       metadata: args.metadata,
     };
-    // Route settlement to the school's sub-merchant account when we have one.
+    // ⚠️ UNVERIFIED — the one field in this file not confirmed against Squad's
+    // documentation. /Payments/Initiate-payment is the only page that would
+    // specify it and it returns 403 to every fetch; the aggregator pages cover
+    // creating a sub-merchant (which returns `account_id`, e.g. "AGGERYG8WF34")
+    // but never how to route a transaction to one. `sub_merchant_id` is an
+    // inference by analogy with Paystack's `subaccount`.
+    //
+    // If the name is wrong Squad will not error — it ignores the unknown field,
+    // takes the payment, and settles 100% into the PLATFORM account instead of
+    // the school's. Everything downstream looks healthy. Confirm with Squad, and
+    // check where the money actually landed after the first live payment.
     if (args.settlementAccountId) body.sub_merchant_id = args.settlementAccountId;
 
     const res = await fetch(`${SQUAD_API()}/transaction/initiate`, {
@@ -141,6 +151,14 @@ export const squad: Gateway = {
     return { checkoutUrl: url, raw: data };
   },
 
+  // GET /transaction/verify/{transaction_ref} — verified against
+  // docs.squadco.com on 2026-08-10. Response: { status, success, message,
+  // data: { transaction_amount, transaction_ref, transaction_status, ... } }.
+  //
+  // IMPORTANT: the verify response carries NO metadata — unlike the webhook,
+  // whose Body includes `meta`. That is precisely why the underpayment guard
+  // reads expected_total_kobo off our own payments row (see recordPayment.ts):
+  // on this path there is nothing echoed back to compare against.
   async verify(reference) {
     const key = this.secret();
     if (!key) throw new Error("SQUAD_SECRET_KEY not set");
@@ -179,18 +197,30 @@ export const squad: Gateway = {
     return constantTimeEqual(expected, provided);
   },
 
+  // Payload shape verified against docs.squadco.com on 2026-08-10:
+  //   { Event: "charge_successful", TransactionRef, Body: { amount,
+  //     transaction_ref, transaction_status, meta, merchant_amount, ... } }
+  // transaction_status is capitalised ("Success" | "Failed" | "Abandoned" |
+  // "Pending"), hence the lowercasing.
+  //
+  // Note `amount` is the gross charged and `merchant_amount` is what settles
+  // after Squad's cut. The underpayment guard compares against the gross, which
+  // is what we asked the parent for — do not switch it to merchant_amount.
   parseWebhook(payload) {
     const d = (payload.Body ?? payload.body ?? payload.data ?? payload) as Record<string, unknown>;
     const event = String(payload.Event ?? payload.event ?? "").toLowerCase();
     const status = String(d.transaction_status ?? d.status ?? "").toLowerCase();
-    const success = status === "success" || status === "successful";
     return {
       event: event || status || "unknown",
-      reference: String(d.transaction_ref ?? d.transactionRef ?? d.reference ?? ""),
-      success,
-      failed: status === "failed" || status === "reversed",
-      amountPaidKobo: Number.isFinite(Number(d.transaction_amount ?? d.amount))
-        ? Number(d.transaction_amount ?? d.amount)
+      reference: String(
+        d.transaction_ref ?? payload.TransactionRef ?? d.transactionRef ?? d.reference ?? ""
+      ),
+      success: status === "success" || status === "successful",
+      // "abandoned" means the payer left checkout without paying. Treat it as
+      // failed so the attempt stops sitting in the admin's list as pending.
+      failed: status === "failed" || status === "abandoned" || status === "reversed",
+      amountPaidKobo: Number.isFinite(Number(d.amount ?? d.transaction_amount))
+        ? Number(d.amount ?? d.transaction_amount)
         : null,
       metadata: (d.meta ?? d.metadata ?? {}) as Record<string, unknown>,
     };

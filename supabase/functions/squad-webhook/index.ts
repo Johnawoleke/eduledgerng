@@ -27,19 +27,29 @@ const json = (body: unknown, status = 200) =>
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 
-// Squad echoes customer and card details back on every event. We have no use for
-// them and no reason to retain them, so they never reach the audit table.
+// Squad echoes the payer's details back on every event. We have no use for them
+// and no reason to retain them, so they never reach the audit table.
+//
+// The field names come from Squad's documented webhook payload (verified
+// 2026-08-10): `payment_information` carries card details on card payments and
+// `customer_mobile` the payer's phone on USSD. Both were missed on the first
+// pass, which had been guessing at names like `card` and `payer_details` that
+// Squad does not actually use — so card data WAS reaching payment_events.
+const REDACT_FIELDS = [
+  "payment_information", // card details (card payments)
+  "customer_mobile",     // payer phone (USSD)
+  "email",
+  "customer",
+  "customer_email",
+  "ip_address",
+];
+
 const redact = (payload: Record<string, unknown>): Record<string, unknown> => {
   const clone = JSON.parse(JSON.stringify(payload ?? {}));
   for (const key of ["Body", "body", "data"]) {
     const c = clone?.[key];
     if (c && typeof c === "object") {
-      delete c.customer;
-      delete c.card;
-      delete c.payer_details;
-      delete c.customer_email;
-      delete c.email;
-      delete c.ip_address;
+      for (const f of REDACT_FIELDS) delete c[f];
     }
   }
   return clone;
