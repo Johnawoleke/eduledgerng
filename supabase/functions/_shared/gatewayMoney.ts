@@ -7,7 +7,7 @@
 
 export const PLATFORM_FEE_RATE = 0.01;
 
-export type GatewayId = "squad" | "paystack";
+export type GatewayId = "paystack";
 
 export interface GatewayRate {
   percent: number;
@@ -29,22 +29,13 @@ export interface GatewayPricing {
   channels: GatewayRate[];
 }
 
-// Squad (HabariPay), verified 2026-08-04 from squadco.com/pricing.
-//   cards / payment links   1.2% capped ₦1,500
-//   virtual account         0.25% capped ₦1,000
-// The virtual-account rate is NOT yet confirmed to apply to the one-time
-// accounts used at checkout — Squad has not published that, and it is gated
-// behind their "select registered businesses" verification. Until it is
-// confirmed, only the card rate is listed, so the gross-up cannot under-charge.
-export const SQUAD: GatewayPricing = {
-  id: "squad",
-  label: "Squad",
-  channels: [{ percent: 0.012, flat: 0, cap: 150_000 }],
-};
-
-// Paystack standard, verified 2026-08-03. Kept so the platform can fall back to
-// it, and so the Paystack-for-Education rate can be slotted in later without
-// touching anything but this constant and the routing rule below.
+// Paystack standard NGN pricing, verified 2026-08-03:
+//   1.5% + ₦100, the ₦100 waived under ₦2,500, fee capped at ₦2,000.
+//
+// If the Education plan (0.7% capped ₦1,500) is approved, add it as a second
+// GatewayPricing and give selectGateway() a threshold. Do NOT simply lower
+// these numbers: Paystack deducts what YOUR account is actually on, so pricing
+// against a rate you have not been approved for makes every school short.
 export const PAYSTACK: GatewayPricing = {
   id: "paystack",
   label: "Paystack",
@@ -52,7 +43,6 @@ export const PAYSTACK: GatewayPricing = {
 };
 
 export const GATEWAYS: Record<GatewayId, GatewayPricing> = {
-  squad: SQUAD,
   paystack: PAYSTACK,
 };
 
@@ -105,19 +95,16 @@ export const grossUpKobo = (g: GatewayPricing, targetKobo: number): number => {
 // ---------------------------------------------------------------------------
 
 /**
- * Which gateway takes a given payment.
+ * Which gateway takes a given payment. Paystack, for everything.
  *
- * Today: Squad for everything. Its 1.2% beats Paystack's 1.5% + ₦100 at every
- * fee size, so there is no amount at which standard Paystack wins.
- *
- * This exists as a function rather than a constant because the intended next
- * step is amount-based routing — Paystack for Education (0.7% capped ₦1,500)
- * overtakes Squad's 1.2% above roughly ₦125,000, once the cap binds. When that
- * account is approved, add its rate to GATEWAYS and give this a threshold; the
- * edge functions, the webhooks and the ledger all already carry the gateway id
+ * This stays a function of the amount rather than a constant because the
+ * intended next step is amount-based routing: Paystack for Education (0.7%
+ * capped ₦1,500) overtakes the standard rate once the cap binds. When that
+ * account is approved, add its rate to GATEWAYS and give this a threshold —
+ * the edge functions, the webhook and the ledger already carry the gateway id
  * per payment, so nothing else has to change.
  */
-export const selectGateway = (_baseKobo: number): GatewayId => "squad";
+export const selectGateway = (_baseKobo: number): GatewayId => "paystack";
 
 export interface CheckoutQuote {
   gateway: GatewayId;

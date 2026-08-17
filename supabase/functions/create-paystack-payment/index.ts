@@ -21,6 +21,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { encodeFeeItem, sumPaidForFee } from "../_shared/feeItems.ts";
+import { matchBankCode } from "../_shared/bankNames.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -48,13 +49,6 @@ const grossUpKobo = (baseKobo: number): number => {
   while (total - paystackFeeKobo(total) < baseKobo) total += 100;
   return total;
 };
-
-const normalizeBankName = (name: string) =>
-  name
-    .toLowerCase()
-    .replace(/\(.*?\)/g, "")
-    .replace(/\b(bank|of|nigeria|plc|the)\b/g, "")
-    .replace(/[^a-z]/g, "");
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -212,12 +206,11 @@ serve(async (req) => {
         return json({ error: "Could not load bank list from payment provider" }, 502);
       }
 
-      const target = normalizeBankName(school.bank_name);
-      const bank = bankData.data.find((b: { name: string }) => {
-        const candidate = normalizeBankName(b.name);
-        return candidate === target || candidate.includes(target) || target.includes(candidate);
-      });
-      if (!bank) {
+      // Shared with create-payment via _shared/bankNames.ts. This used to carry
+      // its own copy of the matcher, which resolved "First City Monument Bank"
+      // to First Bank of Nigeria's code — see matchBankCode for why.
+      const bankCode = matchBankCode(bankData.data, school.bank_name);
+      if (!bankCode) {
         return json(
           { error: `Could not match the school's bank ("${school.bank_name}") to a Paystack bank. Ask the school owner to re-select their bank in Settings.` },
           400
@@ -232,7 +225,7 @@ serve(async (req) => {
         },
         body: JSON.stringify({
           business_name: school.name,
-          settlement_bank: bank.code,
+          settlement_bank: bankCode,
           account_number: school.account_number,
           percentage_charge: 0,
           description: `EduLedgerNG school ${school.slug || school.id}`,
@@ -254,7 +247,7 @@ serve(async (req) => {
           settings: {
             ...settings,
             paystack_subaccount_code: subaccountCode,
-            paystack_bank_code: bank.code,
+            paystack_bank_code: bankCode,
           },
         })
         .eq("id", school.id);

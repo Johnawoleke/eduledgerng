@@ -1,9 +1,10 @@
 // Settling a payment, in one place.
 //
-// Three callers can settle the same payment — the gateway's webhook, the
-// redirect-verify the dashboard fires, and (for Paystack) its separate webhook.
-// The Paystack-only version duplicated this logic across two files and they had
-// already drifted, so the underpayment guard had to be written twice. One copy.
+// Two callers can settle the same payment — paystack-webhook, and the
+// redirect-verify the dashboard fires when Paystack sends the payer back. An
+// earlier build duplicated this logic across those two files and they drifted,
+// so the underpayment guard had to be written twice and only one copy was
+// right. One copy.
 //
 // Recording is idempotent on payments.reference (unique index), so any two of
 // these racing is harmless.
@@ -77,11 +78,12 @@ export const settlePayment = async (
   // Never credit fees for a charge that collected less than we asked for.
   //
   // Prefer the figure OUR row recorded at checkout over the one the gateway
-  // echoes back. Relying on the echo meant that if a provider returned metadata
-  // under a key we did not anticipate, Number(undefined) was NaN, this guard was
-  // skipped, and the pending row was flipped to success crediting the full fees
-  // unchecked. Squad's response shape is inferred from partial documentation,
-  // so that was a live risk on every payment, not a theoretical one.
+  // echoes back. Relying on the echo means that if a provider returns metadata
+  // under a key we did not anticipate, Number(undefined) is NaN, this guard is
+  // skipped, and the pending row is flipped to success crediting the full fees
+  // unchecked. Paystack's shape is well documented and stable, but the guard
+  // should not depend on that — a provider changing its echo must not be able
+  // to silently disable an amount check.
   //
   // A row with no stored value predates the column and is trusted as before.
   const expected = Number(existing?.expected_total_kobo ?? metadata.expected_total_kobo);
@@ -154,7 +156,7 @@ export const settlePayment = async (
     amount: totalBase,
     amount_paid: totalBase,
     reference,
-    method: gateway === "squad" ? "Squad" : "Paystack",
+    method: "Paystack",
     gateway,
     status: "success",
     items: encoded,

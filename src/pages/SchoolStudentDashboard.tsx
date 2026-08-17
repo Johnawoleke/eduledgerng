@@ -91,8 +91,12 @@ const SchoolStudentDashboard = () => {
 
   const academicPeriods = useAcademicPeriods(school?.id);
 
-  // The gateway redirects back with ?trxref=...&reference=... — confirm the
+  // Paystack redirects back with ?trxref=...&reference=... — confirm the
   // transaction server-side, then refresh the dashboard data.
+  //
+  // If a second gateway is ever routed in, check what it names this param:
+  // reading only Paystack's names is exactly what broke the confirmation step
+  // during the Squad episode, since Squad sent transaction_ref instead.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const reference = params.get("reference") || params.get("trxref");

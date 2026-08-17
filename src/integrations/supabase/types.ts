@@ -179,7 +179,9 @@ export type Database = {
           amount_paid: number | null
           created_at: string
           date: string
-          // Which provider processed this row: squad | paystack (20260806100000).
+          // Which provider processed this row (20260806100000). Always
+          // "paystack" now; the column stays so a second gateway can be routed
+          // in without a migration.
           gateway: string | null
           id: string
           items: string[] | null

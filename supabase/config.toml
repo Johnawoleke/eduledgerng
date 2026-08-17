@@ -4,9 +4,25 @@ project_id = "ifonivphhfplntzshtsb"
 # Auth URL configuration — required for the /account-recovery password-reset
 # flow (the emailed link must be allowed to redirect there). Applied to hosted
 # projects via `supabase config push [--project-ref ...]`.
+# NOTE: this block documents intent only — `supabase config push` cannot be used
+# (it syncs unrelated paid-tier settings and 402s), so the REAL setting lives in
+# the dashboard under Authentication -> URL Configuration, per project.
+#
+# site_url is the fallback Supabase uses when a redirectTo does not match the
+# allow-list below — it does not silently honour the requested URL, it silently
+# replaces it. Pointing it at a raw *.vercel.app deployment is what broke
+# password recovery: those deployments sit behind Vercel Deployment Protection,
+# so the recovery link landed on a Vercel SSO "request access" page.
+#
+# The apex 308-redirects to www, so window.location.origin is the www host —
+# both are listed because OwnerLogin builds redirectTo from the live origin.
 [auth]
-site_url = "https://eduledgerng.vercel.app"
+site_url = "https://www.eduledgerng.com"
 additional_redirect_urls = [
+  "https://www.eduledgerng.com/account-recovery",
+  "https://www.eduledgerng.com",
+  "https://eduledgerng.com/account-recovery",
+  "https://eduledgerng.com",
   "https://eduledgerng.vercel.app/account-recovery",
   "http://localhost:8080/account-recovery",
   "http://localhost:8080",
@@ -40,13 +56,8 @@ verify_jwt = false
 [functions.verify-payment]
 verify_jwt = false
 
-# Squad calls this server-to-server and holds no Supabase JWT. The
-# x-squad-encrypted-body HMAC IS the authorization.
-[functions.squad-webhook]
-verify_jwt = false
-
-# Paystack's webhook stays registered: it is the active gateway's predecessor
-# and will be needed again if Paystack for Education is routed back in.
+# Paystack calls this server-to-server and holds no Supabase JWT. The
+# x-paystack-signature HMAC IS the authorization.
 [functions.paystack-webhook]
 verify_jwt = false
 

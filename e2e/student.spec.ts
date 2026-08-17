@@ -35,8 +35,9 @@ test.describe("Student payment flow", () => {
     await expect(dialog.getByText("Platform Charge (1%)")).toBeVisible();
     await expect(dialog.getByText("₦50", { exact: true })).toBeVisible(); // 1% of ₦5,000
     await expect(dialog.getByText("Payment Processing Fee")).toBeVisible();
-    // Total is grossed up above base + platform, using Squad's 1.2% (tested math).
-    await expect(page.getByRole("button", { name: /Pay ₦5,111\.34/ })).toBeVisible();
+    // Total is grossed up above base + platform, using Paystack's 1.5% + ₦100
+    // (the maths itself is covered by src/lib/gatewayMoney.test.ts).
+    await expect(page.getByRole("button", { name: /Pay ₦5,228\.43/ })).toBeVisible();
   });
 
   test("paying calls create-payment with the fee and redirects to checkout", async ({ page }) => {

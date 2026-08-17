@@ -36,17 +36,18 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    // Which gateway took this payment? The row knows. If there is no row (the
-    // pending insert was skipped or raced), the reference prefix does — every
-    // reference we mint is EDU-SQ-… or EDU-PS-….
+    // Which gateway took this payment? The row knows. Paystack is the only
+    // provider, so the lookup is redundant today — it is kept because it is
+    // what lets a second gateway be routed in without touching this function,
+    // and because rows written during the Squad episode carry gateway values
+    // that must not be silently reinterpreted.
     const { data: row } = await supabaseAdmin
       .from("payments")
       .select("gateway")
       .eq("reference", reference)
       .maybeSingle();
 
-    const gatewayId: GatewayId =
-      (row?.gateway as GatewayId) ?? (reference.startsWith("EDU-PS") ? "paystack" : "squad");
+    const gatewayId: GatewayId = (row?.gateway as GatewayId) ?? "paystack";
     const gateway = gatewayFor(gatewayId);
     if (!gateway.secret()) return json({ error: "Payment provider not configured" }, 500);
 
@@ -59,7 +60,16 @@ serve(async (req) => {
     }
 
     if (!result.success) {
-      await markFailed(supabaseAdmin, reference, `verify.${gatewayId}`);
+      // Only write the attempt off when the gateway says it is actually over.
+      // This used to call markFailed on ANY non-success, including "pending" —
+      // which is the normal reply for a bank transfer the payer has just
+      // authorised, since the dashboard verifies the moment checkout redirects
+      // back. That flipped a live payment to failed; if the webhook was then
+      // missed, the money stayed collected while create-payment stopped
+      // counting the row as settled and asked the student to pay again.
+      if (result.failed) {
+        await markFailed(supabaseAdmin, reference, `verify.${gatewayId}`);
+      }
       return json({ success: false, status: result.status || "pending" });
     }
 

@@ -63,15 +63,15 @@ export async function mockSupabase(page: Page, invocations: Invocation[] = []): 
           session_expires_at: new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString(),
         });
       }
-      // Squad is the routed gateway; create-payment is gateway-agnostic.
+      // Paystack is the routed gateway; create-payment is gateway-agnostic.
       if (name === "create-payment") {
         return json({
           authorization_url: "http://localhost:8080/e2e/gateway-stub",
-          gateway: "squad",
-          reference: "EDU-SQ-E2E-TEST",
+          gateway: "paystack",
+          reference: "EDU-PS-E2E-TEST",
           base_amount: 5000,
-          processing_fee: 61.34,
-          total_ngn: 5111.34,
+          processing_fee: 178.43,
+          total_ngn: 5228.43,
         });
       }
       if (name === "verify-payment") return json({ success: false, status: "pending" });

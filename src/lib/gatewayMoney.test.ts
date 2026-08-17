@@ -2,30 +2,17 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
-  GATEWAYS, SQUAD, PAYSTACK, PLATFORM_FEE_RATE,
+  GATEWAYS, PAYSTACK, PLATFORM_FEE_RATE,
   rateFeeKobo, gatewayFeeKobo, grossUpKobo, quoteCheckout, selectGateway,
 } from "./gatewayMoney";
 import { paystackFeeKobo, grossUpKobo as legacyGrossUp } from "./paystackFees";
 
 const NGN = (n: number) => n * 100;
 
-describe("Squad rates", () => {
-  it("cards: 1.2% capped ₦1,500", () => {
-    expect(gatewayFeeKobo(SQUAD, NGN(10_000))).toBe(NGN(120));
-    expect(gatewayFeeKobo(SQUAD, NGN(100_000))).toBe(NGN(1_200));
-    expect(gatewayFeeKobo(SQUAD, NGN(1_000_000))).toBe(NGN(1_500)); // cap
-  });
-
-  it("beats Paystack standard at every size, which is why it is routed by default", () => {
-    for (const amt of [NGN(1_000), NGN(5_000), NGN(50_000), NGN(200_000), NGN(2_000_000)]) {
-      expect(gatewayFeeKobo(SQUAD, amt)).toBeLessThanOrEqual(gatewayFeeKobo(PAYSTACK, amt));
-    }
-  });
-});
-
 describe("Paystack rates are unchanged from the live implementation", () => {
-  // Paystack is retained for Paystack-for-Education later. Its maths must still
-  // match what production charged, or historic rows stop reconciling.
+  // Paystack is the only gateway. Its maths must still match what production
+  // charged before and during the Squad episode, or historic rows stop
+  // reconciling against what the school actually banked.
   it("matches paystackFees.paystackFeeKobo", () => {
     for (const amt of [NGN(100), NGN(2_499), NGN(2_500), NGN(50_000), NGN(200_000), NGN(5_000_000)]) {
       expect(gatewayFeeKobo(PAYSTACK, amt)).toBe(paystackFeeKobo(amt));
@@ -62,7 +49,7 @@ describe("grossUpKobo — the school is never short-changed", () => {
     // fixed the amount. Pricing on anything but the worst case would let a
     // card payment under-settle the school.
     const twoChannel = {
-      id: "squad" as const,
+      id: "paystack" as const,
       label: "test",
       channels: [
         { percent: 0.0025, flat: 0, cap: 100_000 },
@@ -73,14 +60,14 @@ describe("grossUpKobo — the school is never short-changed", () => {
   });
 
   it("returns 0 for a zero target", () => {
-    expect(grossUpKobo(SQUAD, 0)).toBe(0);
+    expect(grossUpKobo(PAYSTACK, 0)).toBe(0);
   });
 });
 
 describe("quoteCheckout", () => {
   it("school gets the exact fee; parent covers platform + gateway", () => {
     const q = quoteCheckout(50_000);
-    expect(q.gateway).toBe("squad");
+    expect(q.gateway).toBe("paystack");
     expect(q.baseKobo).toBe(NGN(50_000));
     expect(q.platformKobo).toBe(NGN(500)); // 1%
     expect(q.targetKobo).toBe(NGN(50_500));
@@ -92,15 +79,22 @@ describe("quoteCheckout", () => {
     expect(quoteCheckout(50_000, PLATFORM_FEE_RATE, "paystack").gateway).toBe("paystack");
   });
 
+  it("charges the parent Paystack's real fee on top of fee + 1%", () => {
+    // ₦50,000 fee -> ₦500 platform -> ₦50,500 must clear Paystack.
+    const q = quoteCheckout(50_000);
+    expect(q.processingFeeKobo).toBe(gatewayFeeKobo(PAYSTACK, q.totalKobo));
+    expect(q.totalKobo - gatewayFeeKobo(PAYSTACK, q.totalKobo)).toBeGreaterThanOrEqual(q.targetKobo);
+  });
+
   it("a sub-naira fee rounds to nothing and is caught by the caller", () => {
     expect(quoteCheckout(0).totalKobo).toBe(0);
   });
 });
 
 describe("selectGateway", () => {
-  it("routes everything to Squad today", () => {
+  it("routes everything to Paystack", () => {
     for (const fee of [NGN(500), NGN(50_000), NGN(500_000), NGN(5_000_000)]) {
-      expect(selectGateway(fee)).toBe("squad");
+      expect(selectGateway(fee)).toBe("paystack");
     }
   });
 

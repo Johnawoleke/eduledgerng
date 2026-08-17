@@ -1,13 +1,15 @@
 // create-payment
 //
-// Gateway-agnostic checkout. Replaces create-paystack-payment: the provider is
-// chosen by selectGateway() in _shared/gatewayMoney.ts (Squad today), the
+// Gateway-agnostic checkout. Supersedes create-paystack-payment: the provider
+// is chosen by selectGateway() in _shared/gatewayMoney.ts (Paystack), the
 // adapter in _shared/gateways.ts talks to it, and the chosen gateway is written
-// onto the payments row so verify and the webhooks route back correctly.
+// onto the payments row so verify and the webhook route back correctly.
 //
-// The money model is unchanged. The school receives the EXACT fee it set; the
-// platform fee and the gateway's charge are added on top and borne by the
-// parent. Every guard from the Paystack-only version is preserved:
+// The money model: the school receives the EXACT fee it set; the platform's 1%
+// and Paystack's charge are added on top and borne by the parent. The 1% is
+// collected inline by the Paystack adapter via transaction_charge with
+// bearer:"subaccount", so it lands in the platform account rather than the
+// school's. Every guard from the original Paystack build is preserved:
 //   - authorised by the student's session token, never a password
 //   - only PUBLISHED fees are payable
 //   - fee ids are deduplicated before pricing
@@ -263,7 +265,7 @@ serve(async (req) => {
       amount: baseAmountNGN,
       amount_paid: 0,
       reference,
-      method: gateway.id === "squad" ? "Squad" : "Paystack",
+      method: "Paystack",
       gateway: gatewayId,
       // The underpayment guard reads this off the row rather than trusting the
       // gateway to echo our metadata back — see _shared/recordPayment.ts.

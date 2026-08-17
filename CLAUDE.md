@@ -54,27 +54,40 @@ Secrets (`SUPABASE_SERVICE_ROLE_KEY`, `PAYSTACK_SECRET_KEY`, `RESEND_API_KEY`) a
 
 The legacy Zendfi flow (`create-zendfi-payment`, `zendfi-webhook`), `student-payment`, and `check-user-exists` were **deleted** in the 2026-08-03 security pass. `student-payment` could write `payments` rows that defaulted to `status = 'success'` with no gateway involved; `check-user-exists` was an unauthenticated email-enumeration oracle with no callers. If they still exist in the hosted project, delete them there too (`supabase functions delete <name>`).
 
-### Payment gateways: Squad today, pluggable by design
+### Payment gateway: Paystack
 
-**Squad (HabariPay) is the routed gateway. Paystack is retained but unrouted**, so Paystack for Education can be added later for large fees without restructuring anything.
+**Paystack is the only gateway.** Squad (HabariPay) was routed here from
+2026-08-06 and removed on 2026-08-17 without ever having settled a payment — no
+school completed sub-merchant provisioning, so no historical row depends on it.
+The pluggable layer it introduced was kept, because it is what makes adding
+Paystack for Education a rate constant plus a threshold rather than a rewrite.
 
 Three pieces:
 
-- `src/lib/gatewayMoney.ts` (mirrored to `supabase/functions/_shared/gatewayMoney.ts`, sync asserted by `gatewayMoney.test.ts`) — rates, the gross-up, and `selectGateway()`. This is the LIVE checkout maths. Do not confuse it with `src/lib/gatewayFees.ts`, which is the modelling library behind `/gateway-lab` and touches no real payment.
-- `supabase/functions/_shared/gateways.ts` — one adapter per provider (initialize, verify, webhook signature, webhook parse, settlement-account creation) behind a common `Gateway` interface. Backend only; it reads secrets.
-- `supabase/functions/_shared/recordPayment.ts` — settling a payment, in ONE place. The webhook and the redirect-verify both call it, so the underpayment guard and the item encoding cannot drift apart the way they had under the Paystack-only build.
+- `src/lib/gatewayMoney.ts` (mirrored to `supabase/functions/_shared/gatewayMoney.ts`, sync asserted by `gatewayMoney.test.ts`) — rates, the gross-up, and `selectGateway()`. This is the LIVE checkout maths. Regenerate the mirror from the source rather than editing both. Do not confuse it with `src/lib/gatewayFees.ts`, which is the modelling library behind `/gateway-lab` and touches no real payment — that one still models Squad and other providers on purpose, for comparison.
+- `supabase/functions/_shared/gateways.ts` — the provider adapter (initialize, verify, webhook signature, webhook parse, subaccount creation) behind a common `Gateway` interface. Backend only; it reads secrets. `_shared/bankNames.ts` holds the bank-name matcher, split out so it stays Deno-free and unit-testable.
+- `supabase/functions/_shared/recordPayment.ts` — settling a payment, in ONE place. The webhook and the redirect-verify both call it, so the underpayment guard and the item encoding cannot drift apart.
 
-Functions: `create-payment`, `verify-payment`, `squad-webhook`, `paystack-webhook`. `payments.gateway` records which provider took each row (migration 20260806100000), so `verify-payment` knows which API to ask — falling back to the reference prefix (`EDU-SQ-` / `EDU-PS-`) when no row exists.
+Functions: `create-payment`, `verify-payment`, `paystack-webhook`. `payments.gateway` records which provider took each row (migration 20260806100000); it is always `paystack` now, and the column stays so a second gateway needs no migration.
 
-**To route Paystack for Education back in:** add its rate to `GATEWAYS` in `gatewayMoney.ts`, give `selectGateway()` a threshold, set `PAYSTACK_SECRET_KEY`. Nothing else changes — the adapter, the webhook, the ledger column and the settlement-key split all already exist. `settlementKey()` keeps each provider's account id under a separate key in `schools.settings`, so provisioning on one never clobbers the other.
+**Money model.** The school receives the EXACT fee it set. The platform's 1% and Paystack's charge are both added on top and borne by the parent:
 
-**The gross-up uses the DEAREST channel a gateway offers** (`gatewayFeeKobo` takes a max). The parent picks card/transfer at the gateway's own checkout, after we have fixed the amount — pricing on anything but the worst case would let a card payment under-settle the school. A cheaper channel just leaves a small surplus, which settles to the school.
+```
+base            = the fee the school set
+platform_fee    = 1% of base                    -> platform's Paystack account
+total charged   = grossUp(base + platform_fee)  -> parent pays this
+school receives = base + platform_fee - platform_fee = base
+```
 
-Secrets: `SQUAD_SECRET_KEY` (required), `PAYSTACK_SECRET_KEY` (still needed — `resolveBankCode` uses Paystack's `/bank` list for both providers). `SQUAD_ENV=sandbox` switches Squad to its sandbox host.
+The 1% is collected inline by the adapter as `transaction_charge` with `bearer: "subaccount"`, so it lands in the platform account rather than the school's. Each school gets a Paystack **subaccount** provisioned lazily on first payment: `create-payment` resolves the bank code from `schools.bank_name` via Paystack's `/bank` API (paginated, following the cursor) and caches it in `schools.settings.paystack_subaccount_code`.
 
-### Paystack payment flow (split settlement) — retained, currently unrouted
+**Rate: Paystack standard**, 1.5% + ₦100, the ₦100 waived under ₦2,500, capped ₦2,000. If the **Education** plan (0.7% capped ₦1,500) is approved, add it as a second `GatewayPricing` and give `selectGateway()` a threshold. Do NOT simply lower the numbers in `PAYSTACK` — Paystack deducts whatever your account is actually on, so pricing against an unapproved rate makes every school short on every payment.
 
-Each school row (a "branch" — one owner can register many, each with its own bank details) gets a Paystack **subaccount** provisioned lazily on first payment: `create-paystack-payment` resolves the bank code from `schools.bank_name` via Paystack's `/bank` API, creates the subaccount with `schools.account_number`, and caches the code in `schools.settings.paystack_subaccount_code` (JSONB — no schema change). Every transaction is initialized with `subaccount` + a flat `transaction_charge` equal to **1% of the fee amount (the platform's cut)** and `bearer: "subaccount"`. The checkout total is **grossed-up** so the student bears Paystack's processing fee (1.5% + ₦100, waived < ₦2,500, capped ₦2,000) — the gross-up math lives in both `create-paystack-payment/index.ts` and `SchoolStudentDashboard.tsx` and must stay in sync. Net effect: student pays fees + gateway fee; school's bank receives fees − 1%; platform keeps 1%.
+**The gross-up uses the DEAREST channel a gateway offers** (`gatewayFeeKobo` takes a max). The parent picks card/transfer at Paystack's own checkout, after we have fixed the amount — pricing on anything but the worst case would let a card payment under-settle the school. A cheaper channel just leaves a small surplus, which settles to the school.
+
+**`verify-payment` only marks an attempt failed when the gateway says it is terminally over** (`isTerminalFailure` in `gateways.ts`). A `pending` verify — routine for a bank transfer the payer has just authorised, since the dashboard verifies the instant checkout redirects back — must leave the row alone for the webhook. Writing it off meant that if the webhook was then missed, the money stayed collected while `create-payment` stopped counting the row as settled and asked the student to pay again.
+
+Secret: `PAYSTACK_SECRET_KEY` (required — used for checkout, verification, webhook signatures AND the `/bank` lookup).
 
 Recording is idempotent on `payments.reference` (unique index from the reconcile migration) and happens twice-safe via both `paystack-webhook` (HMAC-SHA512 `x-paystack-signature`) and `verify-paystack-payment` (called by the dashboard when Paystack redirects back with `?reference=`).
 
@@ -162,7 +175,8 @@ The canonical migration chain is `20260706120000_baseline_live_schema.sql` (fres
 
 ## Known issues
 
-- **The 2026-08-03 security migrations are applied and verified on STAGING, and still PENDING on PRODUCTION.** See `docs/PRODUCTION_DEPLOY.md` for the exact runbook. The six pending files are `20260729120000_payment_notifications.sql` (which was also unapplied on staging until then) plus `20260803100000` … `20260803140000`. **Order is load-bearing:** migrations → functions → frontend. The migrations are backward compatible with the currently-deployed old functions, but between the function deploy and the Vercel deploy **checkout returns an error** (old frontend sends a password, new function wants a session token), so those two steps must land back to back. Also delete the four removed functions from the hosted project — deleting the source files does not remove them from Supabase.
+- ~~The 2026-08-03 security migrations are still PENDING on PRODUCTION.~~ **Applied, verified against production 2026-08-16.** Probed with the public anon key: `payments`, `payment_events`, `class_fees`, `students`, `school_admins` and `profiles` all return zero rows; `student_sessions` and `student_auth_throttle` exist; `verify_student_pin`, `create_student_session` and `verify_student_session` all return `42501 permission denied`; `is_school_member`/`is_school_owner` are still callable, as they must be. `payments.gateway` and `payments.expected_total_kobo` both exist, so `20260806100000` and `20260806110000` are applied too. All 13 current edge functions are deployed on prod and staging, and the four deleted ones (`student-payment`, `check-user-exists`, `create-zendfi-payment`, `zendfi-webhook`) return 404 on both. `docs/PRODUCTION_DEPLOY.md` remains the runbook for the next such deploy; **order is load-bearing** there: migrations → functions → frontend.
+- **Supabase Auth Site URL on production points at a Vercel deployment URL**, which sits behind Vercel Deployment Protection. Supabase silently replaces a `redirectTo` that is not on the allow-list with Site URL, so password recovery mails a link to a Vercel SSO page. `supabase/config.toml` now documents the intended values (`https://www.eduledgerng.com` plus both hosts' `/account-recovery`), but config cannot be pushed — **set it in the dashboard** under Authentication → URL Configuration, per project. Note the apex 308-redirects to www, so `window.location.origin` is the www host.
 - **Rotate the anon key** if it was ever treated as sensitive — it wasn't secret, but every payment row and raw webhook payload was readable with it until 20260803100000. Assume that data leaked and decide whether affected schools need telling.
 - **Existing students keep their current passwords**, which the backfill hashes in place. Any student still on the old shared `"password"` default is still a one-guess takeover until they rotate — after applying the migrations, consider a one-off reset of every student with `must_change_pin = true` so they all get a fresh random temporary password.
 - **Assume every student password on production is compromised.** `student-set-pin` used to write the student's chosen password into `students.default_pin` in plaintext, so hashing `pin` alone would have been cosmetic. On staging this affected 16 of 17 students. Migration `20260803130000` nulls those columns and adds a trigger enforcing the invariant, but it cannot un-leak what was already exposed — `students` was anon-readable until 20260707120000. Forcing a rotation of every student password on production is the safe call.
