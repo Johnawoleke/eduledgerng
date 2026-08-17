@@ -747,6 +747,19 @@ const SchoolAdminDashboard = () => {
           const className = NIGERIAN_CLASSES.find((c) => c.toUpperCase() === normalizedClass);
           if (!rawName || !className) return null;
 
+          // Optional. The upload used to ignore parent email entirely, so a
+          // school could not supply one in bulk even when it had them — every
+          // uploaded roster landed with parent_email NULL. Accept the spellings
+          // a school is likely to use; a row without one is still accepted and
+          // falls back to the bouncing address at payment time.
+          const rawEmail =
+            row.parentemail || row.parent_email || row.guardianemail ||
+            row.email || row.parentsemail || row.parentguardianemail;
+          const parentEmail =
+            typeof rawEmail === "string" && /^[^\s@]+@[^\s@]+\.[a-zA-Z]{2,}$/.test(rawEmail.trim())
+              ? rawEmail.trim().toLowerCase()
+              : null;
+
           const nameParts = toStudentNameParts(rawName);
           // A distinct temporary password per row — a shared one would put the
           // whole uploaded roster behind a single guess.
@@ -760,12 +773,16 @@ const SchoolAdminDashboard = () => {
             default_pin: tempPassword,
             must_change_pin: true,
             status: "active",
+            parent_email: parentEmail,
           };
         })
         .filter(Boolean) as any[];
 
       if (inserts.length === 0) {
-        toast.error("No valid rows found. Use columns: name and class (JSS1-SSS3).");
+        toast.error(
+          "No valid rows found. Use columns: name and class (JSS1-SSS3). " +
+            "Parent email is optional."
+        );
         return;
       }
 

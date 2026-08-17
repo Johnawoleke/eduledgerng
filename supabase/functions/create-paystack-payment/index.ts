@@ -262,12 +262,14 @@ serve(async (req) => {
       .eq("id", student.id)
       .maybeSingle();
     // Paystack validates the email strictly — fall back to a synthetic one when
-    // the stored parent email is missing or malformed (typos happen).
+    // the stored parent email is missing or malformed (typos happen). The
+    // fallback domain must be one we own; see create-payment for why
+    // @eduledgerng.ng was a dormant data leak.
     const emailOk = (e: unknown): e is string =>
       typeof e === "string" && /^[^\s@]+@[^\s@]+\.[a-zA-Z]{2,}$/.test(e) && !e.endsWith(".test");
     const customerEmail = emailOk(studentRecord?.parent_email)
       ? studentRecord!.parent_email!
-      : `${studentIdCode.replace(/[^a-zA-Z0-9]/g, "").toLowerCase() || "student"}@eduledgerng.ng`;
+      : `${studentIdCode.replace(/[^a-zA-Z0-9]/g, "").toLowerCase() || "student"}@students.eduledgerng.com`;
 
     const initRes = await fetch(`${PAYSTACK_API}/transaction/initialize`, {
       method: "POST",

@@ -221,9 +221,20 @@ serve(async (req) => {
       .maybeSingle();
     const emailOk = (e: unknown): e is string =>
       typeof e === "string" && /^[^\s@]+@[^\s@]+\.[a-zA-Z]{2,}$/.test(e) && !e.endsWith(".test");
+    // Paystack requires a customer email, so a student with no parent email on
+    // file still needs one synthesised. It MUST be on a domain we own.
+    //
+    // This used to be @eduledgerng.ng — a domain nobody has registered. Anyone
+    // could buy it for the price of a domain, point a catch-all at it, and
+    // start receiving every such receipt: student id, school, amount,
+    // reference. A dormant leak switchable by a stranger.
+    //
+    // students.eduledgerng.com is a subdomain of a domain we control, so the
+    // namespace cannot be taken. It publishes no MX, so the receipt bounces at
+    // DNS rather than landing in the real eduledgerng.com mailbox.
     const customerEmail = emailOk(studentRecord?.parent_email)
       ? studentRecord!.parent_email!
-      : `${String(student.student_id).replace(/[^a-zA-Z0-9]/g, "").toLowerCase() || "student"}@eduledgerng.ng`;
+      : `${String(student.student_id).replace(/[^a-zA-Z0-9]/g, "").toLowerCase() || "student"}@students.eduledgerng.com`;
 
     let init;
     try {

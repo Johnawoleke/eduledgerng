@@ -450,6 +450,8 @@ export type Database = {
           is_first_login: boolean | null
           must_change_pin: boolean | null
           name: string
+          // Optional. When absent, create-payment synthesises a bouncing
+          // address on a domain we own — see that function for why.
           parent_email: string | null
           // bcrypt digest. The hash_student_pin trigger (20260803110000) hashes
           // whatever is written here, so callers still assign a plaintext value
