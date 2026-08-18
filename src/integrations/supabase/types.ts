@@ -433,6 +433,42 @@ export type Database = {
           },
         ]
       }
+      // The fee ledger (20260818120000). Both are member-readable but have NO
+      // client insert/update/delete policy — rows are written only by the
+      // charge-generation triggers or a service-role function, exactly like
+      // payments. Insert/Update are typed as never to make that explicit.
+      student_charges: {
+        Row: {
+          id: string
+          school_id: string
+          student_id: string
+          class_fee_id: string
+          session_id: string | null
+          term_id: string | null
+          // The class the student was in when this charge was raised, kept so a
+          // charge still explains itself after they are promoted away from it.
+          class_at_charge: string
+          amount: number
+          created_at: string
+        }
+        Insert: never
+        Update: never
+        Relationships: []
+      }
+      student_enrolments: {
+        Row: {
+          id: string
+          school_id: string
+          student_id: string
+          session_id: string
+          class: string
+          status: string
+          created_at: string
+        }
+        Insert: never
+        Update: never
+        Relationships: []
+      }
       // student_sessions and student_auth_throttle (20260803120000) are
       // deliberately absent: RLS is enabled on both with NO policy, so they are
       // unreachable with the anon key and only the service-role edge functions

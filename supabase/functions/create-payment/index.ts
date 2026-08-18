@@ -111,24 +111,50 @@ serve(async (req) => {
       return json({ error: "Please set your own password before paying." }, 403);
     }
 
-    // --- Validate against PUBLISHED fees ------------------------------------
-    let feeQuery = supabaseAdmin
-      .from("class_fees")
-      .select("*")
-      .eq("school_id", school.id)
-      .eq("status", "published")
-      .in("class_target", [student.class, "ALL"]);
-    if (session_id) feeQuery = feeQuery.eq("session_id", session_id);
-    if (term_id) feeQuery = feeQuery.eq("term_id", term_id);
-    const { data: classFees } = await feeQuery;
+    // --- Validate against what this student was actually CHARGED ------------
+    //
+    // The ledger (student_charges), not class_fees matched by the student's
+    // current class. Two consequences that matter:
+    //
+    //   * a charge from ANY period is payable, so a parent can clear last
+    //     term's debt from the current screen;
+    //   * how much is already paid is summed across ALL periods, matched by fee
+    //     id. Period-filtering that lookup is what made an arrears payment look
+    //     like it credited the wrong term.
+    //
+    // A charge only exists because the fee was published (migration
+    // 20260818120000), so the charge IS the authorisation to pay.
+    const requestedIds = Array.from(
+      new Set(
+        (fee_payments as { fee_item_id?: unknown }[])
+          .map((fp) => (typeof fp?.fee_item_id === "string" ? fp.fee_item_id : null))
+          .filter((id): id is string => Boolean(id))
+      )
+    );
+    if (requestedIds.length === 0) return json({ error: "No valid payments" }, 400);
 
-    let paymentQuery = supabaseAdmin
+    const { data: charges } = await supabaseAdmin
+      .from("student_charges")
+      .select("class_fee_id, amount, session_id, term_id")
+      .eq("student_id", student.id)
+      .in("class_fee_id", requestedIds);
+
+    // The charge records the class it was raised under; the display name lives
+    // on the fee. status is re-checked as defence in depth.
+    const { data: feeRows } = await supabaseAdmin
+      .from("class_fees")
+      .select("id, name, status")
+      .in("id", requestedIds);
+    const feeById = new Map(
+      (feeRows || []).map((f: { id: string; name: string; status: string }) => [f.id, f])
+    );
+
+    // Every settled payment this student has ever made. sumPaidForFee matches by
+    // fee id, so no period filter belongs here.
+    const { data: existingPayments } = await supabaseAdmin
       .from("payments")
       .select("items, status")
       .eq("student_id", student.id);
-    if (session_id) paymentQuery = paymentQuery.eq("session_id", session_id);
-    if (term_id) paymentQuery = paymentQuery.eq("term_id", term_id);
-    const { data: existingPayments } = await paymentQuery;
 
     const settledPayments = (existingPayments || []).filter(
       (p: { status?: string | null }) => p.status !== "pending" && p.status !== "failed"
@@ -145,18 +171,41 @@ serve(async (req) => {
 
     let baseAmountNGN = 0;
     const validatedItems: { fee_item_id: string; amount: number; name: string }[] = [];
+    const paidPeriods: { session_id: string | null; term_id: string | null }[] = [];
     for (const [feeId, requested] of requestedByFee) {
-      const classFee = (classFees || []).find((cf: { id: string }) => cf.id === feeId);
-      if (!classFee) continue;
-      const totalPaid = Math.min(
-        sumPaidForFee(settledPayments, { id: classFee.id, name: classFee.name }),
-        Number(classFee.amount)
+      const charge = (charges || []).find(
+        (c: { class_fee_id: string }) => c.class_fee_id === feeId
       );
-      const payAmount = Math.min(requested, Number(classFee.amount) - totalPaid);
+      if (!charge) continue; // never charged to this student
+      const fee = feeById.get(feeId);
+      if (!fee || fee.status !== "published") continue;
+
+      const owed = Number(charge.amount);
+      const totalPaid = Math.min(
+        sumPaidForFee(settledPayments, { id: feeId, name: fee.name }),
+        owed
+      );
+      const payAmount = Math.min(requested, owed - totalPaid);
       if (payAmount <= 0) continue;
+
       baseAmountNGN += payAmount;
-      validatedItems.push({ fee_item_id: classFee.id, amount: payAmount, name: classFee.name });
+      validatedItems.push({ fee_item_id: feeId, amount: payAmount, name: fee.name });
+      paidPeriods.push({ session_id: charge.session_id, term_id: charge.term_id });
     }
+
+    // Stamp the payment with the period of the charges it settles, NOT the
+    // period the dashboard happened to be showing. Paying last term's debt from
+    // this term's screen has to land on last term, or the old term stays open
+    // and this one shows a credit nobody can account for. When one payment
+    // spans several periods no single stamp is right, so it falls back to where
+    // the payment was initiated — the per-fee credit is unaffected either way,
+    // because reconciliation matches on fee id, not on the period.
+    const distinctPeriods = Array.from(
+      new Set(paidPeriods.map((p) => `${p.session_id ?? ""}|${p.term_id ?? ""}`))
+    );
+    const singlePeriod = distinctPeriods.length === 1 ? paidPeriods[0] : null;
+    const paymentSessionId = singlePeriod ? singlePeriod.session_id : session_id || null;
+    const paymentTermId = singlePeriod ? singlePeriod.term_id : term_id || null;
 
     if (baseAmountNGN <= 0) return json({ error: "No valid payments" }, 400);
 
@@ -258,8 +307,8 @@ serve(async (req) => {
           processing_fee: quote.processingFeeKobo / 100,
           total_ngn: quote.totalKobo / 100,
           expected_total_kobo: quote.totalKobo,
-          session_id: session_id || null,
-          term_id: term_id || null,
+          session_id: paymentSessionId,
+          term_id: paymentTermId,
           items: validatedItems,
         },
       });
@@ -283,8 +332,8 @@ serve(async (req) => {
       expected_total_kobo: quote.totalKobo,
       status: "pending",
       items: validatedItems.map((i) => encodeFeeItem(i.fee_item_id, i.name, i.amount)),
-      session_id: session_id || null,
-      term_id: term_id || null,
+      session_id: paymentSessionId,
+      term_id: paymentTermId,
     });
     if (pendingError) {
       console.error("create-payment: pending insert failed:", pendingError.message);

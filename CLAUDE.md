@@ -103,6 +103,43 @@ The live DB was rebuilt by hand when the project moved off the Lovable tenant, s
 
 Tables: `schools`, `students`, `profiles`, `school_admins`, `school_requests` (bursar invitations), `sessions` → `terms` (academic periods per school), `class_fees` (fee definitions per class+period), `fee_items` (legacy per-student instances), `payments`, `payment_events` (webhook audit log), `notifications`, `student_sessions` + `student_auth_throttle` (service-role only, no RLS policies). Fees and payments are scoped to a session/term — `src/hooks/useAcademicPeriods.ts` and `src/components/AcademicPeriodSelector.tsx` drive that selection. Student fee summaries are computed server-side by the `student-auth` function (class_fees minus payment items); the frontend never queries the `students` table for auth.
 
+### Balances come from the fee LEDGER, not from a formula (migration 20260818120000)
+
+`student_charges` records what a student was actually charged: one row per
+(student, class_fee), written by trigger when the fee is published, carrying the
+amount and the class as at that moment. `student_enrolments` records which class
+a student was in per session, one row per (student, session).
+
+Before this, a balance was recomputed on every read as *published `class_fees`
+matched against the student's CURRENT class, for the selected period*. The past
+was therefore re-derived from today's data, which is why there was no promotion
+feature and why one could not safely be added: changing a class silently
+re-evaluated last year's debt against this year's fee schedule.
+
+Rules that must hold:
+
+- **Never reintroduce a balance computed by matching `class_target` against
+  `students.class`.** Read `student_charges`. The three writers are triggers —
+  `charge_students_on_fee_publish`, `charge_student_on_enrolment`,
+  `enrol_student_on_create` — and they exist as triggers because publishing a
+  fee is a client-side UPDATE that must not be bypassable.
+- **How much is paid is summed across ALL periods, matched by fee id.**
+  `student-auth` and `SchoolAdminDashboard` both do this. Period-filtering that
+  lookup is what made a payment against an old term appear to vanish. The
+  period-scoped list is only for the history *display*.
+- **`create-payment` takes `session_id`/`term_id` from the CHARGE**, not from the
+  request body, so settling last term's debt lands on last term. When one
+  payment spans periods it falls back to where it was initiated; per-fee credit
+  is unaffected either way because reconciliation matches on fee id.
+- RLS mirrors `payments`: member SELECT, **no client write policy at all**.
+  `Insert`/`Update` are typed `never` in `types.ts` to say so.
+- Charge generation is idempotent via `unique (student_id, class_fee_id)` plus
+  `on conflict do nothing`. Keep it that way.
+
+Promotion (not yet built) INSERTS next-session enrolments and marks the old ones
+`promoted`/`graduated`. It never updates a class in place, so history cannot be
+rewritten.
+
 ### Payment line items are keyed by fee id
 
 `payments.items` entries are `"<fee uuid>|FeeName|amount"`. The legacy `"FeeName|amount"` form still parses and still reconciles by name — those rows are real money and must keep working — but anything new carries the id, because name-keyed matching silently cross-credited two fees sharing a name in the same period (typically a class-specific fee and an `ALL` fee both called "Transport"): paying one marked the other settled and the school lost the difference.

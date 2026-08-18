@@ -112,6 +112,17 @@ interface ClassFee {
   created_at?: string;
 }
 
+// A row of the fee ledger: what one student was actually charged for one fee.
+// Written by trigger when the fee is published (migration 20260818120000), and
+// never recomputed, so it stays correct after a student changes class.
+interface StudentCharge {
+  student_id: string;
+  class_fee_id: string;
+  amount: number;
+  session_id: string | null;
+  term_id: string | null;
+}
+
 const generateStudentCode = (surname: string, firstName: string, middleName: string) => {
   const initials = [surname, firstName, middleName]
     .filter(Boolean)
@@ -185,6 +196,7 @@ const SchoolAdminDashboard = () => {
   const [approvingFeeId, setApprovingFeeId] = useState<string | null>(null);
   const [students, setStudents] = useState<StudentRow[]>([]);
   const [classFees, setClassFees] = useState<ClassFee[]>([]);
+  const [charges, setCharges] = useState<StudentCharge[]>([]);
   const [payments, setPayments] = useState<any[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -400,19 +412,39 @@ const SchoolAdminDashboard = () => {
   // outstanding balance. Legacy rows have no status -> treated as settled.
   const settledPaymentsByPeriod = filteredPaymentsByPeriod.filter(isSettledPayment);
 
-  // Helper: get published class fees applicable to a student class for the selected term
-  const getFeesForClass = (studentClass: string) => {
-    return publishedClassFees.filter((f) => {
-      return f.class_target === studentClass || f.class_target === "ALL";
-    });
-  };
+  // Every settled payment, deliberately NOT scoped to the selected period. A
+  // charge is credited by fee id, so a payment that cleared an old term's debt
+  // has to count toward that charge whichever period its row is stamped with.
+  const allSettledPayments = payments.filter(isSettledPayment);
 
-  // Helper: calculate paid amount for a fee from filtered payments
+  const feeById = new Map(classFees.map((f) => [f.id, f]));
+
+  // What a specific student was CHARGED in the selected term, from the ledger.
+  // Replaces matching class_fees against the student's CURRENT class, which
+  // recomputed history on every read and is why a promoted student's old
+  // balance would have been evaluated against their new class's fees.
+  const getChargedFees = (studentId: string) =>
+    (academicPeriods.isFutureSession
+      ? []
+      : charges.filter(
+          (c) =>
+            c.student_id === studentId &&
+            (!academicPeriods.selectedTermId || c.term_id === academicPeriods.selectedTermId)
+        )
+    ).map((c) => ({
+      id: c.class_fee_id,
+      name: feeById.get(c.class_fee_id)?.name ?? "Fee",
+      amount: Number(c.amount),
+      session_id: c.session_id,
+      term_id: c.term_id,
+    }));
+
+  // Helper: calculate paid amount for a fee.
   // Matched by fee id where the payment recorded one, falling back to name for
   // rows written before the ledger carried ids. Name-only matching silently
   // cross-credited two fees that shared a name in the same period.
   const getPaidForFee = (studentId: string, fee: { id: string; name: string }, feeAmount: number) => {
-    const forStudent = settledPaymentsByPeriod.filter((p) => p.student_id === studentId);
+    const forStudent = allSettledPayments.filter((p) => p.student_id === studentId);
     return Math.min(sumPaidForFee(forStudent, fee), feeAmount);
   };
 
@@ -491,9 +523,18 @@ const SchoolAdminDashboard = () => {
       .eq("school_id", schoolData.id)
       .order("date", { ascending: false });
 
+    // What each student was actually CHARGED. Balances come from here rather
+    // than from re-matching class_fees against a student's current class, so a
+    // promoted student's history stays correct (migration 20260818120000).
+    const { data: chargesData } = await supabase
+      .from("student_charges")
+      .select("student_id, class_fee_id, amount, session_id, term_id")
+      .eq("school_id", schoolData.id);
+
     const allClassFees = (classFeesData || []) as ClassFee[];
     setClassFees(allClassFees);
     setPayments(paymentsData || []);
+    setCharges((chargesData || []) as StudentCharge[]);
 
     // Keep ALL students (active + archived); the roster filters by status in
     // the render so archived students can be viewed and restored.
@@ -523,17 +564,16 @@ const SchoolAdminDashboard = () => {
   // Recalculate student totals when period filter changes (term-specific).
   // Only ACTIVE students count toward the roster and stats.
   const studentsWithTotals = activeStudents.map((s) => {
-    const applicableFees = publishedClassFees.filter(
-      (f) => f.class_target === s.class || f.class_target === "ALL"
-    );
+    const applicableFees = getChargedFees(s.id);
     const totalFees = applicableFees.reduce((a, f) => a + Number(f.amount), 0);
 
-    let totalPaid = 0;
-    settledPaymentsByPeriod
-      .filter((p) => p.student_id === s.id)
-      .forEach((p) => {
-        totalPaid += Number(p.amount);
-      });
+    // Summed per fee, not by adding up whole payment rows. The old version
+    // credited the full payment amount against this term's fees, which double
+    // counted a payment that had covered several fees or another period.
+    const totalPaid = applicableFees.reduce(
+      (a, f) => a + getPaidForFee(s.id, f, Number(f.amount)),
+      0
+    );
 
     return { ...s, totalFees, totalPaid: Math.min(totalPaid, totalFees) };
   });
@@ -1042,7 +1082,7 @@ const SchoolAdminDashboard = () => {
     setSelectedStudent(student);
     setLoadingFees(true);
 
-    const applicableFees = getFeesForClass(student.class);
+    const applicableFees = getChargedFees(student.id);
     const feeBreakdown = applicableFees.map((cf) => {
       const paid = getPaidForFee(student.id, { id: cf.id, name: cf.name }, Number(cf.amount));
       const status = paid >= Number(cf.amount) ? "Cleared" : paid > 0 ? "Partial" : "Unpaid";
