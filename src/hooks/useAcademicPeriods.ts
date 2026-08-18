@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { createSessionWithTerms } from "@/lib/academicSessions";
 import type { Tables } from "@/integrations/supabase/types";
 
 export type AcademicSession = Tables<"sessions">;
@@ -108,25 +109,13 @@ export const useAcademicPeriods = (schoolId: string | undefined) => {
       const currentYear = new Date().getFullYear();
       const nextYear = currentYear + 1;
 
-      const { data: newSession, error: insertError } = await supabase
-        .from("sessions")
-        .insert({
-          school_id: schoolId,
-          name: `${currentYear}/${nextYear}`,
-          start_year: currentYear,
-          end_year: nextYear,
-          is_current: true,
-        })
-        .select()
-        .single();
+      const { session: newSession, error: createError } = await createSessionWithTerms(
+        schoolId,
+        `${currentYear}/${nextYear}`,
+        { startYear: currentYear, isCurrent: true }
+      );
 
-      if (!insertError && newSession) {
-        await supabase.from("terms").insert([
-          { session_id: newSession.id, school_id: schoolId, name: "Term 1", term_number: 1, is_current: true },
-          { session_id: newSession.id, school_id: schoolId, name: "Term 2", term_number: 2, is_current: false },
-          { session_id: newSession.id, school_id: schoolId, name: "Term 3", term_number: 3, is_current: false },
-        ]);
-
+      if (!createError && newSession) {
         const { data: reloaded } = await fetchSessions();
         allSessions = reloaded || [];
       }

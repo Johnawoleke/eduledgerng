@@ -413,11 +413,21 @@ const SchoolStudentDashboard = () => {
           </CardContent>
         </Card>
 
-        {balance > 0 && (
+        {/* Gated on the TOTAL, not this term. Gating on `balance` hid the pay
+            button from anyone who owed nothing this term but still carried a
+            debt from an earlier one — they could see what they owed and had no
+            way to pay it. That is the exact state a new term begins in, before
+            its fees are published, so it was the common case rather than an
+            edge one. */}
+        {totalOwing > 0 && (
           <Card className="border-primary/20">
             <CardContent className="pt-6 flex flex-col sm:flex-row items-center justify-between gap-4">
               <div>
-                <p className="font-semibold">Balance: {formatNaira(balance)}</p>
+                <p className="font-semibold">
+                  {owingOtherTerms > 0 && balance === 0
+                    ? `Owing from earlier terms: ${formatNaira(owingOtherTerms)}`
+                    : `Total owing: ${formatNaira(totalOwing)}`}
+                </p>
                 <p className="text-sm text-muted-foreground">Select fees to pay online</p>
               </div>
               <Button onClick={openPaymentModal} className="gap-2">

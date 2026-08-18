@@ -40,6 +40,7 @@ import {
 import { generateReceiptPdf, parsePaymentItems } from "@/lib/generateReceiptPdf";
 import { isSettledPayment } from "@/lib/paymentStatus";
 import { NIGERIAN_CLASSES } from "@/lib/classes";
+import { createSessionWithTerms } from "@/lib/academicSessions";
 import { sumPaidForFee, countStudentsInClass as countInClass } from "@/lib/fees";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -647,36 +648,13 @@ const SchoolAdminDashboard = () => {
     if (!chosen.startsWith("future-")) return chosen;
     const opt = academicPeriods.sessionOptions.find((o) => o.id === chosen);
     if (!school || !opt) return null;
-    const startYear = Number(opt.name.slice(0, 4));
-    const { data, error } = await supabase
-      .from("sessions")
-      .insert({
-        school_id: school.id,
-        name: opt.name,
-        start_year: Number.isFinite(startYear) ? startYear : null,
-        end_year: Number.isFinite(startYear) ? startYear + 1 : null,
-        is_current: false,
-      })
-      .select("id")
-      .maybeSingle();
-    if (error || !data) {
-      toast.error(error?.message || `Could not create the ${opt.name} session.`);
-      return null;
-    }
-    // A session with no terms can hold no fees, because a fee is keyed to a
-    // term. useAcademicPeriods only seeds terms for a school's FIRST session,
-    // so one created here has to seed its own. Same shape as the hook.
-    const { error: termError } = await supabase.from("terms").insert([
-      { session_id: data.id, school_id: school.id, name: "Term 1", term_number: 1, is_current: true },
-      { session_id: data.id, school_id: school.id, name: "Term 2", term_number: 2, is_current: false },
-      { session_id: data.id, school_id: school.id, name: "Term 3", term_number: 3, is_current: false },
-    ]);
-    if (termError) {
-      toast.error(`Created ${opt.name}, but its terms could not be added: ${termError.message}`);
+    const { session, error } = await createSessionWithTerms(school.id, opt.name);
+    if (error || !session) {
+      toast.error(error || `Could not create the ${opt.name} session.`);
       return null;
     }
     await academicPeriods.reload();
-    return data.id;
+    return session.id;
   };
 
   const runPromotion = async (mode: "preview" | "commit") => {

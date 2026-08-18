@@ -22,6 +22,20 @@ npx tsc -b --noEmit  # typecheck (currently fails — see Known Issues)
 
 Tests live in `src/**/*.{test,spec}.{ts,tsx}` (jsdom, globals enabled, setup in `src/test/setup.ts`). Path alias: `@/` → `src/`.
 
+**Two e2e suites, and the difference matters.** `npm run test:e2e` (`e2e/`) is
+hermetic: every Supabase call is intercepted, so it is fast, deterministic and
+CI-safe — and structurally blind to anything involving real data.
+`npm run test:staging` (`e2e-staging/`) runs the same app against the STAGING
+project with no mocking. It exists because six bugs shipped past the hermetic
+suite during the ledger work and four were only visible against a real backend:
+a paid-total guard that read legacy payment rows as unpaid, a `setState` never
+called so a section rendered empty, a pay button gated on the wrong total so a
+student with only older debt could not reach checkout, and two labels that
+contradicted the numbers beside them. It needs staging up, so it is deliberately
+NOT in CI — run it before a release or when touching either dashboard. It asserts
+only what is displayed and never commits a rollover, changes a class, or takes a
+payment, so the dataset stays reusable.
+
 ## Architecture
 
 ### Two parallel auth systems
