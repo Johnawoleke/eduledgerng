@@ -31,8 +31,8 @@ describe("the class ladder", () => {
   });
 });
 
-describe("highestClassInUse", () => {
-  it("finds the top class a school actually runs", () => {
+describe("highestClassInUse (a SUGGESTION only)", () => {
+  it("finds the top class currently on the roster", () => {
     expect(highestClassInUse(["Primary 1", "Primary 6", "Primary 3"])).toBe("Primary 6");
     expect(highestClassInUse(["JSS1", "SSS3", "Primary 2"])).toBe("SSS3");
   });
@@ -42,6 +42,24 @@ describe("highestClassInUse", () => {
     expect(highestClassInUse([])).toBeNull();
     expect(highestClassInUse(["Year 7"])).toBeNull();
   });
+
+  it("is WRONG as a graduating class, which is why the school declares one", () => {
+    // Both of these are ordinary situations, and both were live bugs while the
+    // final class was inferred rather than declared.
+    //
+    // A through school with no SSS3 students enrolled this year:
+    expect(highestClassInUse(["JSS1", "JSS2", "JSS3", "SSS1", "SSS2"])).toBe("SSS2");
+    expect(promotionFor("SSS2", highestClassInUse(["JSS1", "SSS1", "SSS2"]))).toMatchObject({
+      action: "graduate",   // ...but they should move up to SSS3
+    });
+    // A brand-new school whose only intake is Primary 1:
+    expect(promotionFor("Primary 1", highestClassInUse(["Primary 1"]))).toMatchObject({
+      action: "graduate",   // ...the entire school would leave
+    });
+    // Declared correctly, both behave:
+    expect(promotionFor("SSS2", "SSS3")).toMatchObject({ action: "promote", nextClass: "SSS3" });
+    expect(promotionFor("Primary 1", "Primary 6")).toMatchObject({ action: "promote", nextClass: "Primary 2" });
+  });
 });
 
 describe("promotionFor", () => {
@@ -50,7 +68,7 @@ describe("promotionFor", () => {
     expect(r).toMatchObject({ action: "promote", nextClass: "JSS2" });
   });
 
-  it("graduates the school's OWN highest class, not the ladder's", () => {
+  it("graduates at the school's DECLARED final class, not the ladder's end", () => {
     // A primary-only school's leavers are in Primary 6. Graduating only at SSS3
     // would keep promoting them into classes the school does not run.
     const r = promotionFor("Primary 6", "Primary 6");

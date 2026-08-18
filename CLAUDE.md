@@ -160,12 +160,34 @@ rewritten.
   unpaid remainder of charges in every OTHER period, each labelled with the
   session/term it came from. Arrears are payable from the current screen because
   `create-payment` takes the period from the charge.
-- `promote-session` is preview-then-commit. Preview is the exception report
-  (leavers, unrecognised classes, debtors) and changes nothing. Commit inserts
-  next-session enrolments, marks the old ones promoted/graduated, moves
-  `students.class` and `sessions.is_current`. Re-running is refused.
-- Graduation uses the school's OWN highest class in use, not SSS3 — a
-  primary-only school's leavers are in Primary 6.
+- `promote-session` has three modes: `preview` proposes a default outcome per
+  student and changes nothing; `commit` applies **the decisions it is given**;
+  `undo` reverses one committed rollover by its batch id.
+- **Commit does not recompute.** The school edits the preview and sends back a
+  decision per student, matching how mature SIS store a per-student next grade
+  that is defaulted then overridden. Computing at commit time is what made
+  "everyone moves up" the only expressible outcome.
+- **Four outcomes**, because a Nigerian session has more than one: `promote`,
+  `on_trial` (the 40-49% promotion-exam case — advances on probation),
+  `repeat`, `graduate`. The outcome is stamped on the enrolment being LEFT
+  (`promoted` / `promoted_on_trial` / `repeated` / `graduated`); a newly created
+  enrolment is always `active`.
+- **The final class is DECLARED by the school** (`schools.settings.final_class`),
+  never inferred. Inferring it from the roster graduates the wrong people
+  whenever the top class is empty — a through school with no SSS3 students this
+  year would graduate its SSS2s, and a new school whose only intake is Primary 1
+  would graduate its entire roll. `highestClassInUse()` only seeds a suggestion
+  the school confirms; both failures are pinned by tests in `classes.test.ts`.
+- **Undo** is the substitute for the snapshot-before-rollover that standard SIS
+  practice assumes and a shared database cannot offer. Every enrolment a
+  rollover creates OR stamps carries its `rollover_batch`; undo deletes the
+  created ones and restores the stamped ones. It must cover both — capturing
+  only created rows left graduates, who get no new enrolment, permanently marked
+  as having left. Refused once anything has been paid toward the new session.
+- `sessions.is_current` moves only when explicitly asked (`make_current`).
+  Rolling over in June must not declare a year that has not started current.
+- Graduates get `students.status = 'graduated'` and leave the active roster;
+  their record and history are untouched.
 - `set-student-class` is refused once anything has been paid for that session:
   swapping the charges would orphan a real payment.
 - **Say it in plain words.** "Owing this term", "from earlier terms", "Total

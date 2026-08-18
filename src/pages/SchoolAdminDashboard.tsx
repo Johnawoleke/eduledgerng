@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { 
   LogOut,
@@ -39,7 +40,10 @@ import {
 } from "lucide-react";
 import { generateReceiptPdf, parsePaymentItems } from "@/lib/generateReceiptPdf";
 import { isSettledPayment } from "@/lib/paymentStatus";
-import { NIGERIAN_CLASSES } from "@/lib/classes";
+import {
+  NIGERIAN_CLASSES, OUTCOME_LABEL, nextClass,
+  type PromotionAction,
+} from "@/lib/classes";
 import { createSessionWithTerms } from "@/lib/academicSessions";
 import { sumPaidForFee, countStudentsInClass as countInClass } from "@/lib/fees";
 import { toast } from "sonner";
@@ -115,7 +119,7 @@ interface PromotionPlan {
   student_code: string;
   name: string;
   from_class: string;
-  action: "promote" | "graduate" | "unknown";
+  action: PromotionAction;
   to_class: string | null;
   reason: string;
   outstanding: number;
@@ -123,18 +127,12 @@ interface PromotionPlan {
 }
 
 interface PromotionPreview {
-  summary: {
-    from_session: string;
-    to_session: string;
-    highest_class_in_use: string | null;
-    total: number;
-    promoting: number;
-    graduating: number;
-    unknown_class: number;
-    owing: number;
-    owing_total: number;
-    already_done: number;
-  };
+  from_session: string;
+  to_session: string;
+  /** What the school will graduate at. Declared by the school, or suggested. */
+  final_class: string | null;
+  final_class_is_declared: boolean;
+  suggested_final_class: string | null;
   plans: PromotionPlan[];
 }
 
@@ -229,6 +227,13 @@ const SchoolAdminDashboard = () => {
   const [promoteTarget, setPromoteTarget] = useState<string>("");
   const [promotePreview, setPromotePreview] = useState<PromotionPreview | null>(null);
   const [promoteBusy, setPromoteBusy] = useState(false);
+  // The school's decisions, defaulted from the preview and edited here. commit
+  // applies exactly these rather than recomputing, which is what makes repeats
+  // and one-off placements expressible at all.
+  const [promoteDecisions, setPromoteDecisions] = useState<Record<string, { action: PromotionAction; to_class: string | null }>>({});
+  const [finalClassDraft, setFinalClassDraft] = useState<string>("");
+  const [lastRollover, setLastRollover] = useState<{ batch: string; from: string; to: string } | null>(null);
+  const [makeCurrent, setMakeCurrent] = useState(false);
   const [classEditFor, setClassEditFor] = useState<string | null>(null);
   const [classEditBusy, setClassEditBusy] = useState(false);
   const [payments, setPayments] = useState<any[]>([]);
@@ -586,7 +591,12 @@ const SchoolAdminDashboard = () => {
     loadData();
   }, [slug]);
 
-  const isArchived = (s: StudentRow) => s.status === "archived" || s.status === "inactive";
+  // "graduated" joins archived/inactive as off-the-roster. A leaver who stays
+  // listed sits in their old class forever, indistinguishable from a student
+  // still being taught there — and gets counted in that class's fee totals.
+  // Their record and history are untouched; they are simply no longer current.
+  const isArchived = (s: StudentRow) =>
+    s.status === "archived" || s.status === "inactive" || s.status === "graduated";
   const activeStudents = students.filter((s) => !isArchived(s));
   const archivedStudents = students.filter((s) => isArchived(s));
 
@@ -639,6 +649,76 @@ const SchoolAdminDashboard = () => {
     return { ...s, totalFees, totalPaid: Math.min(totalPaid, totalFees) };
   });
 
+  // Counts follow the school's DECISIONS, not the computed defaults, so the
+  // headline numbers change as rows are edited.
+  const decisionCounts = (() => {
+    const c: Record<string, number> = { promote: 0, on_trial: 0, repeat: 0, graduate: 0, unknown: 0 };
+    for (const p of promotePreview?.plans || []) {
+      const d = promoteDecisions[p.student_id];
+      c[(d?.action ?? p.action) as string] = (c[(d?.action ?? p.action) as string] || 0) + 1;
+    }
+    return c;
+  })();
+  const owingCount = (promotePreview?.plans || []).filter((p) => p.outstanding > 0).length;
+  const owingTotal = (promotePreview?.plans || []).reduce((a, p) => a + p.outstanding, 0);
+
+  const setDecision = (studentId: string, action: PromotionAction, fromClass: string) => {
+    setPromoteDecisions((prev) => ({
+      ...prev,
+      [studentId]: {
+        action,
+        // Repeating means the same class; leaving means none. Moving up
+        // defaults to the next rung, and stays editable.
+        to_class:
+          action === "repeat" ? fromClass
+          : action === "graduate" ? null
+          : nextClass(fromClass),
+      },
+    }));
+  };
+
+  // The final class is a property of the school, so it is saved on the school
+  // rather than passed per rollover.
+  const saveFinalClass = async () => {
+    if (!school || !finalClassDraft) return;
+    const { error } = await supabase
+      .from("schools")
+      .update({ settings: { ...(school.settings || {}), final_class: finalClassDraft } })
+      .eq("id", school.id);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success(`Students in ${finalClassDraft} will be marked as finishing school.`);
+    await runPromotion("preview");
+    loadData();
+  };
+
+  const undoRollover = async () => {
+    if (!school || !lastRollover) return;
+    setPromoteBusy(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("promote-session", {
+        body: {
+          school_id: school.id,
+          from_session_id: lastRollover.from,
+          rollover_batch: lastRollover.batch,
+          mode: "undo",
+        },
+      });
+      const message = error || data?.error
+        ? data?.error || (await readFunctionsError(error, "Could not undo"))
+        : null;
+      if (message) { toast.error(message, { duration: 10000 }); return; }
+      toast.success(`Undone. ${data.reversed} student(s) put back.`);
+      setLastRollover(null);
+      await academicPeriods.reload();
+      loadData();
+    } finally {
+      setPromoteBusy(false);
+    }
+  };
+
   // --- Year-end rollover ---------------------------------------------------
   //
   // The target session must be a REAL row: the picker also offers virtual
@@ -678,6 +758,22 @@ const SchoolAdminDashboard = () => {
           from_session_id: academicPeriods.selectedSessionId,
           to_session_id: targetId,
           mode,
+          // commit applies exactly what the school decided. Sending the whole
+          // list, defaults included, means the server never has to guess which
+          // rows were reviewed.
+          ...(mode === "commit"
+            ? {
+                make_current: makeCurrent,
+                decisions: (promotePreview?.plans || []).map((p) => {
+                  const d = promoteDecisions[p.student_id];
+                  return {
+                    student_id: p.student_id,
+                    action: d?.action ?? p.action,
+                    to_class: d?.to_class ?? p.to_class,
+                  };
+                }),
+              }
+            : {}),
         },
       });
       const message = error || data?.error
@@ -690,14 +786,23 @@ const SchoolAdminDashboard = () => {
       if (mode === "preview") {
         setPromoteTarget(targetId);
         setPromotePreview(data);
+        setPromoteDecisions({});
+        setFinalClassDraft(data.final_class || "");
       } else {
         const a = data.applied;
         toast.success(
-          `Promoted ${a.marked_promoted}, graduated ${a.marked_graduated}.` +
+          `${a.promoted} moved up, ${a.on_trial} on trial, ${a.repeated} repeating, ` +
+            `${a.graduated} finishing.` +
             (a.left_alone_unknown_class
               ? ` ${a.left_alone_unknown_class} left alone (class not recognised).`
               : "")
         );
+        // Keep the batch so it can be undone without hunting for it.
+        setLastRollover({
+          batch: data.rollover_batch,
+          from: academicPeriods.selectedSessionId as string,
+          to: targetId,
+        });
         setPromoteOpen(false);
         setPromotePreview(null);
         await academicPeriods.reload();
@@ -1514,6 +1619,15 @@ const SchoolAdminDashboard = () => {
           <Button variant="outline" onClick={downloadStudentTemplate} className="gap-2">
             <Download className="w-4 h-4" /> Download Template
           </Button>
+          {/* Standard SIS practice is to snapshot before a rollover and restore
+              if something surfaces. We cannot snapshot a shared database, so the
+              equivalent is that the last one stays reversible. */}
+          {userRole === "owner" && lastRollover && (
+            <Button variant="outline" onClick={undoRollover} disabled={promoteBusy}
+                    className="gap-2 border-destructive/40 text-destructive">
+              <ArchiveRestore className="w-4 h-4" /> Undo last promotion
+            </Button>
+          )}
           {/* Owner-only: rollover changes every student's class at once. */}
           {userRole === "owner" && (
             <Button
@@ -2019,9 +2133,6 @@ const SchoolAdminDashboard = () => {
                   <SelectContent>
                     {academicPeriods.sessionOptions
                       .filter((o) => o.id !== academicPeriods.selectedSessionId)
-                      // Later sessions only. Promoting into a past session is
-                      // never intended, and its preview is an empty no-op that
-                      // reads as the feature being broken.
                       .filter((o) => {
                         const year = (n?: string) => Number((n || "").slice(0, 4));
                         const here = year(academicPeriods.selectedSession?.name);
@@ -2043,77 +2154,130 @@ const SchoolAdminDashboard = () => {
             </div>
           ) : (
             <div className="space-y-4">
-              <div className="grid grid-cols-3 gap-3 text-center">
-                <div className="p-3 rounded-lg border">
-                  <p className="text-2xl font-bold">{promotePreview.summary.promoting}</p>
-                  <p className="text-xs text-muted-foreground">moving up</p>
+              {/* The final class decides who leaves. Inferring it from the
+                  roster graduates the wrong people whenever the top class
+                  happens to be empty — an ordinary situation in a school still
+                  growing upward — so the school states it once. */}
+              <div className="p-3 rounded-lg border space-y-2">
+                <Label className="text-sm">Your highest class (students here finish school)</Label>
+                <div className="flex items-center gap-2">
+                  <Select value={finalClassDraft} onValueChange={setFinalClassDraft}>
+                    <SelectTrigger className="h-9"><SelectValue placeholder="Choose" /></SelectTrigger>
+                    <SelectContent>
+                      {NIGERIAN_CLASSES.map((c) => (
+                        <SelectItem key={c} value={c}>{c}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button size="sm" variant="outline" disabled={promoteBusy || !finalClassDraft}
+                          onClick={saveFinalClass}>
+                    Save
+                  </Button>
                 </div>
-                <div className="p-3 rounded-lg border">
-                  <p className="text-2xl font-bold">{promotePreview.summary.graduating}</p>
-                  <p className="text-xs text-muted-foreground">finishing school</p>
-                </div>
-                <div className="p-3 rounded-lg border">
-                  <p className="text-2xl font-bold">{promotePreview.summary.total}</p>
-                  <p className="text-xs text-muted-foreground">students in total</p>
-                </div>
+                {!promotePreview.final_class_is_declared && (
+                  <p className="text-xs text-muted-foreground">
+                    Guessed from your current students. Confirm it before promoting, or students
+                    in your top class may be marked as leaving by mistake.
+                  </p>
+                )}
               </div>
 
-              {/* The exceptions. These are the reason preview exists. */}
-              {promotePreview.summary.unknown_class > 0 && (
+              <div className="grid grid-cols-4 gap-2 text-center">
+                {([
+                  ["promote", decisionCounts.promote],
+                  ["on_trial", decisionCounts.on_trial],
+                  ["repeat", decisionCounts.repeat],
+                  ["graduate", decisionCounts.graduate],
+                ] as const).map(([k, n]) => (
+                  <div key={k} className="p-2 rounded-lg border">
+                    <p className="text-xl font-bold">{n}</p>
+                    <p className="text-[11px] text-muted-foreground leading-tight">
+                      {OUTCOME_LABEL[k as PromotionAction]}
+                    </p>
+                  </div>
+                ))}
+              </div>
+
+              {decisionCounts.unknown > 0 && (
                 <div className="p-3 rounded-lg border border-destructive/40 bg-destructive/5 text-sm">
                   <p className="font-medium">
-                    {promotePreview.summary.unknown_class} student(s) are in a class we do not
-                    recognise
+                    {decisionCounts.unknown} student(s) are in a class we do not recognise
                   </p>
                   <p className="text-muted-foreground mt-0.5">
-                    They will be left exactly as they are. Fix their class first if they should
-                    move up.
+                    They will be left exactly as they are. Give them a class first if they should move.
                   </p>
                 </div>
               )}
-              {promotePreview.summary.owing > 0 && (
+              {owingCount > 0 && (
                 <div className="p-3 rounded-lg border text-sm">
                   <p className="font-medium">
-                    {promotePreview.summary.owing} student(s) still owe{" "}
-                    {formatNaira(promotePreview.summary.owing_total)}
+                    {owingCount} student(s) still owe {formatNaira(owingTotal)}
                   </p>
                   <p className="text-muted-foreground mt-0.5">
                     They still move up, and what they owe stays on their record.
                   </p>
                 </div>
               )}
-              {promotePreview.summary.already_done > 0 && (
-                <div className="p-3 rounded-lg border text-sm">
-                  <p className="font-medium">
-                    {promotePreview.summary.already_done} already enrolled in{" "}
-                    {promotePreview.summary.to_session}
-                  </p>
-                  <p className="text-muted-foreground mt-0.5">They will be skipped.</p>
-                </div>
-              )}
 
-              <div className="border rounded-lg divide-y max-h-64 overflow-y-auto">
-                {promotePreview.plans.map((p) => (
-                  <div key={p.student_id} className="flex items-center justify-between p-2.5 text-sm">
-                    <div className="min-w-0">
-                      <p className="font-medium truncate">{p.name}</p>
-                      <p className="text-xs text-muted-foreground">{p.student_code}</p>
-                    </div>
-                    <div className="text-right shrink-0 pl-3">
-                      <p className={p.action === "unknown" ? "text-destructive" : ""}>
-                        {p.action === "promote" ? `${p.from_class} → ${p.to_class}`
-                          : p.action === "graduate" ? `${p.from_class} → finishing`
-                          : `${p.from_class} → not recognised`}
-                      </p>
-                      {p.outstanding > 0 && (
-                        <p className="text-xs text-muted-foreground">
-                          owes {formatNaira(p.outstanding)}
-                        </p>
+              {/* Every row is editable. The default is what the ladder says;
+                  the school changes what it disagrees with. */}
+              <div className="border rounded-lg divide-y max-h-72 overflow-y-auto">
+                {promotePreview.plans.map((p) => {
+                  const d = promoteDecisions[p.student_id] || { action: p.action, to_class: p.to_class };
+                  return (
+                    <div key={p.student_id} className="p-2.5 text-sm space-y-1.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="font-medium truncate">{p.name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {p.student_code} · {p.from_class}
+                            {p.outstanding > 0 && ` · owes ${formatNaira(p.outstanding)}`}
+                          </p>
+                        </div>
+                        <Select
+                          value={d.action}
+                          onValueChange={(v) => setDecision(p.student_id, v as PromotionAction, p.from_class)}
+                        >
+                          <SelectTrigger className="h-8 w-44 text-xs shrink-0">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {(["promote", "on_trial", "repeat", "graduate"] as const).map((a) => (
+                              <SelectItem key={a} value={a}>{OUTCOME_LABEL[a]}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      {(d.action === "promote" || d.action === "on_trial") && (
+                        <div className="flex items-center gap-2 pl-1">
+                          <span className="text-xs text-muted-foreground">Into</span>
+                          <Select
+                            value={d.to_class || ""}
+                            onValueChange={(v) =>
+                              setPromoteDecisions((prev) => ({
+                                ...prev,
+                                [p.student_id]: { action: d.action, to_class: v },
+                              }))
+                            }
+                          >
+                            <SelectTrigger className="h-7 w-36 text-xs"><SelectValue placeholder="class" /></SelectTrigger>
+                            <SelectContent>
+                              {NIGERIAN_CLASSES.map((c) => (
+                                <SelectItem key={c} value={c}>{c}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
                       )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
+
+              <label className="flex items-center gap-2 text-sm">
+                <Checkbox checked={makeCurrent} onCheckedChange={(v) => setMakeCurrent(!!v)} />
+                Make {promotePreview.to_session} the current session now
+              </label>
 
               <div className="flex gap-2">
                 <Button variant="outline" className="flex-1" disabled={promoteBusy}
@@ -2122,9 +2286,7 @@ const SchoolAdminDashboard = () => {
                 </Button>
                 <Button className="flex-1" disabled={promoteBusy}
                         onClick={() => runPromotion("commit")}>
-                  {promoteBusy
-                    ? "Working..."
-                    : `Move ${promotePreview.summary.promoting} student(s) up`}
+                  {promoteBusy ? "Working..." : "Apply these changes"}
                 </Button>
               </div>
             </div>

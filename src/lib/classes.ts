@@ -30,14 +30,15 @@ export const nextClass = (c: string | null | undefined): string | null => {
 };
 
 /**
- * The highest class a school actually runs, inferred from the classes its
- * students are in.
+ * The highest class currently on a roster. A SUGGESTION for a school's final
+ * class, never the answer.
  *
- * This is what decides who graduates. A primary-only school's leavers are in
- * Primary 6, not SSS3, so graduating only at the end of the national ladder
- * would keep promoting them into classes that do not exist there. Inferring it
- * is a guess, which is why rollover shows it for review before committing
- * rather than acting on it silently.
+ * Inferring the graduating class from the roster is wrong in ways that matter:
+ * a through school with no SSS3 students this year would graduate its SSS2s,
+ * and a brand-new school whose only intake is Primary 1 would graduate its
+ * entire roll on the first rollover. Both are ordinary situations. The final
+ * class is a property of the SCHOOL and has to be stated by it — this only
+ * seeds the default that gets confirmed.
  */
 export const highestClassInUse = (classes: (string | null | undefined)[]): string | null => {
   let best = -1;
@@ -48,7 +49,29 @@ export const highestClassInUse = (classes: (string | null | undefined)[]): strin
   return best < 0 ? null : NIGERIAN_CLASSES[best];
 };
 
-export type PromotionAction = "promote" | "graduate" | "unknown";
+// The outcomes a Nigerian session can end in. A promotion exam at 50%+
+// promotes, 40-49% is "promoted on trial" (advances, on probation, can be sent
+// back), below 40% repeats. Schools differ on whether they repeat at all — the
+// mass-promotion argument is live — so all of these are offered and none is
+// imposed.
+export type PromotionAction = "promote" | "on_trial" | "repeat" | "graduate" | "unknown";
+
+/** What the enrolment being LEFT is stamped with for each outcome. */
+export const OUTCOME_STATUS: Record<Exclude<PromotionAction, "unknown">, string> = {
+  promote: "promoted",
+  on_trial: "promoted_on_trial",
+  repeat: "repeated",
+  graduate: "graduated",
+};
+
+/** Labels in the words a school owner uses, not ours. */
+export const OUTCOME_LABEL: Record<PromotionAction, string> = {
+  promote: "Moves up",
+  on_trial: "Moves up on trial",
+  repeat: "Repeats the class",
+  graduate: "Finishing school",
+  unknown: "Class not recognised",
+};
 
 export interface PromotionOutcome {
   action: PromotionAction;
@@ -68,7 +91,7 @@ export interface PromotionOutcome {
  */
 export const promotionFor = (
   currentClass: string | null | undefined,
-  highestInUse: string | null
+  finalClass: string | null
 ): PromotionOutcome => {
   const rank = classRank(currentClass);
   if (rank < 0) {
@@ -79,7 +102,7 @@ export const promotionFor = (
     };
   }
 
-  const ceiling = classRank(highestInUse);
+  const ceiling = classRank(finalClass);
   if (ceiling >= 0 && rank >= ceiling) {
     return {
       action: "graduate",
