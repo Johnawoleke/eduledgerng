@@ -34,7 +34,8 @@ import {
   Loader2,
   FileSpreadsheet,
   Archive,
-  ArchiveRestore
+  ArchiveRestore,
+  ChevronsUp
 } from "lucide-react";
 import { generateReceiptPdf, parsePaymentItems } from "@/lib/generateReceiptPdf";
 import { isSettledPayment } from "@/lib/paymentStatus";
@@ -104,6 +105,36 @@ interface ClassFee {
   term_id: string | null;
   status: string;
   created_at?: string;
+}
+
+// What promote-session returns from a preview. Mirrors the Plan/summary shape
+// in supabase/functions/promote-session/index.ts.
+interface PromotionPlan {
+  student_id: string;
+  student_code: string;
+  name: string;
+  from_class: string;
+  action: "promote" | "graduate" | "unknown";
+  to_class: string | null;
+  reason: string;
+  outstanding: number;
+  already_enrolled: boolean;
+}
+
+interface PromotionPreview {
+  summary: {
+    from_session: string;
+    to_session: string;
+    highest_class_in_use: string | null;
+    total: number;
+    promoting: number;
+    graduating: number;
+    unknown_class: number;
+    owing: number;
+    owing_total: number;
+    already_done: number;
+  };
+  plans: PromotionPlan[];
 }
 
 // A row of the fee ledger: what one student was actually charged for one fee.
@@ -191,6 +222,14 @@ const SchoolAdminDashboard = () => {
   const [students, setStudents] = useState<StudentRow[]>([]);
   const [classFees, setClassFees] = useState<ClassFee[]>([]);
   const [charges, setCharges] = useState<StudentCharge[]>([]);
+  // Year-end rollover. preview is computed server-side and reviewed here before
+  // anything is committed — see supabase/functions/promote-session.
+  const [promoteOpen, setPromoteOpen] = useState(false);
+  const [promoteTarget, setPromoteTarget] = useState<string>("");
+  const [promotePreview, setPromotePreview] = useState<PromotionPreview | null>(null);
+  const [promoteBusy, setPromoteBusy] = useState(false);
+  const [classEditFor, setClassEditFor] = useState<string | null>(null);
+  const [classEditBusy, setClassEditBusy] = useState(false);
   const [payments, setPayments] = useState<any[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -571,6 +610,133 @@ const SchoolAdminDashboard = () => {
 
     return { ...s, totalFees, totalPaid: Math.min(totalPaid, totalFees) };
   });
+
+  // --- Year-end rollover ---------------------------------------------------
+  //
+  // The target session must be a REAL row: the picker also offers virtual
+  // "future-<year>" sessions, which are not UUIDs and would 22P02 every query
+  // in the function. If one is chosen, create it for real first.
+  const resolveTargetSession = async (chosen: string): Promise<string | null> => {
+    if (!chosen.startsWith("future-")) return chosen;
+    const opt = academicPeriods.sessionOptions.find((o) => o.id === chosen);
+    if (!school || !opt) return null;
+    const startYear = Number(opt.name.slice(0, 4));
+    const { data, error } = await supabase
+      .from("sessions")
+      .insert({
+        school_id: school.id,
+        name: opt.name,
+        start_year: Number.isFinite(startYear) ? startYear : null,
+        end_year: Number.isFinite(startYear) ? startYear + 1 : null,
+        is_current: false,
+      })
+      .select("id")
+      .maybeSingle();
+    if (error || !data) {
+      toast.error(error?.message || `Could not create the ${opt.name} session.`);
+      return null;
+    }
+    // A session with no terms can hold no fees, because a fee is keyed to a
+    // term. useAcademicPeriods only seeds terms for a school's FIRST session,
+    // so one created here has to seed its own. Same shape as the hook.
+    const { error: termError } = await supabase.from("terms").insert([
+      { session_id: data.id, school_id: school.id, name: "Term 1", term_number: 1, is_current: true },
+      { session_id: data.id, school_id: school.id, name: "Term 2", term_number: 2, is_current: false },
+      { session_id: data.id, school_id: school.id, name: "Term 3", term_number: 3, is_current: false },
+    ]);
+    if (termError) {
+      toast.error(`Created ${opt.name}, but its terms could not be added: ${termError.message}`);
+      return null;
+    }
+    await academicPeriods.reload();
+    return data.id;
+  };
+
+  const runPromotion = async (mode: "preview" | "commit") => {
+    if (!school || !academicPeriods.selectedSessionId) return;
+    if (academicPeriods.isFutureSession) {
+      toast.error("Switch to the session you are promoting FROM first.");
+      return;
+    }
+    if (!promoteTarget) {
+      toast.error("Choose the session to promote students into.");
+      return;
+    }
+    setPromoteBusy(true);
+    try {
+      const targetId = await resolveTargetSession(promoteTarget);
+      if (!targetId) return;
+
+      const { data, error } = await supabase.functions.invoke("promote-session", {
+        body: {
+          school_id: school.id,
+          from_session_id: academicPeriods.selectedSessionId,
+          to_session_id: targetId,
+          mode,
+        },
+      });
+      const message = error || data?.error
+        ? data?.error || (await readFunctionsError(error, "Something went wrong"))
+        : null;
+      if (message) {
+        toast.error(message);
+        return;
+      }
+      if (mode === "preview") {
+        setPromoteTarget(targetId);
+        setPromotePreview(data);
+      } else {
+        const a = data.applied;
+        toast.success(
+          `Promoted ${a.marked_promoted}, graduated ${a.marked_graduated}.` +
+            (a.left_alone_unknown_class
+              ? ` ${a.left_alone_unknown_class} left alone (class not recognised).`
+              : "")
+        );
+        setPromoteOpen(false);
+        setPromotePreview(null);
+        await academicPeriods.reload();
+        loadData();
+      }
+    } finally {
+      setPromoteBusy(false);
+    }
+  };
+
+  // --- Correct one student's class ------------------------------------------
+  const handleChangeClass = async (studentDbId: string, newClass: string) => {
+    if (!school || !academicPeriods.selectedSessionId) return;
+    setClassEditBusy(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("set-student-class", {
+        body: {
+          school_id: school.id,
+          student_id: studentDbId,
+          session_id: academicPeriods.selectedSessionId,
+          new_class: newClass,
+        },
+      });
+      const message = error || data?.error
+        ? data?.error || (await readFunctionsError(error, "Something went wrong"))
+        : null;
+      if (message) {
+        // The refusal when money has been paid is long on purpose — it explains
+        // why, because "cannot change class" alone reads as a broken button.
+        toast.error(message, { duration: 10000 });
+        return;
+      }
+      if (data?.unchanged) {
+        toast.info(data.message);
+      } else {
+        toast.success(`Class changed to ${newClass}. Fees for this session updated.`);
+      }
+      setClassEditFor(null);
+      setSelectedStudent(null);
+      loadData();
+    } finally {
+      setClassEditBusy(false);
+    }
+  };
 
   const handleAddStudent = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1296,6 +1462,20 @@ const SchoolAdminDashboard = () => {
           <Button variant="outline" onClick={downloadStudentTemplate} className="gap-2">
             <Download className="w-4 h-4" /> Download Template
           </Button>
+          {/* Owner-only: rollover changes every student's class at once. */}
+          {userRole === "owner" && (
+            <Button
+              variant="outline"
+              onClick={() => { setPromotePreview(null); setPromoteOpen(true); }}
+              className="gap-2"
+              disabled={academicPeriods.isFutureSession}
+              title={academicPeriods.isFutureSession
+                ? "Switch to a real session first"
+                : "Move every student up a class at the end of the year"}
+            >
+              <ChevronsUp className="w-4 h-4" /> Move Up a Class
+            </Button>
+          )}
           <Button
             onClick={() => setAddStudentOpen(true)}
             className="gap-2"
@@ -1348,11 +1528,45 @@ const SchoolAdminDashboard = () => {
                     <Button variant="ghost" size="icon" onClick={() => setSelectedStudent(null)}>
                       <ChevronLeft className="w-5 h-5" />
                     </Button>
-                    <div>
+                    <div className="min-w-0">
                       <CardTitle className="text-lg">{selectedStudent.name}</CardTitle>
                       <p className="text-sm text-muted-foreground">{selectedStudent.student_id} · {selectedStudent.class}</p>
                       {selectedStudent.parent_email && (
                         <p className="text-xs text-muted-foreground mt-0.5">Parent: {selectedStudent.parent_email}</p>
+                      )}
+                      {/* Correcting a class was impossible before the enrolment
+                          table existed. It changes the enrolment for the session
+                          on screen, so earlier years keep the class they had. */}
+                      {userRole === "owner" && !academicPeriods.isFutureSession && (
+                        <div className="mt-2">
+                          {classEditFor === selectedStudent.id ? (
+                            <div className="flex items-center gap-2">
+                              <Select
+                                disabled={classEditBusy}
+                                onValueChange={(v) => handleChangeClass(selectedStudent.id, v)}
+                              >
+                                <SelectTrigger className="h-8 w-40 text-xs">
+                                  <SelectValue placeholder="Move to class..." />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {NIGERIAN_CLASSES.filter((c) => c !== selectedStudent.class).map((c) => (
+                                    <SelectItem key={c} value={c}>{c}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <Button variant="ghost" size="sm" className="h-8 text-xs"
+                                      disabled={classEditBusy}
+                                      onClick={() => setClassEditFor(null)}>
+                                Cancel
+                              </Button>
+                            </div>
+                          ) : (
+                            <Button variant="outline" size="sm" className="h-7 text-xs"
+                                    onClick={() => setClassEditFor(selectedStudent.id)}>
+                              Change class
+                            </Button>
+                          )}
+                        </div>
                       )}
                     </div>
                   </div>
@@ -1728,6 +1942,144 @@ const SchoolAdminDashboard = () => {
       </main>
 
       {/* Add Student Dialog */}
+      {/* Year-end rollover. Preview first, always: a school with 400 students
+          cannot check a roster by eye, so the exceptions are what matters. */}
+      <Dialog
+        open={promoteOpen}
+        onOpenChange={(o) => { setPromoteOpen(o); if (!o) setPromotePreview(null); }}
+      >
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Move students up a class</DialogTitle>
+            <DialogDescription>
+              Everyone in {academicPeriods.selectedSession?.name || "this session"} moves up one
+              class. Students in your highest class finish and are marked as leavers. Nothing
+              changes until you confirm.
+            </DialogDescription>
+          </DialogHeader>
+
+          {!promotePreview ? (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>Move them into</Label>
+                <Select value={promoteTarget} onValueChange={setPromoteTarget}>
+                  <SelectTrigger><SelectValue placeholder="Choose the new session" /></SelectTrigger>
+                  <SelectContent>
+                    {academicPeriods.sessionOptions
+                      .filter((o) => o.id !== academicPeriods.selectedSessionId)
+                      // Later sessions only. Promoting into a past session is
+                      // never intended, and its preview is an empty no-op that
+                      // reads as the feature being broken.
+                      .filter((o) => {
+                        const year = (n?: string) => Number((n || "").slice(0, 4));
+                        const here = year(academicPeriods.selectedSession?.name);
+                        const there = year(o.name);
+                        return !Number.isFinite(here) || !Number.isFinite(there) || there > here;
+                      })
+                      .map((o) => (
+                        <SelectItem key={o.id} value={o.id}>
+                          {o.name}{o.isFuture ? " (will be created)" : ""}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button className="w-full" disabled={promoteBusy || !promoteTarget}
+                      onClick={() => runPromotion("preview")}>
+                {promoteBusy ? "Checking..." : "Show me what will happen"}
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="grid grid-cols-3 gap-3 text-center">
+                <div className="p-3 rounded-lg border">
+                  <p className="text-2xl font-bold">{promotePreview.summary.promoting}</p>
+                  <p className="text-xs text-muted-foreground">moving up</p>
+                </div>
+                <div className="p-3 rounded-lg border">
+                  <p className="text-2xl font-bold">{promotePreview.summary.graduating}</p>
+                  <p className="text-xs text-muted-foreground">finishing school</p>
+                </div>
+                <div className="p-3 rounded-lg border">
+                  <p className="text-2xl font-bold">{promotePreview.summary.total}</p>
+                  <p className="text-xs text-muted-foreground">students in total</p>
+                </div>
+              </div>
+
+              {/* The exceptions. These are the reason preview exists. */}
+              {promotePreview.summary.unknown_class > 0 && (
+                <div className="p-3 rounded-lg border border-destructive/40 bg-destructive/5 text-sm">
+                  <p className="font-medium">
+                    {promotePreview.summary.unknown_class} student(s) are in a class we do not
+                    recognise
+                  </p>
+                  <p className="text-muted-foreground mt-0.5">
+                    They will be left exactly as they are. Fix their class first if they should
+                    move up.
+                  </p>
+                </div>
+              )}
+              {promotePreview.summary.owing > 0 && (
+                <div className="p-3 rounded-lg border text-sm">
+                  <p className="font-medium">
+                    {promotePreview.summary.owing} student(s) still owe{" "}
+                    {formatNaira(promotePreview.summary.owing_total)}
+                  </p>
+                  <p className="text-muted-foreground mt-0.5">
+                    They still move up, and what they owe stays on their record.
+                  </p>
+                </div>
+              )}
+              {promotePreview.summary.already_done > 0 && (
+                <div className="p-3 rounded-lg border text-sm">
+                  <p className="font-medium">
+                    {promotePreview.summary.already_done} already enrolled in{" "}
+                    {promotePreview.summary.to_session}
+                  </p>
+                  <p className="text-muted-foreground mt-0.5">They will be skipped.</p>
+                </div>
+              )}
+
+              <div className="border rounded-lg divide-y max-h-64 overflow-y-auto">
+                {promotePreview.plans.map((p) => (
+                  <div key={p.student_id} className="flex items-center justify-between p-2.5 text-sm">
+                    <div className="min-w-0">
+                      <p className="font-medium truncate">{p.name}</p>
+                      <p className="text-xs text-muted-foreground">{p.student_code}</p>
+                    </div>
+                    <div className="text-right shrink-0 pl-3">
+                      <p className={p.action === "unknown" ? "text-destructive" : ""}>
+                        {p.action === "promote" ? `${p.from_class} → ${p.to_class}`
+                          : p.action === "graduate" ? `${p.from_class} → finishing`
+                          : `${p.from_class} → not recognised`}
+                      </p>
+                      {p.outstanding > 0 && (
+                        <p className="text-xs text-muted-foreground">
+                          owes {formatNaira(p.outstanding)}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex gap-2">
+                <Button variant="outline" className="flex-1" disabled={promoteBusy}
+                        onClick={() => setPromotePreview(null)}>
+                  Back
+                </Button>
+                <Button className="flex-1" disabled={promoteBusy}
+                        onClick={() => runPromotion("commit")}>
+                  {promoteBusy
+                    ? "Working..."
+                    : `Move ${promotePreview.summary.promoting} student(s) up`}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={addStudentOpen} onOpenChange={setAddStudentOpen}>
         <DialogContent className="sm:max-w-[425px]">
           <form onSubmit={handleAddStudent}>
