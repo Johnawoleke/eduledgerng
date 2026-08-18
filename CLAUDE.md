@@ -140,6 +140,25 @@ Promotion (not yet built) INSERTS next-session enrolments and marks the old ones
 `promoted`/`graduated`. It never updates a class in place, so history cannot be
 rewritten.
 
+### Arrears and rollover (Stage 2/3 on top of the ledger)
+
+- `student-auth` returns `feeItems` for the selected period AND `arrears` — the
+  unpaid remainder of charges in every OTHER period, each labelled with the
+  session/term it came from. Arrears are payable from the current screen because
+  `create-payment` takes the period from the charge.
+- `promote-session` is preview-then-commit. Preview is the exception report
+  (leavers, unrecognised classes, debtors) and changes nothing. Commit inserts
+  next-session enrolments, marks the old ones promoted/graduated, moves
+  `students.class` and `sessions.is_current`. Re-running is refused.
+- Graduation uses the school's OWN highest class in use, not SSS3 — a
+  primary-only school's leavers are in Primary 6.
+- `set-student-class` is refused once anything has been paid for that session:
+  swapping the charges would orphan a real payment.
+- **Say it in plain words.** "Owing this term", "from earlier terms", "Total
+  owing", "Who Owes" — never "arrears", "balance" or "outstanding". And only
+  claim "this term" when a term is actually selected; with none chosen the
+  figure already spans every term.
+
 ### Payment line items are keyed by fee id
 
 `payments.items` entries are `"<fee uuid>|FeeName|amount"`. The legacy `"FeeName|amount"` form still parses and still reconciles by name — those rows are real money and must keep working — but anything new carries the id, because name-keyed matching silently cross-credited two fees sharing a name in the same period (typically a class-specific fee and an `ALL` fee both called "Transport"): paying one marked the other settled and the school lost the difference.

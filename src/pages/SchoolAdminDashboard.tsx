@@ -596,6 +596,33 @@ const SchoolAdminDashboard = () => {
 
   // Recalculate student totals when period filter changes (term-specific).
   // Only ACTIVE students count toward the roster and stats.
+  // What each student owes across EVERY period, not just the one on screen.
+  // This is the number a school actually chases: the dashboard shows one term
+  // at a time, so a debt carried from an earlier term is otherwise invisible.
+  const owingAllPeriods = (() => {
+    const out = new Map<string, number>();
+    for (const c of charges) {
+      const forStudent = allSettledPayments.filter((p) => p.student_id === c.student_id);
+      // The fee NAME matters: legacy payment lines carry no fee id and match by
+      // name. Passing a blank one reads every one of them as unpaid.
+      const paid = Math.min(
+        sumPaidForFee(forStudent, {
+          id: c.class_fee_id,
+          name: feeById.get(c.class_fee_id)?.name ?? "",
+        }),
+        Number(c.amount)
+      );
+      out.set(
+        c.student_id,
+        (out.get(c.student_id) || 0) + Math.max(Number(c.amount) - paid, 0)
+      );
+    }
+    return out;
+  })();
+
+  const debtorCount = activeStudents.filter((s) => (owingAllPeriods.get(s.id) || 0) > 0).length;
+  const owingGrandTotal = activeStudents.reduce((a, s) => a + (owingAllPeriods.get(s.id) || 0), 0);
+
   const studentsWithTotals = activeStudents.map((s) => {
     const applicableFees = getChargedFees(s.id);
     const totalFees = applicableFees.reduce((a, f) => a + Number(f.amount), 0);
@@ -1262,9 +1289,40 @@ const SchoolAdminDashboard = () => {
   const copyPortalLink = () => { navigator.clipboard.writeText(portalUrl); toast.success("Portal link copied!"); };
 
   // Export reports function
+  // The debtors list: who owes what, across every term. Exported rather than
+  // only shown, because chasing fees happens off the dashboard — on a phone, in
+  // a staff meeting, or attached to a message home.
   const exportReport = () => {
-    // Placeholder for report generation
-    toast.info("Report generation will be available soon!");
+    const debtors = activeStudents
+      .map((s) => ({ s, owing: owingAllPeriods.get(s.id) || 0 }))
+      .filter((r) => r.owing > 0)
+      .sort((a, b) => b.owing - a.owing);
+
+    if (debtors.length === 0) {
+      toast.success("Nobody is owing. Nothing to export.");
+      return;
+    }
+
+    const esc = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const csv = [
+      "Student ID,Name,Class,Parent Email,Total Owing (NGN)",
+      ...debtors.map((r) =>
+        [r.s.student_id, r.s.name, r.s.class, r.s.parent_email || "", r.owing]
+          .map(esc)
+          .join(",")
+      ),
+      "",
+      esc(`Total owed to ${school?.name || "this school"}`) + ",,,," +
+        esc(debtors.reduce((a, r) => a + r.owing, 0)),
+    ].join("\n");
+
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8;" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${school?.slug || "school"}-owing-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success(`${debtors.length} student(s) owing. Downloaded.`);
   };
 
   if (loading) {
@@ -1430,8 +1488,24 @@ const SchoolAdminDashboard = () => {
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-lg bg-destructive/10 flex items-center justify-center"><Wallet className="w-5 h-5 text-destructive" /></div>
                 <div>
-                  <p className="text-sm text-muted-foreground">Outstanding</p>
+                  {/* Plain words, and the ALL-PERIODS figure underneath. The
+                      top number is this term only, which is what the period
+                      selector implies; the debt a school actually chases spans
+                      terms and was previously visible nowhere. */}
+                  {/* Only claim "this term" when a term is actually selected.
+                      With none chosen the figure already spans every term, and
+                      mislabelling it is the exact confusion this stage exists
+                      to remove. */}
+                  <p className="text-sm text-muted-foreground">
+                    {academicPeriods.selectedTermId ? "Owing this term" : "Total owing"}
+                  </p>
                   <p className="text-2xl font-bold">{formatNaira(outstanding)}</p>
+                  {owingGrandTotal > outstanding && (
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {formatNaira(owingGrandTotal)} owed in total by {debtorCount} student
+                      {debtorCount === 1 ? "" : "s"}, across all terms
+                    </p>
+                  )}
                 </div>
               </div>
             </CardContent>
@@ -1487,7 +1561,7 @@ const SchoolAdminDashboard = () => {
           
           {/* Export Report - available to both owners and bursars */}
           <Button variant="outline" onClick={exportReport} className="gap-2">
-            <FileSpreadsheet className="w-4 h-4" /> Export Report
+            <FileSpreadsheet className="w-4 h-4" /> Who Owes (CSV)
           </Button>
 
           {/* Owner-only actions */}

@@ -17,6 +17,19 @@ import { quoteCheckout } from "@/lib/gatewayMoney";
 import AcademicPeriodSelector from "@/components/AcademicPeriodSelector";
 import { useAcademicPeriods } from "@/hooks/useAcademicPeriods";
 
+// One payable line: a fee for the term on screen, or a debt carried from an
+// earlier one. period_label is present only on the latter.
+interface PayableFee {
+  id: string;
+  name: string;
+  amount: number;
+  paid: number;
+  status: string;
+  session_id?: string | null;
+  term_id?: string | null;
+  period_label?: string;
+}
+
 const formatNaira = (amount: number) =>
   new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN", minimumFractionDigits: 0 }).format(amount || 0);
 
@@ -89,6 +102,10 @@ const SchoolStudentDashboard = () => {
     }
   };
 
+  // What this student still owes from OTHER terms. student-auth returns only
+  // unpaid remainders, each labelled with the period it came from.
+  const [arrears, setArrears] = useState<PayableFee[]>([]);
+
   const academicPeriods = useAcademicPeriods(school?.id);
 
   // Paystack redirects back with ?trxref=...&reference=... — confirm the
@@ -133,6 +150,7 @@ const SchoolStudentDashboard = () => {
     // Upcoming (virtual) sessions have no data by definition — show blank
     if (academicPeriods.isFutureSession) {
       setStudentData([], []);
+      setArrears([]);
       return;
     }
 
@@ -149,6 +167,7 @@ const SchoolStudentDashboard = () => {
 
         if (!error && data && !data.error) {
           setStudentData(data.feeItems || [], data.payments || []);
+          setArrears(data.arrears || []);
           return;
         }
 
@@ -194,13 +213,27 @@ const SchoolStudentDashboard = () => {
 
   const unpaidFees = filteredFeeItems.filter((f) => f && f.status !== "paid");
 
+  // Arrears are already filtered server-side to unpaid remainders.
+  const owingOtherTerms = arrears.reduce(
+    (s, f) => s + (Number(f?.amount || 0) - Number(f?.paid || 0)), 0
+  );
+  const totalOwing = balance + owingOtherTerms;
+
+  // One list for payment purposes, two lists on screen. create-payment takes
+  // each item's period from its own charge, so paying an older term's fee from
+  // this screen settles that term, not this one.
+  const payableFees = useMemo(
+    () => [...unpaidFees, ...arrears] as PayableFee[],
+    [unpaidFees, arrears]
+  );
+
   const toggleFee = (feeId: string) => {
     setSelectedFees((prev) => {
       const next = { ...prev, [feeId]: !prev[feeId] };
       if (!next[feeId]) {
         setFeeAmounts((a) => { const copy = { ...a }; delete copy[feeId]; return copy; });
       } else {
-        const fee = unpaidFees.find((f) => f && f.id === feeId);
+        const fee = payableFees.find((f) => f && f.id === feeId);
         if (fee) setFeeAmounts((a) => ({ ...a, [feeId]: String(Number(fee.amount || 0) - Number(fee.paid || 0)) }));
       }
       return next;
@@ -208,13 +241,13 @@ const SchoolStudentDashboard = () => {
   };
 
   const basePaymentTotal = useMemo(() => {
-    return unpaidFees.reduce((sum, fee) => {
+    return payableFees.reduce((sum, fee) => {
       if (!fee || !selectedFees[fee.id]) return sum;
       const owing = Number(fee.amount || 0) - Number(fee.paid || 0);
       const val = Number(feeAmounts[fee.id] || 0);
       return sum + Math.min(Math.max(val, 0), owing);
     }, 0);
-  }, [selectedFees, feeAmounts, unpaidFees]);
+  }, [selectedFees, feeAmounts, payableFees]);
 
   // The school receives the full fee; our 1% platform charge and the gateway's
   // fee are both added on top (paid by the parent). All the math lives in
@@ -321,8 +354,21 @@ const SchoolStudentDashboard = () => {
                   <Wallet className="w-5 h-5 text-destructive" />
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">Balance</p>
-                  <p className="text-xl font-bold">{formatNaira(balance)}</p>
+                  {/* Plain words, not "balance" and "arrears". A parent in
+                      Ikeja should not have to decode accounting nouns to find
+                      out what they owe. */}
+                  <p className="text-sm text-muted-foreground">
+                    {owingOtherTerms > 0 ? "Total owing" : "Owing this term"}
+                  </p>
+                  <p className="text-xl font-bold">{formatNaira(totalOwing)}</p>
+                  {owingOtherTerms > 0 && (
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {formatNaira(balance)} this term ·{" "}
+                      <span className="text-destructive font-medium">
+                        {formatNaira(owingOtherTerms)} from earlier terms
+                      </span>
+                    </p>
+                  )}
                 </div>
               </div>
             </CardContent>
@@ -434,11 +480,16 @@ const SchoolStudentDashboard = () => {
           <DialogHeader>
             <DialogTitle>Select Fees to Pay</DialogTitle>
             <DialogDescription>
-              Payment for {academicPeriods.selectedSession?.name || "—"} — {academicPeriods.selectedTerm?.name || "—"}
+              {/* Do not claim the whole payment belongs to the period on screen:
+                  an older term's fee is settled against ITS term, and saying
+                  otherwise contradicts the labels on the items below. */}
+              {arrears.length > 0
+                ? "Each fee is paid against the term it belongs to."
+                : `Payment for ${academicPeriods.selectedSession?.name || "—"} — ${academicPeriods.selectedTerm?.name || "—"}`}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 max-h-[50vh] overflow-y-auto">
-            {unpaidFees.length === 0 ? (
+            {unpaidFees.length === 0 && arrears.length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-4">All fees are paid!</p>
             ) : (
               unpaidFees.map((fee) => {
@@ -478,8 +529,67 @@ const SchoolStudentDashboard = () => {
                 );
               })
             )}
+
+            {/* Debt from earlier terms, kept as its own section rather than
+                merged into this term's list. Merging would double-count in the
+                eye and hide which term is actually unpaid. Each is payable from
+                here: create-payment takes the period from the charge, so
+                settling one of these lands on ITS term, not this one. */}
+            {arrears.length > 0 && (
+              <div className="pt-2">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-sm font-semibold">Still owing from earlier terms</p>
+                  <span className="text-sm font-semibold text-destructive">
+                    {formatNaira(owingOtherTerms)}
+                  </span>
+                </div>
+                <div className="space-y-3">
+                  {arrears.map((fee) => {
+                    if (!fee) return null;
+                    const owing = Number(fee.amount || 0) - Number(fee.paid || 0);
+                    const isSelected = !!selectedFees[fee.id];
+                    return (
+                      <div
+                        key={fee.id}
+                        className={`flex items-start gap-3 p-3 rounded-lg border transition-colors ${
+                          isSelected ? "border-primary/40 bg-primary/5" : "border-destructive/30"
+                        }`}
+                      >
+                        <Checkbox checked={isSelected} onCheckedChange={() => toggleFee(fee.id)} className="mt-0.5" />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-sm font-medium">{fee.name || "Unnamed Fee"}</span>
+                            <Badge variant="outline" className="text-xs">{fee.period_label}</Badge>
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            Total: {formatNaira(Number(fee.amount || 0))} &bull; Paid: {formatNaira(Number(fee.paid || 0))} &bull; Owing: {formatNaira(owing)}
+                          </p>
+                          {isSelected && (
+                            <div className="mt-2 flex items-center gap-2">
+                              <span className="text-xs text-muted-foreground whitespace-nowrap">Pay:</span>
+                              <Input
+                                type="number"
+                                className="h-8 text-sm"
+                                value={feeAmounts[fee.id] || ""}
+                                min={1}
+                                max={owing}
+                                onChange={(e) => {
+                                  const val = Math.min(Math.max(Number(e.target.value), 0), owing);
+                                  setFeeAmounts((prev) => ({ ...prev, [fee.id]: String(val || "") }));
+                                }}
+                              />
+                              <span className="text-xs text-muted-foreground whitespace-nowrap">/ {formatNaira(owing)}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
-          {unpaidFees.length > 0 && (
+          {payableFees.length > 0 && (
             <div className="border-t pt-4 space-y-3">
               {basePaymentTotal > 0 && (
                 <div className="space-y-1 text-sm">
