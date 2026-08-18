@@ -38,6 +38,7 @@ import {
 } from "lucide-react";
 import { generateReceiptPdf, parsePaymentItems } from "@/lib/generateReceiptPdf";
 import { isSettledPayment } from "@/lib/paymentStatus";
+import { NIGERIAN_CLASSES } from "@/lib/classes";
 import { sumPaidForFee, countStudentsInClass as countInClass } from "@/lib/fees";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -51,13 +52,6 @@ const formatNaira = (amount: number) =>
 
 // Full private-school range: Nursery, Primary, Junior and Senior Secondary.
 // The JSS/SSS values are unchanged so existing students and fees keep matching.
-const NIGERIAN_CLASSES = [
-  "Nursery 1", "Nursery 2",
-  "Primary 1", "Primary 2", "Primary 3", "Primary 4", "Primary 5", "Primary 6",
-  "JSS1", "JSS2", "JSS3",
-  "SSS1", "SSS2", "SSS3",
-];
-
 // The default credential a student receives on creation/reset. MUST be the same
 // everywhere (create, bulk upload, reset, and the messages shown to the owner) —
 // a mismatch locks the student out of first login.

@@ -165,3 +165,48 @@ describe("payment period stamping", () => {
     expect(derivePeriod([lastTerm, thisTerm], thisTerm)).toEqual(thisTerm);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Regression: legacy payment lines must still reconcile.
+//
+// This was a real bug, caught on staging. promote-session and set-student-class
+// both called sumPaidForFee with name: "" — harmless for lines carrying a fee
+// uuid, and silently wrong for LEGACY lines ("Tuition Fee|30000"), which have no
+// id and match by name. Every legacy payment read as unpaid, so the rollover
+// preview showed fully-paid students owing their whole bill, and the
+// class-change guard waved through a student who had paid.
+//
+// The fix moved both onto _shared/ledger.ts, which requires the fee names.
+// ---------------------------------------------------------------------------
+import { outstandingByStudent, paidForCharges } from "../../supabase/functions/_shared/ledger.ts";
+
+describe("ledger reads with LEGACY name-keyed payments", () => {
+  const FEE = "33333333-3333-4333-8333-333333333333";
+  const charges = [{ student_id: S, class_fee_id: FEE, amount: 50_000 }];
+  // No uuid prefix — exactly what production's older rows look like.
+  const legacyPayments = [{ student_id: S, items: ["Tuition Fee|30000"], status: "success" }];
+  const names = new Map([[FEE, "Tuition Fee"]]);
+
+  it("credits a legacy payment when the fee name is supplied", () => {
+    expect(paidForCharges(charges, legacyPayments, names)).toBe(30_000);
+    expect(outstandingByStudent(charges, legacyPayments, names).get(S)).toBe(20_000);
+  });
+
+  it("reads the payment as MISSING when the name is blank — the bug", () => {
+    // Pinned deliberately: this is the failure mode, and it is why the helper
+    // takes a name map rather than letting each caller pass whatever it has.
+    const noNames = new Map<string, string>();
+    expect(paidForCharges(charges, legacyPayments, noNames)).toBe(0);
+    expect(outstandingByStudent(charges, legacyPayments, noNames).get(S)).toBe(50_000);
+  });
+
+  it("still matches modern uuid-keyed lines regardless of the name", () => {
+    const modern = [{ student_id: S, items: [encodeFeeItem(FEE, "Anything At All", 50_000)], status: "success" }];
+    expect(paidForCharges(charges, modern, new Map())).toBe(50_000);
+  });
+
+  it("ignores pending and failed legacy payments", () => {
+    const pending = [{ student_id: S, items: ["Tuition Fee|30000"], status: "pending" }];
+    expect(paidForCharges(charges, pending, names)).toBe(0);
+  });
+});
