@@ -650,9 +650,6 @@ const SchoolStudentDashboard = () => {
                     <span className="text-muted-foreground">Payment Processing Fee</span>
                     <span>{formatNaira(processingFee)}</span>
                   </div>
-                  <p className="text-[11px] text-muted-foreground pt-0.5">
-                    The school receives the full {formatNaira(basePaymentTotal)}; the charges above are added on top.
-                  </p>
                   <div className="border-t my-1" />
                 </div>
               )}

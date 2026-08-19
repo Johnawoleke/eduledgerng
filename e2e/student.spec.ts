@@ -49,10 +49,17 @@ test.describe("Student payment flow", () => {
     // Only the unpaid Tuition (₦5,000) is selectable; Books is already paid.
     await page.getByRole("checkbox").first().check();
 
-    // The school receives the full ₦5,000; the parent sees the charges on top.
+    // The school still receives the full ₦5,000 — the two charges are added on
+    // top of it, not taken out of it. The line that spelled this out was
+    // removed as clutter, so the breakdown itself has to carry the meaning:
+    // School Fees stays at the fee the school set, and the total exceeds it.
     const dialog = page.getByRole("dialog");
-    await expect(dialog.getByText("School Fees")).toBeVisible();
-    await expect(dialog.getByText(/The school receives the full ₦5,000/)).toBeVisible();
+    // Scoped to the School Fees ROW: ₦5,000 also appears as the term-group
+    // subtotal, and it is specifically this row that must equal the fee the
+    // school set for the "added on top" claim to hold.
+    await expect(
+      dialog.locator("div").filter({ hasText: /^School Fees₦5,000$/ })
+    ).toBeVisible();
     await expect(dialog.getByText("Platform Charge (1%)")).toBeVisible();
     await expect(dialog.getByText("₦50", { exact: true })).toBeVisible(); // 1% of ₦5,000
     await expect(dialog.getByText("Payment Processing Fee")).toBeVisible();
