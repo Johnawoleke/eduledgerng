@@ -107,6 +107,11 @@ const SchoolStudentDashboard = () => {
   // session chosen but no term it collapsed three terms of debt into "this
   // term". What someone owes must not change with a dropdown.
   const [owing, setOwing] = useState<PayableFee[]>([]);
+  // Whether the headline figures really do span every term. They do when
+  // student-auth sends them; under the fallback below they cover the selected
+  // period only, and a card captioned "all terms" would then be lying — the
+  // exact fault this section was rewritten to fix.
+  const [allTerms, setAllTerms] = useState({ totals: true, owing: true });
   // The three headline figures, all on the SAME footing: the student's whole
   // position, not a mix of "this period" and "all periods".
   const [totals, setTotals] = useState({ billed: 0, paid: 0, owing: 0 });
@@ -187,6 +192,7 @@ const SchoolStudentDashboard = () => {
             .filter((f) => Number(f.amount || 0) - Number(f.paid || 0) > 0)
             .map((f) => ({ ...f, period_label: f.period_label || periodLabel }));
 
+          setAllTerms({ totals: !!data.totals, owing: Array.isArray(data.owing) });
           setStudentData(data.feeItems || [], data.payments || [], data.student);
           setOwing(Array.isArray(data.owing) ? data.owing : derived);
           setTotals(
@@ -367,7 +373,7 @@ const SchoolStudentDashboard = () => {
                 <div>
                   <p className="text-sm text-muted-foreground">Fees so far</p>
                   <p className="text-xl font-bold">{formatNaira(totals.billed)}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">all terms</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{allTerms.totals ? "all terms" : "this term"}</p>
                 </div>
               </div>
             </CardContent>
@@ -381,7 +387,7 @@ const SchoolStudentDashboard = () => {
                 <div>
                   <p className="text-sm text-muted-foreground">Paid so far</p>
                   <p className="text-xl font-bold">{formatNaira(totals.paid)}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">all terms</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{allTerms.totals ? "all terms" : "this term"}</p>
                 </div>
               </div>
             </CardContent>
@@ -399,7 +405,7 @@ const SchoolStudentDashboard = () => {
                       terms of debt were labelled as one. */}
                   <p className="text-sm text-muted-foreground">Still owing</p>
                   <p className="text-xl font-bold">{formatNaira(totalOwing)}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">all terms</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{allTerms.owing ? "all terms" : "this term"}</p>
                 </div>
               </div>
             </CardContent>
