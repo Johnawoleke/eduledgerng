@@ -1027,7 +1027,16 @@ const SchoolAdminDashboard = () => {
   };
 
   const downloadStudentTemplate = () => {
-    const csv = ["name,class", "Bello Aisha,Primary 3", "Okafor Chinedu,JSS1", "Adebayo Kemi,SSS2"].join("\n");
+    // Must list every column the upload reads, or schools never learn the
+    // optional ones exist. parent_email was added to the parser without being
+    // added here, so no roster built from this template could ever carry one —
+    // and a student with no parent email gets a receipt that bounces.
+    const csv = [
+      "name,class,parent_email",
+      "Bello Aisha,Primary 3,aisha.parent@example.com",
+      "Okafor Chinedu,JSS1,chinedu.parent@example.com",
+      "Adebayo Kemi,SSS2,",
+    ].join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
