@@ -350,6 +350,18 @@ serve(async (req) => {
       arrears_total: arrears.reduce((s, f) => s + (f.amount - f.paid), 0),
       owing,
       owing_total: owing.reduce((s, f) => s + (f.amount - f.paid), 0),
+      // The student's overall position, across every term. The three headline
+      // figures have to share one scope: billed for the selected period next to
+      // owed across all of them reads as "you were charged nothing and owe
+      // 51,700".
+      totals: (() => {
+        const all = (allCharges || []).map(describe);
+        return {
+          billed: all.reduce((s, f) => s + f.amount, 0),
+          paid: all.reduce((s, f) => s + f.paid, 0),
+          owing: all.reduce((s, f) => s + (f.amount - f.paid), 0),
+        };
+      })(),
       payments: settledPayments,
       sessions: sessions || [],
       terms: terms || [],

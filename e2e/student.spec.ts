@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { mockSupabase, SESSION_TOKEN, type Invocation } from "./fixtures";
+import { mockSupabase, studentAuthResponse, SESSION_TOKEN, type Invocation } from "./fixtures";
 
 // Log in as the mocked student and land on the dashboard.
 async function login(page: import("@playwright/test").Page) {
@@ -14,6 +14,25 @@ async function login(page: import("@playwright/test").Page) {
 test.describe("Student payment flow", () => {
   test("logs in and sees the dashboard", async ({ page }) => {
     await mockSupabase(page);
+    await login(page);
+    await expect(page.getByRole("button", { name: /^Pay ₦/ })).toBeVisible();
+  });
+
+  test("the pay button survives a student-auth that predates `owing`", async ({ page }) => {
+    // The reported failure: a student could not pay at all. The dashboard had
+    // come to depend entirely on `owing`/`totals` from a newer student-auth,
+    // and the old "Pay Fees Online" card was gone — so against a deployed
+    // function without those fields the button simply vanished. Nothing caught
+    // it, because the mock always supplied them. Serve the older shape.
+    await mockSupabase(page);
+    await page.route(/\/functions\/v1\/student-auth/, async (route) => {
+      const { owing, owing_total, ...legacy } = studentAuthResponse as Record<string, unknown>;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(legacy),
+      });
+    });
     await login(page);
     await expect(page.getByRole("button", { name: /^Pay ₦/ })).toBeVisible();
   });

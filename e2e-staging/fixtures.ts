@@ -34,8 +34,12 @@ export async function loginStudent(page: Page) {
   // figure. Wait for the settled state rather than a fixed delay — a fixed one
   // made this flaky, and a flaky check in a suite meant to catch real bugs
   // teaches you to ignore it.
+  // Wait for a heading that exists whatever the student's balance is. Polling
+  // for a figure that only renders when they owe something made every student
+  // test fail the moment that label was reworded — and would also fail for a
+  // fully paid student, who is a perfectly valid case to test.
   await expect
-    .poll(async () => page.getByText(/Total owing|Owing this term/i).count(), {
+    .poll(async () => page.getByText(/Fees so far/i).count(), {
       timeout: 30_000,
       intervals: [250, 500, 1000],
     })

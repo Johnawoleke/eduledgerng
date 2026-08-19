@@ -107,6 +107,9 @@ const SchoolStudentDashboard = () => {
   // session chosen but no term it collapsed three terms of debt into "this
   // term". What someone owes must not change with a dropdown.
   const [owing, setOwing] = useState<PayableFee[]>([]);
+  // The three headline figures, all on the SAME footing: the student's whole
+  // position, not a mix of "this period" and "all periods".
+  const [totals, setTotals] = useState({ billed: 0, paid: 0, owing: 0 });
 
   const academicPeriods = useAcademicPeriods(school?.id);
 
@@ -153,6 +156,7 @@ const SchoolStudentDashboard = () => {
     if (academicPeriods.isFutureSession) {
       setStudentData([], []);
       setOwing([]);
+      setTotals({ billed: 0, paid: 0, owing: 0 });
       return;
     }
 
@@ -168,10 +172,30 @@ const SchoolStudentDashboard = () => {
         });
 
         if (!error && data && !data.error) {
-          // Pass the refreshed student through: their class can change under
-          // them when the school runs a rollover.
+          // FALL BACK, never blank. `owing` and `totals` come from a newer
+          // student-auth; if the deployed function predates them, deriving from
+          // this period's feeItems keeps a payable list on screen. Without this
+          // a single missing field removes the pay button entirely and a
+          // student simply cannot pay — the worst failure this page has.
+          const periodLabel = [
+            academicPeriods.selectedSession?.name,
+            academicPeriods.selectedTerm?.name,
+          ].filter(Boolean).join(" · ") || "This term";
+
+          const fees = (data.feeItems || []) as PayableFee[];
+          const derived = fees
+            .filter((f) => Number(f.amount || 0) - Number(f.paid || 0) > 0)
+            .map((f) => ({ ...f, period_label: f.period_label || periodLabel }));
+
           setStudentData(data.feeItems || [], data.payments || [], data.student);
-          setOwing(data.owing || []);
+          setOwing(Array.isArray(data.owing) ? data.owing : derived);
+          setTotals(
+            data.totals || {
+              billed: fees.reduce((a, f) => a + Number(f.amount || 0), 0),
+              paid: fees.reduce((a, f) => a + Number(f.paid || 0), 0),
+              owing: derived.reduce((a, f) => a + (Number(f.amount || 0) - Number(f.paid || 0)), 0),
+            }
+          );
           return;
         }
 
@@ -190,7 +214,7 @@ const SchoolStudentDashboard = () => {
     };
 
     fetchLiveDashboardData();
-  }, [student?.id, studentSession, slug, academicPeriods.isFutureSession, academicPeriods.selectedSessionId, academicPeriods.selectedTermId, setStudentData, paymentRefreshKey, logoutStudent, navigate]);
+  }, [student?.id, studentSession, slug, academicPeriods.isFutureSession, academicPeriods.selectedSessionId, academicPeriods.selectedTermId, academicPeriods.selectedSession?.name, academicPeriods.selectedTerm?.name, setStudentData, paymentRefreshKey, logoutStudent, navigate]);
 
   // Filter fee items safely fallback
   const filteredFeeItems = useMemo(() => {
@@ -341,8 +365,9 @@ const SchoolStudentDashboard = () => {
                   <Wallet className="w-5 h-5 text-primary" />
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">Term Fees</p>
-                  <p className="text-xl font-bold">{formatNaira(totalFees)}</p>
+                  <p className="text-sm text-muted-foreground">Fees so far</p>
+                  <p className="text-xl font-bold">{formatNaira(totals.billed)}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">all terms</p>
                 </div>
               </div>
             </CardContent>
@@ -354,8 +379,9 @@ const SchoolStudentDashboard = () => {
                   <CreditCard className="w-5 h-5 text-primary" />
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">Amount Paid</p>
-                  <p className="text-xl font-bold">{formatNaira(totalPaid)}</p>
+                  <p className="text-sm text-muted-foreground">Paid so far</p>
+                  <p className="text-xl font-bold">{formatNaira(totals.paid)}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">all terms</p>
                 </div>
               </div>
             </CardContent>
@@ -371,13 +397,9 @@ const SchoolStudentDashboard = () => {
                       "Owing this term" and show a split derived from the period
                       selector — so with a session picked but no term, three
                       terms of debt were labelled as one. */}
-                  <p className="text-sm text-muted-foreground">Total owing</p>
+                  <p className="text-sm text-muted-foreground">Still owing</p>
                   <p className="text-xl font-bold">{formatNaira(totalOwing)}</p>
-                  {owingByPeriod.length > 1 && (
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      across {owingByPeriod.length} terms
-                    </p>
-                  )}
+                  <p className="text-xs text-muted-foreground mt-0.5">all terms</p>
                 </div>
               </div>
             </CardContent>
@@ -435,7 +457,13 @@ const SchoolStudentDashboard = () => {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">Fee Breakdown</CardTitle>
+            <CardTitle className="text-lg">
+              Fees for {academicPeriods.selectedSession?.name || "this session"}
+              {academicPeriods.selectedTerm?.name ? ` · ${academicPeriods.selectedTerm.name}` : ""}
+            </CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Just this term. Everything you owe is in the card above.
+            </p>
           </CardHeader>
           <CardContent>
             <Table>
@@ -481,7 +509,13 @@ const SchoolStudentDashboard = () => {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg flex items-center gap-2"><History className="w-5 h-5" /> Payment History</CardTitle>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <History className="w-5 h-5" /> Payments this term
+            </CardTitle>
+            <p className="text-sm text-muted-foreground">
+              {academicPeriods.selectedSession?.name || "This session"}
+              {academicPeriods.selectedTerm?.name ? ` · ${academicPeriods.selectedTerm.name}` : ""} only.
+            </p>
           </CardHeader>
           <CardContent>
             {filteredPayments.length === 0 ? (

@@ -5,27 +5,46 @@ import { openAdminDashboard, loginStudent, naira, SCHOOL_SLUG } from "./fixtures
 // suite. They are regression guards against real failures, not coverage padding.
 
 test.describe("student dashboard against real data", () => {
-  test("shows what is owed this term AND from earlier terms, and they add up", async ({ page }) => {
-    // The bug: setArrears was declared and never called, so this section
-    // rendered empty forever with no error anywhere.
+  test("the per-term subtotals add up to the headline total", async ({ page }) => {
+    // Replaces a test that asserted the old "this term vs earlier terms" split.
+    // That split was derived from the period selector and was the bug: with a
+    // session chosen but no term it reported three terms of debt as one. The
+    // card now groups by the term each debt belongs to, so the invariant worth
+    // holding is that those groups reconcile to the headline.
     await loginStudent(page);
+    if ((await page.getByText(/What you still owe/i).count()) === 0)
+      test.skip(true, "this student owes nothing");
 
-    const total = page.getByText(/Total owing|Owing this term/i).first();
-    await expect(total).toBeVisible();
+    const naira = (t: string) => Number((t.match(/₦[\d,]+/)?.[0] || "0").replace(/[^0-9]/g, ""));
 
-    const card = total.locator("xpath=..");
-    const amounts = await card.locator("p").allInnerTexts();
-    const headline = naira(amounts.find((t) => t.includes("₦")) || null);
-    expect(headline).toBeGreaterThan(0);
+    const headline = naira(
+      await page.getByText(/₦[\d,]+ in total/).first().innerText()
+    );
+    // Each group header carries "<session> · <term>" and its subtotal.
+    const rows = await page.locator("div").filter({
+      hasText: /^\d{4}\/\d{4}\s*·\s*Term \d₦[\d,]+$/,
+    }).allInnerTexts();
+    expect(rows.length, "expected at least one per-term group").toBeGreaterThan(0);
+    const summed = rows.reduce((a, t) => a + naira(t), 0);
+    expect(summed, `groups ${JSON.stringify(rows)} should sum to ${headline}`).toBe(headline);
+  });
 
-    // If a split is shown, the parts must equal the headline. A total that
-    // disagrees with its own breakdown is worse than showing no breakdown.
-    const split = amounts.find((t) => /this term/.test(t) && /earlier terms/.test(t));
-    if (split) {
-      const parts = split.match(/₦[\d,]+/g) || [];
-      expect(parts).toHaveLength(2);
-      expect(naira(parts[0]) + naira(parts[1])).toBe(headline);
-    }
+  test("the three headline figures share one scope and add up", async ({ page }) => {
+    // They used to mix scopes: "Term Fees" and "Amount Paid" were for the
+    // selected period while "Total owing" was for every period, so the row read
+    // "billed nothing, paid nothing, owe 51,700". Individually correct, together
+    // nonsense. All three are now all-terms, which makes them checkable.
+    await loginStudent(page);
+    const money = async (label: RegExp) => {
+      const card = page.locator("div").filter({ hasText: label }).last();
+      const txt = await card.innerText();
+      const m = txt.match(/₦[\d,]+/);
+      return Number((m?.[0] || "0").replace(/[^0-9]/g, ""));
+    };
+    const billed = await money(/Fees so far/);
+    const paid   = await money(/Paid so far/);
+    const owing  = await money(/Still owing/);
+    expect(billed - paid, `billed ${billed} - paid ${paid} should equal owing ${owing}`).toBe(owing);
   });
 
   test("the owing total does not change with the session or term selector", async ({ page }) => {
