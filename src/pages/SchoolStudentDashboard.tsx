@@ -102,9 +102,11 @@ const SchoolStudentDashboard = () => {
     }
   };
 
-  // What this student still owes from OTHER terms. student-auth returns only
-  // unpaid remainders, each labelled with the period it came from.
-  const [arrears, setArrears] = useState<PayableFee[]>([]);
+  // EVERYTHING this student still owes, in every term and session. Deliberately
+  // not derived from the period selector: that is a browsing control, and with a
+  // session chosen but no term it collapsed three terms of debt into "this
+  // term". What someone owes must not change with a dropdown.
+  const [owing, setOwing] = useState<PayableFee[]>([]);
 
   const academicPeriods = useAcademicPeriods(school?.id);
 
@@ -150,7 +152,7 @@ const SchoolStudentDashboard = () => {
     // Upcoming (virtual) sessions have no data by definition — show blank
     if (academicPeriods.isFutureSession) {
       setStudentData([], []);
-      setArrears([]);
+      setOwing([]);
       return;
     }
 
@@ -169,7 +171,7 @@ const SchoolStudentDashboard = () => {
           // Pass the refreshed student through: their class can change under
           // them when the school runs a rollover.
           setStudentData(data.feeItems || [], data.payments || [], data.student);
-          setArrears(data.arrears || []);
+          setOwing(data.owing || []);
           return;
         }
 
@@ -215,19 +217,28 @@ const SchoolStudentDashboard = () => {
 
   const unpaidFees = filteredFeeItems.filter((f) => f && f.status !== "paid");
 
-  // Arrears are already filtered server-side to unpaid remainders.
-  const owingOtherTerms = arrears.reduce(
+  const totalOwing = owing.reduce(
     (s, f) => s + (Number(f?.amount || 0) - Number(f?.paid || 0)), 0
   );
-  const totalOwing = balance + owingOtherTerms;
+
+  // Grouped by the term the debt belongs to, the same shape the school sees.
+  const owingByPeriod = useMemo(() => {
+    const groups = new Map<string, { label: string; total: number; fees: PayableFee[] }>();
+    for (const f of owing) {
+      const label = f.period_label || "Earlier";
+      const g = groups.get(label) || { label, total: 0, fees: [] };
+      g.total += Number(f.amount || 0) - Number(f.paid || 0);
+      g.fees.push(f);
+      groups.set(label, g);
+    }
+    return [...groups.values()].sort((a, b) => a.label.localeCompare(b.label));
+  }, [owing]);
 
   // One list for payment purposes, two lists on screen. create-payment takes
   // each item's period from its own charge, so paying an older term's fee from
   // this screen settles that term, not this one.
-  const payableFees = useMemo(
-    () => [...unpaidFees, ...arrears] as PayableFee[],
-    [unpaidFees, arrears]
-  );
+  // One list for payment: every outstanding charge, whichever term it is in.
+  const payableFees = owing;
 
   const toggleFee = (feeId: string) => {
     setSelectedFees((prev) => {
@@ -356,19 +367,15 @@ const SchoolStudentDashboard = () => {
                   <Wallet className="w-5 h-5 text-destructive" />
                 </div>
                 <div>
-                  {/* Plain words, not "balance" and "arrears". A parent in
-                      Ikeja should not have to decode accounting nouns to find
-                      out what they owe. */}
-                  <p className="text-sm text-muted-foreground">
-                    {owingOtherTerms > 0 ? "Total owing" : "Owing this term"}
-                  </p>
+                  {/* Plain words, and ALWAYS the full figure. This used to say
+                      "Owing this term" and show a split derived from the period
+                      selector — so with a session picked but no term, three
+                      terms of debt were labelled as one. */}
+                  <p className="text-sm text-muted-foreground">Total owing</p>
                   <p className="text-xl font-bold">{formatNaira(totalOwing)}</p>
-                  {owingOtherTerms > 0 && (
+                  {owingByPeriod.length > 1 && (
                     <p className="text-xs text-muted-foreground mt-0.5">
-                      {formatNaira(balance)} this term ·{" "}
-                      <span className="text-destructive font-medium">
-                        {formatNaira(owingOtherTerms)} from earlier terms
-                      </span>
+                      across {owingByPeriod.length} terms
                     </p>
                   )}
                 </div>
@@ -377,56 +384,49 @@ const SchoolStudentDashboard = () => {
           </Card>
         </div>
 
-        {/* Everything owed, whichever term it belongs to, always visible.
-            The breakdown used to exist only inside the payment dialog, so a
-            parent had to open a checkout to find out what they owed — and a
-            debt from an earlier term was invisible unless they knew to switch
-            the session and term above to go looking for it. */}
-        {(balance > 0 || owingOtherTerms > 0) && (
+        {/* Everything owed, grouped by the term it belongs to — the same shape
+            the school sees under its Owing tab. Independent of the session and
+            term above: filtering to one period is precisely what hides a debt
+            carried from another, so a summary built on that filter can never be
+            the whole picture. */}
+        {totalOwing > 0 && (
           <Card className="border-destructive/20">
             <CardHeader className="pb-3">
               <CardTitle className="text-lg">What you still owe</CardTitle>
               <p className="text-sm text-muted-foreground">
-                {owingOtherTerms > 0
-                  ? `${formatNaira(totalOwing)} in total — ${formatNaira(balance)} for the term shown above, ${formatNaira(owingOtherTerms)} from earlier terms.`
-                  : `${formatNaira(balance)} for the term shown above.`}
+                {formatNaira(totalOwing)} in total
+                {owingByPeriod.length > 1 ? `, across ${owingByPeriod.length} terms.` : "."}
+                {" "}This does not change with the session or term above.
               </p>
             </CardHeader>
-            <CardContent className="pt-0 space-y-2">
-              {unpaidFees.map((fee) => {
-                const owing = Number(fee.amount || 0) - Number(fee.paid || 0);
-                if (owing <= 0) return null;
-                return (
-                  <div key={fee.id} className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium truncate">{fee.name || "Fee"}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {academicPeriods.selectedTerm?.name || "This term"}
-                        {Number(fee.paid || 0) > 0 &&
-                          ` · ${formatNaira(Number(fee.paid))} of ${formatNaira(Number(fee.amount))} paid`}
-                      </p>
-                    </div>
-                    <span className="text-sm font-semibold shrink-0">{formatNaira(owing)}</span>
+            <CardContent className="pt-0 space-y-3">
+              {owingByPeriod.map((group) => (
+                <div key={group.label} className="rounded-lg border">
+                  <div className="flex items-center justify-between gap-2 px-3 py-2 bg-muted/40 rounded-t-lg">
+                    <span className="text-sm font-semibold">{group.label}</span>
+                    <span className="text-sm font-semibold">{formatNaira(group.total)}</span>
                   </div>
-                );
-              })}
-              {arrears.map((fee) => {
-                const owing = Number(fee.amount || 0) - Number(fee.paid || 0);
-                return (
-                  <div key={fee.id} className="flex items-center justify-between gap-3 rounded-md border border-destructive/30 px-3 py-2">
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium truncate">{fee.name || "Fee"}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {fee.period_label}
-                        {Number(fee.paid || 0) > 0 &&
-                          ` · ${formatNaira(Number(fee.paid))} of ${formatNaira(Number(fee.amount))} paid`}
-                      </p>
-                    </div>
-                    <span className="text-sm font-semibold text-destructive shrink-0">{formatNaira(owing)}</span>
+                  <div className="divide-y">
+                    {group.fees.map((fee) => {
+                      const left = Number(fee.amount || 0) - Number(fee.paid || 0);
+                      return (
+                        <div key={fee.id} className="flex items-center justify-between gap-3 px-3 py-2">
+                          <div className="min-w-0">
+                            <p className="text-sm truncate">{fee.name || "Fee"}</p>
+                            {Number(fee.paid || 0) > 0 && (
+                              <p className="text-xs text-muted-foreground">
+                                {formatNaira(Number(fee.paid))} of {formatNaira(Number(fee.amount))} paid
+                              </p>
+                            )}
+                          </div>
+                          <span className="text-sm font-medium shrink-0">{formatNaira(left)}</span>
+                        </div>
+                      );
+                    })}
                   </div>
-                );
-              })}
-              <Button className="w-full gap-2 mt-1" onClick={openPaymentModal}>
+                </div>
+              ))}
+              <Button className="w-full gap-2" onClick={openPaymentModal}>
                 <CreditCard className="w-4 h-4" /> Pay {formatNaira(totalOwing)}
               </Button>
             </CardContent>
@@ -477,23 +477,7 @@ const SchoolStudentDashboard = () => {
             way to pay it. That is the exact state a new term begins in, before
             its fees are published, so it was the common case rather than an
             edge one. */}
-        {totalOwing > 0 && (
-          <Card className="border-primary/20">
-            <CardContent className="pt-6 flex flex-col sm:flex-row items-center justify-between gap-4">
-              <div>
-                <p className="font-semibold">
-                  {owingOtherTerms > 0 && balance === 0
-                    ? `Owing from earlier terms: ${formatNaira(owingOtherTerms)}`
-                    : `Total owing: ${formatNaira(totalOwing)}`}
-                </p>
-                <p className="text-sm text-muted-foreground">Select fees to pay online</p>
-              </div>
-              <Button onClick={openPaymentModal} className="gap-2">
-                <CreditCard className="w-4 h-4" /> Pay Fees Online
-              </Button>
-            </CardContent>
-          </Card>
-        )}
+
 
         <Card>
           <CardHeader>
@@ -551,86 +535,39 @@ const SchoolStudentDashboard = () => {
               {/* Do not claim the whole payment belongs to the period on screen:
                   an older term's fee is settled against ITS term, and saying
                   otherwise contradicts the labels on the items below. */}
-              {arrears.length > 0
-                ? "Each fee is paid against the term it belongs to."
-                : `Payment for ${academicPeriods.selectedSession?.name || "—"} — ${academicPeriods.selectedTerm?.name || "—"}`}
+              Each fee is paid against the term it belongs to.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 max-h-[50vh] overflow-y-auto">
-            {unpaidFees.length === 0 && arrears.length === 0 ? (
+            {owingByPeriod.length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-4">All fees are paid!</p>
             ) : (
-              unpaidFees.map((fee) => {
-                if (!fee) return null;
-                const owing = Number(fee.amount || 0) - Number(fee.paid || 0);
-                const isSelected = !!selectedFees[fee.id];
-                return (
-                  <div key={fee.id} className={`flex items-start gap-3 p-3 rounded-lg border transition-colors ${isSelected ? "border-primary/40 bg-primary/5" : "border-border"}`}>
-                    <Checkbox checked={isSelected} onCheckedChange={() => toggleFee(fee.id)} className="mt-0.5" />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-sm font-medium">{fee.name || "Unnamed Fee"}</span>
-                        <Badge variant="outline" className={statusColor(fee.status || "unpaid")}>{fee.status || "unpaid"}</Badge>
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        Total: {formatNaira(Number(fee.amount || 0))} &bull; Paid: {formatNaira(Number(fee.paid || 0))} &bull; Owing: {formatNaira(owing)}
-                      </p>
-                      {isSelected && (
-                        <div className="mt-2 flex items-center gap-2">
-                          <span className="text-xs text-muted-foreground whitespace-nowrap">Pay:</span>
-                          <Input
-                            type="number"
-                            className="h-8 text-sm"
-                            value={feeAmounts[fee.id] || ""}
-                            min={1}
-                            max={owing}
-                            onChange={(e) => {
-                              const val = Math.min(Math.max(Number(e.target.value), 0), owing);
-                              setFeeAmounts((prev) => ({ ...prev, [fee.id]: String(val || "") }));
-                            }}
-                          />
-                          <span className="text-xs text-muted-foreground whitespace-nowrap">/ {formatNaira(owing)}</span>
-                        </div>
-                      )}
-                    </div>
+              owingByPeriod.map((group) => (
+                <div key={group.label} className="space-y-2">
+                  <div className="flex items-center justify-between gap-2 pt-1">
+                    <p className="text-sm font-semibold">{group.label}</p>
+                    <span className="text-sm text-muted-foreground">{formatNaira(group.total)}</span>
                   </div>
-                );
-              })
-            )}
-
-            {/* Debt from earlier terms, kept as its own section rather than
-                merged into this term's list. Merging would double-count in the
-                eye and hide which term is actually unpaid. Each is payable from
-                here: create-payment takes the period from the charge, so
-                settling one of these lands on ITS term, not this one. */}
-            {arrears.length > 0 && (
-              <div className="pt-2">
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-sm font-semibold">Still owing from earlier terms</p>
-                  <span className="text-sm font-semibold text-destructive">
-                    {formatNaira(owingOtherTerms)}
-                  </span>
-                </div>
-                <div className="space-y-3">
-                  {arrears.map((fee) => {
-                    if (!fee) return null;
-                    const owing = Number(fee.amount || 0) - Number(fee.paid || 0);
+                  {group.fees.map((fee) => {
+                    const owingHere = Number(fee.amount || 0) - Number(fee.paid || 0);
                     const isSelected = !!selectedFees[fee.id];
                     return (
                       <div
                         key={fee.id}
                         className={`flex items-start gap-3 p-3 rounded-lg border transition-colors ${
-                          isSelected ? "border-primary/40 bg-primary/5" : "border-destructive/30"
+                          isSelected ? "border-primary/40 bg-primary/5" : "border-border"
                         }`}
                       >
                         <Checkbox checked={isSelected} onCheckedChange={() => toggleFee(fee.id)} className="mt-0.5" />
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between gap-2">
                             <span className="text-sm font-medium">{fee.name || "Unnamed Fee"}</span>
-                            <Badge variant="outline" className="text-xs">{fee.period_label}</Badge>
+                            <Badge variant="outline" className={statusColor(fee.status || "unpaid")}>
+                              {fee.status || "unpaid"}
+                            </Badge>
                           </div>
                           <p className="text-xs text-muted-foreground mt-0.5">
-                            Total: {formatNaira(Number(fee.amount || 0))} &bull; Paid: {formatNaira(Number(fee.paid || 0))} &bull; Owing: {formatNaira(owing)}
+                            Total: {formatNaira(Number(fee.amount || 0))} &bull; Paid: {formatNaira(Number(fee.paid || 0))} &bull; Owing: {formatNaira(owingHere)}
                           </p>
                           {isSelected && (
                             <div className="mt-2 flex items-center gap-2">
@@ -640,13 +577,13 @@ const SchoolStudentDashboard = () => {
                                 className="h-8 text-sm"
                                 value={feeAmounts[fee.id] || ""}
                                 min={1}
-                                max={owing}
+                                max={owingHere}
                                 onChange={(e) => {
-                                  const val = Math.min(Math.max(Number(e.target.value), 0), owing);
+                                  const val = Math.min(Math.max(Number(e.target.value), 0), owingHere);
                                   setFeeAmounts((prev) => ({ ...prev, [fee.id]: String(val || "") }));
                                 }}
                               />
-                              <span className="text-xs text-muted-foreground whitespace-nowrap">/ {formatNaira(owing)}</span>
+                              <span className="text-xs text-muted-foreground whitespace-nowrap">/ {formatNaira(owingHere)}</span>
                             </div>
                           )}
                         </div>
@@ -654,7 +591,7 @@ const SchoolStudentDashboard = () => {
                     );
                   })}
                 </div>
-              </div>
+              ))
             )}
           </div>
           {payableFees.length > 0 && (

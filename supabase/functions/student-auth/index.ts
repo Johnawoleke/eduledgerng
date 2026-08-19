@@ -313,33 +313,43 @@ serve(async (req) => {
       (terms || []).map((t: { id: string; name: string }) => [t.id, t.name])
     );
 
-    const arrears = otherCharges
-      .map((c: { class_fee_id: string; amount: number; session_id: string | null; term_id: string | null }) => {
-        const name = nameById.get(c.class_fee_id) ?? "Fee";
-        const amount = Number(c.amount);
-        const paid = Math.min(sumPaidForFee(allSettledPayments, { id: c.class_fee_id, name }), amount);
-        return {
-          id: c.class_fee_id,
-          name,
-          amount,
-          paid,
-          status: paid >= amount ? "paid" : paid > 0 ? "partial" : "unpaid",
-          session_id: c.session_id,
-          term_id: c.term_id,
-          period_label: [
-            c.session_id ? sessionName.get(c.session_id) : null,
-            c.term_id ? termName.get(c.term_id) : null,
-          ].filter(Boolean).join(" · ") || "Earlier",
-        };
-      })
-      .filter((f) => f.amount - f.paid > 0);
+    const describe = (c: { class_fee_id: string; amount: number; session_id: string | null; term_id: string | null }) => {
+      const name = nameById.get(c.class_fee_id) ?? "Fee";
+      const amount = Number(c.amount);
+      const paid = Math.min(sumPaidForFee(allSettledPayments, { id: c.class_fee_id, name }), amount);
+      return {
+        id: c.class_fee_id,
+        name,
+        amount,
+        paid,
+        status: paid >= amount ? "paid" : paid > 0 ? "partial" : "unpaid",
+        session_id: c.session_id,
+        term_id: c.term_id,
+        period_label: [
+          c.session_id ? sessionName.get(c.session_id) : null,
+          c.term_id ? termName.get(c.term_id) : null,
+        ].filter(Boolean).join(" · ") || "Earlier",
+      };
+    };
 
+    const arrears = otherCharges.map(describe).filter((f) => f.amount - f.paid > 0);
+
+    // EVERYTHING still owed, in every period, independent of what is selected.
+    //
+    // `arrears` splits on the selected period, which is a browsing control and
+    // not a statement about what is owed: with a session chosen but no term,
+    // three terms of debt collapse into "this term" and nothing reads as
+    // earlier. A student's total is a fact about them, so it must not change
+    // depending on which dropdown they last touched.
+    const owing = (allCharges || []).map(describe).filter((f) => f.amount - f.paid > 0);
     return json({
       student,
       school,
       feeItems,
       arrears,
       arrears_total: arrears.reduce((s, f) => s + (f.amount - f.paid), 0),
+      owing,
+      owing_total: owing.reduce((s, f) => s + (f.amount - f.paid), 0),
       payments: settledPayments,
       sessions: sessions || [],
       terms: terms || [],

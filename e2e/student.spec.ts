@@ -15,7 +15,7 @@ test.describe("Student payment flow", () => {
   test("logs in and sees the dashboard", async ({ page }) => {
     await mockSupabase(page);
     await login(page);
-    await expect(page.getByRole("button", { name: /Pay Fees Online/i })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Pay ₦/ })).toBeVisible();
   });
 
   test("payment breakdown adds the 1% platform charge + gateway fee ON TOP of the fee", async ({ page }) => {
@@ -23,7 +23,7 @@ test.describe("Student payment flow", () => {
     await mockSupabase(page, invocations);
     await login(page);
 
-    await page.getByRole("button", { name: /Pay Fees Online/i }).click();
+    await page.getByRole("button", { name: /^Pay ₦/ }).click();
 
     // Only the unpaid Tuition (₦5,000) is selectable; Books is already paid.
     await page.getByRole("checkbox").first().check();
@@ -45,7 +45,7 @@ test.describe("Student payment flow", () => {
     await mockSupabase(page, invocations);
     await login(page);
 
-    await page.getByRole("button", { name: /Pay Fees Online/i }).click();
+    await page.getByRole("button", { name: /^Pay ₦/ }).click();
     await page.getByRole("checkbox").first().check();
     await page.getByRole("button", { name: /^Pay ₦/ }).click();
 

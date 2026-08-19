@@ -28,23 +28,52 @@ test.describe("student dashboard against real data", () => {
     }
   });
 
-  test("every earlier-term debt is labelled with the term it belongs to", async ({ page }) => {
-    // The bug: the dialog claimed "Payment for 2027/2028" while listing
-    // 2026/2027 fees. A charge must never be shown under the wrong period.
+  test("the owing total does not change with the session or term selector", async ({ page }) => {
+    // The bug: the this-term/earlier split was derived from the period selector,
+    // which is a browsing control. With a session chosen but no term, three
+    // terms of debt collapsed into "this term" and nothing read as earlier.
+    // What a student owes is a fact about them, not about a dropdown.
     await loginStudent(page);
-    await page.getByRole("button", { name: /Pay Fees Online/i }).click();
+    const readTotal = async () =>
+      (await page.getByText(/₦[\d,]+ in total/).first().innerText()).match(/₦[\d,]+/)![0];
+
+    if ((await page.getByText(/What you still owe/i).count()) === 0)
+      test.skip(true, "this student owes nothing");
+
+    const before = await readTotal();
+    await page.locator("button").filter({ hasText: /^\d{4}\/\d{4}$/ }).first().click();
+    await page.waitForTimeout(500);
+    const options = page.getByRole("option");
+    if ((await options.count()) > 1) {
+      await options.nth(1).click();
+      await page.waitForTimeout(4000);
+      expect(await readTotal()).toBe(before);
+    }
+  });
+
+  test("every debt is grouped under the term it belongs to", async ({ page }) => {
+    // A charge must never be shown under the wrong period. The dialog once
+    // claimed "Payment for 2027/2028" while listing 2026/2027 fees.
+    //
+    // Asserted on the group HEADINGS, not on a fixed section title: the previous
+    // version looked for "Still owing from earlier terms", which stopped
+    // existing when the card was regrouped by term — so it skipped itself and
+    // reported nothing. A test that silently opts out is worse than no test.
+    await loginStudent(page);
+    if ((await page.getByText(/What you still owe/i).count()) === 0)
+      test.skip(true, "this student owes nothing");
+
+    // Every group is headed by the period it covers.
+    const headings = page.getByText(/^\d{4}\/\d{4}\s*·\s*Term \d$/);
+    expect(await headings.count()).toBeGreaterThan(0);
+
+    // The same holds inside the payment dialog, which must not claim the whole
+    // payment belongs to whichever period the selector happens to show.
+    await page.getByRole("button", { name: /^Pay ₦/ }).click();
     await page.waitForTimeout(1200);
-
-    const section = page.getByText(/Still owing from earlier terms/i);
-    if ((await section.count()) === 0) test.skip(true, "no arrears in the staging dataset");
-
-    await expect(section).toBeVisible();
-    // Each arrears row carries a period badge like "2026/2027 · Term 1".
-    const badges = await page.getByText(/\d{4}\/\d{4}\s*·\s*Term \d/).count();
-    expect(badges).toBeGreaterThan(0);
-
-    // ...and the dialog must not claim the whole payment belongs to one period.
     await expect(page.getByText(/Payment for .* — /)).toHaveCount(0);
+    expect(await page.getByRole("dialog").getByText(/\d{4}\/\d{4}\s*·\s*Term \d/).count())
+      .toBeGreaterThan(0);
   });
 
   test("legacy name-keyed payments still reconcile", async ({ page }) => {
@@ -57,7 +86,7 @@ test.describe("student dashboard against real data", () => {
     // whose fees are not published yet has no rows at all, so an empty table
     // would prove nothing either way.
     await loginStudent(page);
-    await page.getByRole("button", { name: /Pay Fees Online/i }).click();
+    await page.getByRole("button", { name: /^Pay ₦/ }).click();
     await page.waitForTimeout(1200);
 
     const rows = await page.getByText(/Paid: ₦[\d,]+/).allInnerTexts();

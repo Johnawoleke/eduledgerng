@@ -22,10 +22,21 @@ export const FEE_ITEMS = [
 // call carries that instead of the student's password.
 export const SESSION_TOKEN = "e2e0000000000000000000000000000000000000000000000000000000000000";
 
+// Everything still owed, in EVERY period, with the term it belongs to. The
+// dashboard reads this rather than deriving a split from the period selector,
+// so the mock has to carry it or the whole "what you owe" section is absent.
+export const OWING = FEE_ITEMS
+  .filter((f) => f.amount - f.paid > 0)
+  .map((f) => ({ ...f, period_label: `${SESSION.name} · ${TERM.name}` }));
+
 export const studentAuthResponse = {
   student: STUDENT,
   school: SCHOOL,
   feeItems: FEE_ITEMS,
+  owing: OWING,
+  owing_total: OWING.reduce((s, f) => s + (f.amount - f.paid), 0),
+  arrears: [] as unknown[],
+  arrears_total: 0,
   payments: [] as unknown[],
   sessions: [SESSION],
   terms: [TERM],
