@@ -18,24 +18,26 @@ test.describe("Student payment flow", () => {
     await expect(page.getByRole("button", { name: /^Pay ₦/ })).toBeVisible();
   });
 
-  test("the pay button survives a student-auth that predates `owing`", async ({ page }) => {
-    // The reported failure: a student could not pay at all. The dashboard had
-    // come to depend entirely on `owing`/`totals` from a newer student-auth,
-    // and the old "Pay Fees Online" card was gone — so against a deployed
-    // function without those fields the button simply vanished. Nothing caught
-    // it, because the mock always supplied them. Serve the older shape.
-    await mockSupabase(page);
-    await page.route(/\/functions\/v1\/student-auth/, async (route) => {
-      const { owing, owing_total, ...legacy } = studentAuthResponse as Record<string, unknown>;
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify(legacy),
+  // The exact production shape when this was reported: student-auth had been
+  // deployed 47s after the commit adding `owing`, and 36 minutes BEFORE the one
+  // adding `totals`. So `owing` arrived and `totals` did not — and the page did
+  // `setTotals(data.totals)` then rendered `totals.billed`, which throws. The
+  // dashboard did not hide the button; it crashed before drawing it.
+  for (const missing of [["totals"], ["owing", "owing_total", "totals"]]) {
+    test(`the dashboard still pays when student-auth omits ${missing.join(", ")}`, async ({ page }) => {
+      await mockSupabase(page);
+      await page.route(/\/functions\/v1\/student-auth/, async (route) => {
+        const body = { ...(studentAuthResponse as Record<string, unknown>) };
+        for (const k of missing) delete body[k];
+        await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
       });
+      const crashes: string[] = [];
+      page.on("pageerror", (e) => crashes.push(e.message));
+      await login(page);
+      await expect(page.getByRole("button", { name: /^Pay ₦/ })).toBeVisible();
+      expect(crashes, "the dashboard must not throw on a older student-auth").toEqual([]);
     });
-    await login(page);
-    await expect(page.getByRole("button", { name: /^Pay ₦/ })).toBeVisible();
-  });
+  }
 
   test("payment breakdown adds the 1% platform charge + gateway fee ON TOP of the fee", async ({ page }) => {
     const invocations: Invocation[] = [];
