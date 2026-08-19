@@ -115,6 +115,17 @@ Recording is idempotent on `payments.reference` (unique index from the reconcile
 
 The live DB was rebuilt by hand when the project moved off the Lovable tenant, so it diverges from the pre-2026-07 migrations: it uses **`sessions`/`terms`** (not `academic_sessions`/`academic_terms`), `profiles.id` is the auth user id (no `user_id` column), `students` has extra columns (`is_first_login`, `surname`, `session_id`, …), and there is no `student_fees` table. `src/integrations/supabase/types.ts` was hand-reconciled against the live schema (2026-07-06) — keep it in sync when the schema changes. `supabase/migrations/20260706130000_reconcile_live_schema.sql` documents/repairs the drift (missing `payments` columns, `class_fees` unique index for the upsert, session/term seeding, RLS policies).
 
+**Production carried a constraint that made multi-session terms impossible.**
+`unique_term_name_per_school UNIQUE (name, school_id)` was hand-added during the
+Lovable move and exists in neither this repo nor staging. A term belongs to a
+session and every session has a Term 1, so from a school's SECOND session onward
+its terms could not be created — which is why 21 of 52 production sessions had
+none, and a session with no terms can never hold a fee (`class_fees.term_id`).
+Migration 20260819120000 replaces it with `terms_session_name_key (session_id,
+name)`, which is what the model always meant. If you find another constraint on
+the live DB that is not in `supabase/migrations/`, assume the same origin and
+check it against the model before working around it.
+
 Tables: `schools`, `students`, `profiles`, `school_admins`, `school_requests` (bursar invitations), `sessions` → `terms` (academic periods per school), `class_fees` (fee definitions per class+period), `fee_items` (legacy per-student instances), `payments`, `payment_events` (webhook audit log), `notifications`, `student_sessions` + `student_auth_throttle` (service-role only, no RLS policies). Fees and payments are scoped to a session/term — `src/hooks/useAcademicPeriods.ts` and `src/components/AcademicPeriodSelector.tsx` drive that selection. Student fee summaries are computed server-side by the `student-auth` function (class_fees minus payment items); the frontend never queries the `students` table for auth.
 
 ### Balances come from the fee LEDGER, not from a formula (migration 20260818120000)
