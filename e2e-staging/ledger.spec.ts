@@ -86,7 +86,10 @@ test.describe("admin dashboard against real data", () => {
     // The bug: the picker offered EARLIER sessions, whose preview is an empty
     // no-op that reads as the feature being broken.
     await openAdminDashboard(page);
-    await page.getByRole("button", { name: /Move Up a Class/i }).click();
+    // Occasional actions live behind "More" — a once-a-year action that rewrites
+    // every student's class should not sit next to "Add Student".
+    await page.getByRole("button", { name: /^More$/ }).click();
+    await page.getByRole("menuitem", { name: /Move everyone up a class/i }).click();
     await expect(page.getByText(/Move students up a class/i)).toBeVisible();
 
     const currentSession = await page.locator("text=/^\\d{4}\\/\\d{4}$/").first().innerText();
@@ -104,6 +107,37 @@ test.describe("admin dashboard against real data", () => {
 
   test("the debtors export is offered", async ({ page }) => {
     await openAdminDashboard(page);
-    await expect(page.getByRole("button", { name: /Who Owes/i })).toBeVisible();
+    await page.getByRole("button", { name: /^More$/ }).click();
+    await expect(page.getByRole("menuitem", { name: /Who owes/i })).toBeVisible();
+  });
+
+  test("the roster shows everyone by default, and never a crash", async ({ page }) => {
+    // Two faults this guards, both of which typecheck and the hermetic suite
+    // were blind to:
+    //   - the page threw at runtime because a derived value was declared above
+    //     the one it depended on ("Cannot access X before initialization");
+    //   - the roster defaulted to a single class filter, so a school with
+    //     nobody in that class opened to "No students found".
+    await openAdminDashboard(page);
+    await expect(page.getByText(/Something went wrong/i)).toHaveCount(0);
+
+    const all = page.getByRole("button", { name: /^All \(\d+\)$/ });
+    await expect(all).toBeVisible();
+    await expect(page.locator("table tbody tr")).not.toHaveCount(0);
+  });
+
+  test("a student's class can be changed from the roster row", async ({ page }) => {
+    // It used to live inside the fees panel, so correcting a mistyped class
+    // meant opening a screen about money first.
+    await openAdminDashboard(page);
+    await page.locator("table tbody tr").first().getByRole("button").last().click();
+    await expect(page.getByRole("menuitem", { name: /Change class/i })).toBeVisible();
+    await page.keyboard.press("Escape");
+  });
+
+  test("temporary passwords are not printed into the roster", async ({ page }) => {
+    // Every un-rotated student's password used to be on screen at once.
+    await openAdminDashboard(page);
+    await expect(page.getByText(/^Temp password:/)).toHaveCount(0);
   });
 });

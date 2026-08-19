@@ -10,6 +10,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
+  DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { 
   LogOut,
@@ -36,7 +40,9 @@ import {
   FileSpreadsheet,
   Archive,
   ArchiveRestore,
-  ChevronsUp
+  ChevronsUp,
+  MoreHorizontal,
+  ArrowUpDown
 } from "lucide-react";
 import { generateReceiptPdf, parsePaymentItems } from "@/lib/generateReceiptPdf";
 import { isSettledPayment } from "@/lib/paymentStatus";
@@ -239,7 +245,9 @@ const SchoolAdminDashboard = () => {
   const [payments, setPayments] = useState<any[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
-  const [studentsClassFilter, setStudentsClassFilter] = useState("JSS1");
+  // "ALL" by default. Defaulting to one class meant a school with nobody in JSS1
+  // opened its own roster to "No students found", which reads as data loss.
+  const [studentsClassFilter, setStudentsClassFilter] = useState("ALL");
   const [showArchived, setShowArchived] = useState(false);
   const [paymentsClassFilter, setPaymentsClassFilter] = useState("ALL");
   const [selectedStudent, setSelectedStudent] = useState<StudentRow | null>(null);
@@ -595,10 +603,18 @@ const SchoolAdminDashboard = () => {
   // listed sits in their old class forever, indistinguishable from a student
   // still being taught there — and gets counted in that class's fee totals.
   // Their record and history are untouched; they are simply no longer current.
+  const classEditStudent = students.find((s) => s.id === classEditFor) || null;
+
   const isArchived = (s: StudentRow) =>
     s.status === "archived" || s.status === "inactive" || s.status === "graduated";
   const activeStudents = students.filter((s) => !isArchived(s));
   const archivedStudents = students.filter((s) => isArchived(s));
+
+  // The classes this school actually runs, in ladder order, with head counts.
+  const classesInUse = NIGERIAN_CLASSES
+    .map((name) => ({ name, count: activeStudents.filter((s) => s.class === name).length }))
+    .filter((c) => c.count > 0);
+
 
   // How many active students a fee applies to (a fee targets one class, or ALL).
   // A fee that applies to 0 students shows "Published" but adds nothing to any
@@ -1430,7 +1446,7 @@ const SchoolAdminDashboard = () => {
   const filteredStudents = academicPeriods.isFutureSession
     ? []
     : rosterBase.filter((s) => {
-        const matchClass = s.class === studentsClassFilter;
+        const matchClass = studentsClassFilter === "ALL" || s.class === studentsClassFilter;
         const matchSearch = !search ||
           (s.name || "").toLowerCase().includes(search.toLowerCase()) ||
           (s.student_id || "").toLowerCase().includes(search.toLowerCase());
@@ -1608,40 +1624,11 @@ const SchoolAdminDashboard = () => {
             className="hidden"
             onChange={handleBulkStudentUpload}
           />
-          <Button
-            variant="outline"
-            onClick={() => fileInputRef.current?.click()}
-            className="gap-2"
-            disabled={uploadingStudents || academicPeriods.isFutureSession}
-          >
-            <Upload className="w-4 h-4" /> {uploadingStudents ? "Uploading..." : "Upload CSV/Excel"}
-          </Button>
-          <Button variant="outline" onClick={downloadStudentTemplate} className="gap-2">
-            <Download className="w-4 h-4" /> Download Template
-          </Button>
-          {/* Standard SIS practice is to snapshot before a rollover and restore
-              if something surfaces. We cannot snapshot a shared database, so the
-              equivalent is that the last one stays reversible. */}
-          {userRole === "owner" && lastRollover && (
-            <Button variant="outline" onClick={undoRollover} disabled={promoteBusy}
-                    className="gap-2 border-destructive/40 text-destructive">
-              <ArchiveRestore className="w-4 h-4" /> Undo last promotion
-            </Button>
-          )}
-          {/* Owner-only: rollover changes every student's class at once. */}
-          {userRole === "owner" && (
-            <Button
-              variant="outline"
-              onClick={() => { setPromotePreview(null); setPromoteOpen(true); }}
-              className="gap-2"
-              disabled={academicPeriods.isFutureSession}
-              title={academicPeriods.isFutureSession
-                ? "Switch to a real session first"
-                : "Move every student up a class at the end of the year"}
-            >
-              <ChevronsUp className="w-4 h-4" /> Move Up a Class
-            </Button>
-          )}
+          {/* Two daily actions stay in the open; everything occasional moves
+              behind one menu. Eight equal-weight buttons over two rows gave a
+              once-a-year action that rewrites every student's class the same
+              prominence as adding one student, which is both cluttered and
+              risky. */}
           <Button
             onClick={() => setAddStudentOpen(true)}
             className="gap-2"
@@ -1650,18 +1637,6 @@ const SchoolAdminDashboard = () => {
           >
             <UserPlus className="w-4 h-4" /> Add Student
           </Button>
-          
-          {/* Export Report - available to both owners and bursars */}
-          <Button variant="outline" onClick={exportReport} className="gap-2">
-            <FileSpreadsheet className="w-4 h-4" /> Who Owes (CSV)
-          </Button>
-
-          {/* Owner-only actions */}
-          {userRole === "owner" && (
-            <Button variant="outline" onClick={() => setAddBursarOpen(true)} className="gap-2">
-              <UserCog className="w-4 h-4" /> Add Bursar
-            </Button>
-          )}
           {/* Fees can be proposed by owners and bursars; future sessions are locked */}
           <Button
             variant="outline"
@@ -1672,6 +1647,65 @@ const SchoolAdminDashboard = () => {
           >
             <Plus className="w-4 h-4" /> Add Fee
           </Button>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" className="gap-2">
+                <MoreHorizontal className="w-4 h-4" /> More
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-60">
+              <DropdownMenuLabel>Students</DropdownMenuLabel>
+              <DropdownMenuItem
+                disabled={uploadingStudents || academicPeriods.isFutureSession}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <Upload className="w-4 h-4 mr-2" />
+                {uploadingStudents ? "Uploading..." : "Upload roster (CSV/Excel)"}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={downloadStudentTemplate}>
+                <Download className="w-4 h-4 mr-2" /> Download roster template
+              </DropdownMenuItem>
+
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel>Money</DropdownMenuLabel>
+              <DropdownMenuItem onClick={exportReport}>
+                <FileSpreadsheet className="w-4 h-4 mr-2" /> Who owes (CSV)
+              </DropdownMenuItem>
+
+              {userRole === "owner" && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuLabel>School</DropdownMenuLabel>
+                  <DropdownMenuItem onClick={() => setAddBursarOpen(true)}>
+                    <UserCog className="w-4 h-4 mr-2" /> Add bursar
+                  </DropdownMenuItem>
+
+                  <DropdownMenuSeparator />
+                  <DropdownMenuLabel>End of year</DropdownMenuLabel>
+                  <DropdownMenuItem
+                    disabled={academicPeriods.isFutureSession}
+                    onClick={() => { setPromotePreview(null); setPromoteOpen(true); }}
+                  >
+                    <ChevronsUp className="w-4 h-4 mr-2" /> Move everyone up a class
+                  </DropdownMenuItem>
+                  {/* Standard SIS practice is to snapshot before a rollover and
+                      restore if something surfaces. A shared database cannot be
+                      snapshotted, so the equivalent is that the last one stays
+                      reversible — and stays visible while it is. */}
+                  {lastRollover && (
+                    <DropdownMenuItem
+                      className="text-destructive focus:text-destructive"
+                      disabled={promoteBusy}
+                      onClick={undoRollover}
+                    >
+                      <ArchiveRestore className="w-4 h-4 mr-2" /> Undo last promotion
+                    </DropdownMenuItem>
+                  )}
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
 
         <Tabs defaultValue="students">
@@ -1699,40 +1733,6 @@ const SchoolAdminDashboard = () => {
                       <p className="text-sm text-muted-foreground">{selectedStudent.student_id} · {selectedStudent.class}</p>
                       {selectedStudent.parent_email && (
                         <p className="text-xs text-muted-foreground mt-0.5">Parent: {selectedStudent.parent_email}</p>
-                      )}
-                      {/* Correcting a class was impossible before the enrolment
-                          table existed. It changes the enrolment for the session
-                          on screen, so earlier years keep the class they had. */}
-                      {userRole === "owner" && !academicPeriods.isFutureSession && (
-                        <div className="mt-2">
-                          {classEditFor === selectedStudent.id ? (
-                            <div className="flex items-center gap-2">
-                              <Select
-                                disabled={classEditBusy}
-                                onValueChange={(v) => handleChangeClass(selectedStudent.id, v)}
-                              >
-                                <SelectTrigger className="h-8 w-40 text-xs">
-                                  <SelectValue placeholder="Move to class..." />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {NIGERIAN_CLASSES.filter((c) => c !== selectedStudent.class).map((c) => (
-                                    <SelectItem key={c} value={c}>{c}</SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                              <Button variant="ghost" size="sm" className="h-8 text-xs"
-                                      disabled={classEditBusy}
-                                      onClick={() => setClassEditFor(null)}>
-                                Cancel
-                              </Button>
-                            </div>
-                          ) : (
-                            <Button variant="outline" size="sm" className="h-7 text-xs"
-                                    onClick={() => setClassEditFor(selectedStudent.id)}>
-                              Change class
-                            </Button>
-                          )}
-                        </div>
                       )}
                     </div>
                   </div>
@@ -1767,15 +1767,26 @@ const SchoolAdminDashboard = () => {
               <Card>
                 <CardContent className="pt-6">
                   <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b">
-                    <div className="flex flex-wrap gap-1">
-                      {NIGERIAN_CLASSES.map((c) => (
+                    {/* Only classes this school actually runs, plus All. Showing
+                        the whole national ladder meant 14 buttons wrapping onto
+                        two rows, most of them for classes with nobody in them,
+                        and no way back to seeing everyone. */}
+                    <div className="flex flex-wrap gap-1 items-center">
+                      <Button
+                        variant={studentsClassFilter === "ALL" ? "default" : "ghost"}
+                        size="sm"
+                        onClick={() => setStudentsClassFilter("ALL")}
+                      >
+                        All {activeStudents.length > 0 && `(${activeStudents.length})`}
+                      </Button>
+                      {classesInUse.map((c) => (
                         <Button
-                          key={c}
-                          variant={studentsClassFilter === c ? "default" : "ghost"}
+                          key={c.name}
+                          variant={studentsClassFilter === c.name ? "default" : "ghost"}
                           size="sm"
-                          onClick={() => setStudentsClassFilter(c)}
+                          onClick={() => setStudentsClassFilter(c.name)}
                         >
-                          {c}
+                          {c.name} <span className="ml-1 text-xs opacity-60">{c.count}</span>
                         </Button>
                       ))}
                     </div>
@@ -1830,7 +1841,21 @@ const SchoolAdminDashboard = () => {
                                       default_pin at that point (20260803130000). */}
                                   {student.must_change_pin && student.default_pin && (
                                     <span className="block text-xs font-normal text-muted-foreground mt-0.5">
-                                      Temp password: <span className="font-mono select-all">{student.default_pin}</span>
+                                      {/* Not printed into the roster any more. Every
+                                          un-rotated student's password was on screen at
+                                          once, readable by anyone stood behind the desk
+                                          or looking at a shared screen. Copy hands it
+                                          over without ever displaying it. */}
+                                      <button
+                                        type="button"
+                                        className="underline underline-offset-2 hover:text-foreground"
+                                        onClick={() => {
+                                          navigator.clipboard?.writeText(student.default_pin || "");
+                                          toast.success(`Temporary password for ${student.name} copied`);
+                                        }}
+                                      >
+                                        Copy temporary password
+                                      </button>
                                     </span>
                                   )}
                                 </TableCell>
@@ -1859,18 +1884,44 @@ const SchoolAdminDashboard = () => {
                                     ) : (
                                       <>
                                         <Button variant="ghost" size="sm" onClick={() => handleViewStudent(student)}>
-                                          View Fees
+                                          Fees
                                         </Button>
-                                        {/* Owners can reset password and archive (students are never hard-deleted) */}
+                                        {/* One menu per student, with everything you can do TO that
+                                            student named in words. Changing a class used to live
+                                            inside the fees panel, so correcting a typo meant opening
+                                            a screen about money; and reset/archive were unlabelled
+                                            icons you had to hover to identify. */}
                                         {userRole === "owner" && (
-                                          <>
-                                            <Button variant="ghost" size="icon" onClick={() => handleResetPassword(student.id, student.name)} title="Reset Password">
-                                              <KeyRound className="w-4 h-4 text-muted-foreground" />
-                                            </Button>
-                                            <Button variant="ghost" size="icon" onClick={() => handleArchiveStudent(student.id, student.name)} title="Archive Student">
-                                              <Archive className="w-4 h-4 text-muted-foreground" />
-                                            </Button>
-                                          </>
+                                          <DropdownMenu>
+                                            <DropdownMenuTrigger asChild>
+                                              <Button variant="ghost" size="icon" title={`Actions for ${student.name}`}>
+                                                <MoreHorizontal className="w-4 h-4 text-muted-foreground" />
+                                              </Button>
+                                            </DropdownMenuTrigger>
+                                            <DropdownMenuContent align="end" className="w-52">
+                                              <DropdownMenuLabel className="truncate">{student.name}</DropdownMenuLabel>
+                                              <DropdownMenuSeparator />
+                                              <DropdownMenuItem
+                                                onClick={() => setClassEditFor(student.id)}
+                                                disabled={academicPeriods.isFutureSession}
+                                              >
+                                                <ArrowUpDown className="w-4 h-4 mr-2" /> Change class
+                                              </DropdownMenuItem>
+                                              <DropdownMenuItem onClick={() => handleViewStudent(student)}>
+                                                <Wallet className="w-4 h-4 mr-2" /> View fees
+                                              </DropdownMenuItem>
+                                              <DropdownMenuSeparator />
+                                              <DropdownMenuItem onClick={() => handleResetPassword(student.id, student.name)}>
+                                                <KeyRound className="w-4 h-4 mr-2" /> Reset password
+                                              </DropdownMenuItem>
+                                              <DropdownMenuItem
+                                                className="text-destructive focus:text-destructive"
+                                                onClick={() => handleArchiveStudent(student.id, student.name)}
+                                              >
+                                                <Archive className="w-4 h-4 mr-2" /> Archive student
+                                              </DropdownMenuItem>
+                                            </DropdownMenuContent>
+                                          </DropdownMenu>
                                         )}
                                       </>
                                     )}
@@ -2289,6 +2340,42 @@ const SchoolAdminDashboard = () => {
                   {promoteBusy ? "Working..." : "Apply these changes"}
                 </Button>
               </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Change class. A dialog rather than a control inside the fees panel:
+          correcting a mistyped class should not require opening a screen about
+          money, and it has to be reachable from the roster row. */}
+      <Dialog open={!!classEditFor} onOpenChange={(o) => { if (!o) setClassEditFor(null); }}>
+        <DialogContent className="sm:max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle>Change class</DialogTitle>
+            <DialogDescription>
+              {classEditStudent
+                ? `Move ${classEditStudent.name} for ${academicPeriods.selectedSession?.name || "this session"}. Earlier sessions keep the class they had.`
+                : ""}
+            </DialogDescription>
+          </DialogHeader>
+          {classEditStudent && (
+            <div className="space-y-3">
+              <div className="text-sm text-muted-foreground">
+                Currently in <span className="font-medium text-foreground">{classEditStudent.class}</span>
+              </div>
+              <Select disabled={classEditBusy} onValueChange={(v) => handleChangeClass(classEditStudent.id, v)}>
+                <SelectTrigger><SelectValue placeholder="Move to which class?" /></SelectTrigger>
+                <SelectContent>
+                  {NIGERIAN_CLASSES.filter((c) => c !== classEditStudent.class).map((c) => (
+                    <SelectItem key={c} value={c}>{c}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                This term's fees are re-issued for the new class. If anything has already been
+                paid, the change is refused rather than leaving a payment against fees they no
+                longer owe.
+              </p>
             </div>
           )}
         </DialogContent>
