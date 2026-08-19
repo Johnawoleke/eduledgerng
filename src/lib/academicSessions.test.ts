@@ -10,10 +10,16 @@ type Row = Record<string, unknown>;
 const inserts: { table: string; rows: Row & Row[] }[] = [];
 let sessionInsertFails = false;
 let termsInsertFails = false;
+let existingTerms: Row[] = [];
 
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
     from: (table: string) => ({
+      select: () => ({
+        eq: () => ({
+          limit: () => Promise.resolve({ data: existingTerms, error: null }),
+        }),
+      }),
       insert: (rows: Row & Row[]) => {
         inserts.push({ table, rows });
         if (table === "terms") {
@@ -34,12 +40,13 @@ vi.mock("@/integrations/supabase/client", () => ({
   },
 }));
 
-const { createSessionWithTerms, DEFAULT_TERMS } = await import("./academicSessions");
+const { createSessionWithTerms, ensureSessionHasTerms, DEFAULT_TERMS } = await import("./academicSessions");
 
 beforeEach(() => {
   inserts.length = 0;
   sessionInsertFails = false;
   termsInsertFails = false;
+  existingTerms = [];
 });
 
 describe("createSessionWithTerms", () => {
@@ -90,5 +97,23 @@ describe("createSessionWithTerms", () => {
     inserts.length = 0;
     await createSessionWithTerms("school-1", "2027/2028", { isCurrent: true });
     expect(inserts[0].rows.is_current).toBe(true);
+  });
+});
+
+describe("ensureSessionHasTerms", () => {
+  it("adds the three terms when a session has none", async () => {
+    existingTerms = [];
+    const err = await ensureSessionHasTerms("school-1", "sess-9");
+    expect(err).toBeNull();
+    const termInsert = inserts.find((i) => i.table === "terms");
+    expect(termInsert?.rows).toHaveLength(3);
+    expect((termInsert?.rows as Row[]).every((t) => t.session_id === "sess-9")).toBe(true);
+  });
+
+  it("does nothing when the session already has terms", async () => {
+    existingTerms = [{ id: "t1" }];
+    const err = await ensureSessionHasTerms("school-1", "sess-9");
+    expect(err).toBeNull();
+    expect(inserts.filter((i) => i.table === "terms")).toHaveLength(0);
   });
 });

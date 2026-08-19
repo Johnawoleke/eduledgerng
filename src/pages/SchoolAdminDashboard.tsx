@@ -50,7 +50,7 @@ import {
   NIGERIAN_CLASSES, OUTCOME_LABEL, nextClass,
   type PromotionAction,
 } from "@/lib/classes";
-import { createSessionWithTerms } from "@/lib/academicSessions";
+import { createSessionWithTerms, ensureSessionHasTerms } from "@/lib/academicSessions";
 import { sumPaidForFee, countStudentsInClass as countInClass } from "@/lib/fees";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -741,7 +741,20 @@ const SchoolAdminDashboard = () => {
   // "future-<year>" sessions, which are not UUIDs and would 22P02 every query
   // in the function. If one is chosen, create it for real first.
   const resolveTargetSession = async (chosen: string): Promise<string | null> => {
-    if (!chosen.startsWith("future-")) return chosen;
+    if (!chosen.startsWith("future-")) {
+      // An existing session can predate session-and-terms being one operation
+      // and have none, in which case the school could never set a fee for the
+      // year it just promoted everyone into.
+      if (school) {
+        const problem = await ensureSessionHasTerms(school.id, chosen);
+        if (problem) {
+          toast.error(`That session has no terms and they could not be added: ${problem}`);
+          return null;
+        }
+        await academicPeriods.reload();
+      }
+      return chosen;
+    }
     const opt = academicPeriods.sessionOptions.find((o) => o.id === chosen);
     if (!school || !opt) return null;
     const { session, error } = await createSessionWithTerms(school.id, opt.name);

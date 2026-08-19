@@ -27,6 +27,41 @@ export interface CreateSessionResult {
 export const DEFAULT_TERMS = ["Term 1", "Term 2", "Term 3"] as const;
 
 /**
+ * Make sure a session that already exists has terms.
+ *
+ * Sessions created before session-and-terms became one operation can have none
+ * — 21 of 52 on production did — and a session with no terms can never hold a
+ * fee. Promoting a whole school into one leaves it unable to bill for the year,
+ * with nothing on screen to explain why.
+ *
+ * Returns null when nothing was needed.
+ */
+export const ensureSessionHasTerms = async (
+  schoolId: string,
+  sessionId: string
+): Promise<string | null> => {
+  const { data: existing, error } = await supabase
+    .from("terms")
+    .select("id")
+    .eq("session_id", sessionId)
+    .limit(1);
+
+  if (error) return error.message;
+  if (existing && existing.length > 0) return null;
+
+  const { error: insertError } = await supabase.from("terms").insert(
+    DEFAULT_TERMS.map((termName, i) => ({
+      session_id: sessionId,
+      school_id: schoolId,
+      name: termName,
+      term_number: i + 1,
+      is_current: i === 0,
+    }))
+  );
+  return insertError?.message ?? null;
+};
+
+/**
  * Create a session AND its terms.
  *
  * Returns an error rather than a half-built session: one that exists without

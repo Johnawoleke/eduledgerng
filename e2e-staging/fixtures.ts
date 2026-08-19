@@ -29,10 +29,23 @@ export async function loginStudent(page: Page) {
   await page.getByRole("button", { name: "Sign In" }).click();
   await page.waitForURL(/\/student/, { timeout: 40_000 });
   await page.waitForLoadState("networkidle");
-  // The period selector resolves AFTER the first data fetch, and the second
-  // fetch is the one scoped to a session. Waiting for it is the difference
-  // between reading a stale figure and the real one.
-  await page.waitForTimeout(4000);
+  // The period selector resolves AFTER the first data fetch, and the SECOND
+  // fetch is the one scoped to a session. Reading before it lands gives a stale
+  // figure. Wait for the settled state rather than a fixed delay — a fixed one
+  // made this flaky, and a flaky check in a suite meant to catch real bugs
+  // teaches you to ignore it.
+  await expect
+    .poll(async () => page.getByText(/Total owing|Owing this term/i).count(), {
+      timeout: 30_000,
+      intervals: [250, 500, 1000],
+    })
+    .toBeGreaterThan(0);
+  // The session dropdown having a value means the period-scoped fetch has run.
+  await expect
+    .poll(async () => (await page.locator("text=/^\\d{4}\\/\\d{4}$/").count()) > 0, {
+      timeout: 15_000,
+    })
+    .toBe(true);
 }
 
 /** Naira text like "₦51,700" -> 51700. */
