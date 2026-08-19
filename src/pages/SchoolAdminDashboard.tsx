@@ -647,6 +647,53 @@ const SchoolAdminDashboard = () => {
     return out;
   })();
 
+  // Who owes what, and in which term — grouped student, then period, then fee.
+  //
+  // Deliberately ignores the period selector. A debt carried from an earlier
+  // term is exactly the thing you cannot see by filtering to the current one,
+  // so a view built on that filter can never show it. Before this, the only way
+  // to find it was to already know which term to go looking in.
+  const debtors = (() => {
+    const byStudent = new Map<string, {
+      student: StudentRow;
+      total: number;
+      periods: Map<string, { label: string; owing: number; fees: { name: string; amount: number; paid: number; owing: number }[] }>;
+    }>();
+
+    for (const c of charges) {
+      const student = students.find((s) => s.id === c.student_id);
+      if (!student || isArchived(student)) continue;
+
+      const fee = feeById.get(c.class_fee_id);
+      const paid = Math.min(
+        sumPaidForFee(
+          allSettledPayments.filter((p) => p.student_id === c.student_id),
+          { id: c.class_fee_id, name: fee?.name ?? "" }
+        ),
+        Number(c.amount)
+      );
+      const owing = Math.max(Number(c.amount) - paid, 0);
+      if (owing <= 0) continue;
+
+      const sessionName = academicPeriods.sessions.find((x) => x.id === c.session_id)?.name;
+      const termName = academicPeriods.terms.find((x) => x.id === c.term_id)?.name;
+      const label = [sessionName, termName].filter(Boolean).join(" · ") || "Unassigned period";
+      const key = `${c.session_id ?? ""}|${c.term_id ?? ""}`;
+
+      const entry = byStudent.get(c.student_id) || { student, total: 0, periods: new Map() };
+      entry.total += owing;
+      const period = entry.periods.get(key) || { label, owing: 0, fees: [] };
+      period.owing += owing;
+      period.fees.push({ name: fee?.name ?? "Fee", amount: Number(c.amount), paid, owing });
+      entry.periods.set(key, period);
+      byStudent.set(c.student_id, entry);
+    }
+
+    return [...byStudent.values()]
+      .map((e) => ({ ...e, periods: [...e.periods.values()].sort((a, b) => a.label.localeCompare(b.label)) }))
+      .sort((a, b) => b.total - a.total);
+  })();
+
   const debtorCount = activeStudents.filter((s) => (owingAllPeriods.get(s.id) || 0) > 0).length;
   const owingGrandTotal = activeStudents.reduce((a, s) => a + (owingAllPeriods.get(s.id) || 0), 0);
 
@@ -1740,6 +1787,12 @@ const SchoolAdminDashboard = () => {
               )}
             </TabsTrigger>
             <TabsTrigger value="payments">Payments</TabsTrigger>
+            <TabsTrigger value="owing" className="gap-1.5">
+              Owing
+              {debtors.length > 0 && (
+                <Badge variant="destructive" className="h-4 min-w-4 px-1 text-[10px]">{debtors.length}</Badge>
+              )}
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="students">
@@ -1959,6 +2012,79 @@ const SchoolAdminDashboard = () => {
                 </CardContent>
               </Card>
             )}
+          </TabsContent>
+
+          {/* Who owes what, across every term. This tab ignores the period
+              selector on purpose: filtering to the current term is precisely
+              what hides a debt carried from an earlier one. */}
+          <TabsContent value="owing">
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <CardTitle className="text-lg">Who owes, across all terms</CardTitle>
+                    <p className="text-sm text-muted-foreground mt-0.5">
+                      {debtors.length === 0
+                        ? "Nobody is owing."
+                        : `${formatNaira(owingGrandTotal)} from ${debtors.length} student${debtors.length === 1 ? "" : "s"}. Not affected by the session or term above.`}
+                    </p>
+                  </div>
+                  {debtors.length > 0 && (
+                    <Button variant="outline" size="sm" onClick={exportReport} className="gap-2 shrink-0">
+                      <FileSpreadsheet className="w-4 h-4" /> Download CSV
+                    </Button>
+                  )}
+                </div>
+              </CardHeader>
+              <CardContent className="pt-0">
+                {debtors.length === 0 ? (
+                  <p className="text-center text-muted-foreground py-10">
+                    Every student is up to date.
+                  </p>
+                ) : (
+                  <div className="border rounded-lg divide-y">
+                    {debtors.map(({ student, total, periods }) => (
+                      <div key={student.id} className="p-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="font-medium truncate">{student.name}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {student.student_id} · {student.class}
+                              {student.parent_email ? ` · ${student.parent_email}` : ""}
+                            </p>
+                          </div>
+                          <p className="font-semibold text-destructive shrink-0">{formatNaira(total)}</p>
+                        </div>
+
+                        {/* The breakdown is the point: which TERM the money is
+                            owed for, not just how much. */}
+                        <div className="mt-2 space-y-1.5">
+                          {periods.map((p) => (
+                            <div key={p.label} className="rounded-md bg-muted/40 px-2.5 py-1.5">
+                              <div className="flex items-center justify-between gap-2 text-sm">
+                                <span className="font-medium">{p.label}</span>
+                                <span>{formatNaira(p.owing)}</span>
+                              </div>
+                              <div className="mt-0.5 space-y-0.5">
+                                {p.fees.map((f, i) => (
+                                  <div key={`${f.name}-${i}`} className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                                    <span className="truncate">
+                                      {f.name}
+                                      {f.paid > 0 && ` — ${formatNaira(f.paid)} of ${formatNaira(f.amount)} paid`}
+                                    </span>
+                                    <span className="shrink-0">{formatNaira(f.owing)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
 
           <TabsContent value="fees">

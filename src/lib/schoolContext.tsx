@@ -58,7 +58,11 @@ interface SchoolContextType {
   studentSession: StudentSession | null;
   setSchool: (school: SchoolData | null) => void;
   loginStudent: (student: StudentData, fees: FeeItem[], payments: PaymentRecord[], session: StudentSession) => void;
-  setStudentData: (fees: FeeItem[], payments: PaymentRecord[]) => void;
+  setStudentData: (
+    fees: FeeItem[],
+    payments: PaymentRecord[],
+    fresh?: Partial<StudentData> | null
+  ) => void;
   updateStudentSession: (session: StudentSession) => void;
   logoutStudent: () => void;
 }
@@ -133,12 +137,32 @@ export const SchoolProvider = ({ children }: { children: ReactNode }) => {
     writeStored("pity_session", session);
   }, []);
 
-  const setStudentData = useCallback((fees: FeeItem[], paymentList: PaymentRecord[]) => {
-    setFeeItems(fees);
-    setPayments(paymentList);
-    writeStored("pity_fees", fees);
-    writeStored("pity_payments", paymentList);
-  }, []);
+  // `fresh` carries the student record student-auth returns on every refresh.
+  //
+  // It used to be discarded, so the student row was whatever login had stored
+  // and never changed again. After a rollover moved a student up a class, their
+  // own dashboard kept showing the OLD class indefinitely — the school had moved
+  // them, the ledger had moved them, and the only screen the parent looks at
+  // had not. Merged rather than replaced, so a refresh cannot drop a field the
+  // login response carried and this one does not.
+  const setStudentData = useCallback(
+    (fees: FeeItem[], paymentList: PaymentRecord[], fresh?: Partial<StudentData> | null) => {
+      setFeeItems(fees);
+      setPayments(paymentList);
+      writeStored("pity_fees", fees);
+      writeStored("pity_payments", paymentList);
+
+      if (fresh) {
+        setStudent((prev) => {
+          if (!prev) return prev;
+          const merged = { ...prev, ...fresh };
+          writeStored("pity_student", merged);
+          return merged;
+        });
+      }
+    },
+    []
+  );
 
   // A password change revokes every prior session server-side and issues a new
   // one; swap it in so the current tab stays logged in.

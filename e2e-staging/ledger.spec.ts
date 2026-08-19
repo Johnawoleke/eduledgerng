@@ -105,6 +105,21 @@ test.describe("admin dashboard against real data", () => {
     await page.keyboard.press("Escape");
   });
 
+  test("an Owing view shows who owes what, in which term, without changing period", async ({ page }) => {
+    // The figures existed but were unreachable: the all-terms total showed only
+    // when NO term was selected, and the debtors list was a CSV download. There
+    // was no way to see which student owed what in which term.
+    await openAdminDashboard(page);
+    await page.getByRole("tab", { name: /Owing/i }).click();
+    await expect(page.getByText(/Who owes, across all terms/i)).toBeVisible();
+
+    const body = await page.locator("body").innerText();
+    if (/Every student is up to date/i.test(body)) test.skip(true, "no debtors in the dataset");
+
+    // Each debt must name the period it belongs to, or the list cannot be acted on.
+    await expect(page.getByText(/\d{4}\/\d{4}\s*·\s*Term \d/).first()).toBeVisible();
+  });
+
   test("the debtors export is offered", async ({ page }) => {
     await openAdminDashboard(page);
     await page.getByRole("button", { name: /^More$/ }).click();

@@ -166,7 +166,9 @@ const SchoolStudentDashboard = () => {
         });
 
         if (!error && data && !data.error) {
-          setStudentData(data.feeItems || [], data.payments || []);
+          // Pass the refreshed student through: their class can change under
+          // them when the school runs a rollover.
+          setStudentData(data.feeItems || [], data.payments || [], data.student);
           setArrears(data.arrears || []);
           return;
         }
@@ -374,6 +376,62 @@ const SchoolStudentDashboard = () => {
             </CardContent>
           </Card>
         </div>
+
+        {/* Everything owed, whichever term it belongs to, always visible.
+            The breakdown used to exist only inside the payment dialog, so a
+            parent had to open a checkout to find out what they owed — and a
+            debt from an earlier term was invisible unless they knew to switch
+            the session and term above to go looking for it. */}
+        {(balance > 0 || owingOtherTerms > 0) && (
+          <Card className="border-destructive/20">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg">What you still owe</CardTitle>
+              <p className="text-sm text-muted-foreground">
+                {owingOtherTerms > 0
+                  ? `${formatNaira(totalOwing)} in total — ${formatNaira(balance)} for the term shown above, ${formatNaira(owingOtherTerms)} from earlier terms.`
+                  : `${formatNaira(balance)} for the term shown above.`}
+              </p>
+            </CardHeader>
+            <CardContent className="pt-0 space-y-2">
+              {unpaidFees.map((fee) => {
+                const owing = Number(fee.amount || 0) - Number(fee.paid || 0);
+                if (owing <= 0) return null;
+                return (
+                  <div key={fee.id} className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate">{fee.name || "Fee"}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {academicPeriods.selectedTerm?.name || "This term"}
+                        {Number(fee.paid || 0) > 0 &&
+                          ` · ${formatNaira(Number(fee.paid))} of ${formatNaira(Number(fee.amount))} paid`}
+                      </p>
+                    </div>
+                    <span className="text-sm font-semibold shrink-0">{formatNaira(owing)}</span>
+                  </div>
+                );
+              })}
+              {arrears.map((fee) => {
+                const owing = Number(fee.amount || 0) - Number(fee.paid || 0);
+                return (
+                  <div key={fee.id} className="flex items-center justify-between gap-3 rounded-md border border-destructive/30 px-3 py-2">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate">{fee.name || "Fee"}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {fee.period_label}
+                        {Number(fee.paid || 0) > 0 &&
+                          ` · ${formatNaira(Number(fee.paid))} of ${formatNaira(Number(fee.amount))} paid`}
+                      </p>
+                    </div>
+                    <span className="text-sm font-semibold text-destructive shrink-0">{formatNaira(owing)}</span>
+                  </div>
+                );
+              })}
+              <Button className="w-full gap-2 mt-1" onClick={openPaymentModal}>
+                <CreditCard className="w-4 h-4" /> Pay {formatNaira(totalOwing)}
+              </Button>
+            </CardContent>
+          </Card>
+        )}
 
         <Card>
           <CardHeader>
