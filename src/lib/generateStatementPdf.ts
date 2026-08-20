@@ -6,9 +6,7 @@
 // which breaks the page and repeats the column headers when it runs out of room.
 import jsPDF from "jspdf";
 import type { Statement } from "./studentStatement";
-
-const naira = (n: number) =>
-  new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN", minimumFractionDigits: 0 }).format(n || 0);
+import { pdfMoney as naira } from "./pdfMoney";
 
 export const generateStatementPdf = (s: Statement, save = true) => {
   const doc = new jsPDF({ unit: "mm", format: "a4" });

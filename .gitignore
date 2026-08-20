@@ -33,3 +33,7 @@ supabase/.temp/
 /test-results
 /blob-report
 /playwright/.cache
+
+# Test artefacts from PDF generation
+statement-*.pdf
+Receipt-*.pdf

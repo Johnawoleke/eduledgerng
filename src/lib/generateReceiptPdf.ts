@@ -1,8 +1,9 @@
 import jsPDF from "jspdf";
 import { parseFeeItem } from "./feeItems";
+import { pdfMoney } from "./pdfMoney";
 
-const formatNaira = (amount: number) =>
-  new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN", minimumFractionDigits: 0 }).format(amount);
+// jsPDF's standard fonts cannot encode the naira sign — see ./pdfMoney.
+const formatNaira = pdfMoney;
 
 interface ReceiptItem {
   name: string;
