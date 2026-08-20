@@ -45,6 +45,8 @@ import {
   ArrowUpDown
 } from "lucide-react";
 import { generateReceiptPdf, parsePaymentItems } from "@/lib/generateReceiptPdf";
+import { buildStatement, statementToCsv } from "@/lib/studentStatement";
+import { generateStatementPdf } from "@/lib/generateStatementPdf";
 import { isSettledPayment } from "@/lib/paymentStatus";
 import {
   NIGERIAN_CLASSES, OUTCOME_LABEL, nextClass,
@@ -251,6 +253,7 @@ const SchoolAdminDashboard = () => {
   const [showArchived, setShowArchived] = useState(false);
   const [paymentsClassFilter, setPaymentsClassFilter] = useState("ALL");
   const [selectedStudent, setSelectedStudent] = useState<StudentRow | null>(null);
+  const [statementFor, setStatementFor] = useState<string | null>(null);
   const [studentFees, setStudentFees] = useState<any[]>([]);
   const [loadingFees, setLoadingFees] = useState(false);
 
@@ -1433,6 +1436,78 @@ const SchoolAdminDashboard = () => {
     }
   };
 
+  // A student's complete financial record, every year, as PDF or CSV.
+  //
+  // Enrolments are fetched on demand rather than loaded with the roster: they
+  // are only needed here, and a school with 400 students would otherwise pull
+  // thousands of rows on every dashboard load to serve a button most sessions
+  // never press.
+  const downloadStatement = async (student: StudentRow, format: "pdf" | "csv") => {
+    if (!school) return;
+    setStatementFor(student.id);
+    try {
+      const [{ data: enrolments }, { data: studentCharges }] = await Promise.all([
+        supabase
+          .from("student_enrolments")
+          .select("session_id, class, status")
+          .eq("school_id", school.id)
+          .eq("student_id", student.id),
+        supabase
+          .from("student_charges")
+          .select("class_fee_id, amount, session_id, term_id")
+          .eq("school_id", school.id)
+          .eq("student_id", student.id),
+      ]);
+
+      const statement = buildStatement({
+        student: {
+          id: student.id,
+          student_id: student.student_id,
+          name: student.name,
+          class: student.class,
+          status: student.status,
+          parent_email: student.parent_email,
+        },
+        school: {
+          name: school.name,
+          address: (school as any).address,
+          phone: (school as any).phone,
+          email: (school as any).email,
+        },
+        enrolments: enrolments || [],
+        charges: studentCharges || [],
+        // Every payment for this student, across all periods — a statement is
+        // not filtered by the dashboard's selected term.
+        payments: payments.filter((p: any) => p.student_id === student.id),
+        fees: classFees.map((f) => ({ id: f.id, name: f.name })),
+        sessions: academicPeriods.sessions.map((x) => ({ id: x.id, name: x.name })),
+        terms: academicPeriods.terms.map((t) => ({
+          id: t.id, name: t.name, session_id: t.session_id, term_number: t.term_number,
+        })),
+      });
+
+      if (format === "pdf") {
+        generateStatementPdf(statement);
+      } else {
+        const blob = new Blob([statementToCsv(statement)], { type: "text/csv;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `statement-${student.student_id.replace(/[^A-Za-z0-9-]/g, "")}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
+      toast.success(`Statement downloaded for ${student.name}`);
+    } catch (err) {
+      console.error("Statement export failed:", err);
+      toast.error("Could not build the statement. Please try again.");
+    } finally {
+      setStatementFor(null);
+    }
+  };
+
   const handleViewStudent = async (student: StudentRow) => {
     setSelectedStudent(student);
     setLoadingFees(true);
@@ -1809,6 +1884,29 @@ const SchoolAdminDashboard = () => {
                       {selectedStudent.parent_email && (
                         <p className="text-xs text-muted-foreground mt-0.5">Parent: {selectedStudent.parent_email}</p>
                       )}
+                    </div>
+                    {/* Every year, not just the period on screen. A leaver or an
+                        auditor asks for the whole history, and until now that
+                        meant querying the database by hand. */}
+                    <div className="ml-auto flex items-center gap-2 shrink-0">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="gap-1.5"
+                        disabled={statementFor === selectedStudent.id}
+                        onClick={() => downloadStatement(selectedStudent, "pdf")}
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        {statementFor === selectedStudent.id ? "Preparing..." : "Statement (PDF)"}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={statementFor === selectedStudent.id}
+                        onClick={() => downloadStatement(selectedStudent, "csv")}
+                      >
+                        CSV
+                      </Button>
                     </div>
                   </div>
                 </CardHeader>
