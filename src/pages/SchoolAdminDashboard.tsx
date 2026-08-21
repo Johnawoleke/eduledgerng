@@ -46,6 +46,7 @@ import {
 } from "lucide-react";
 import { generateReceiptPdf, parsePaymentItems } from "@/lib/generateReceiptPdf";
 import { buildStatement, statementToCsv } from "@/lib/studentStatement";
+import { parseRosterRows, describeRejections, rejectedRowsCsv } from "@/lib/rosterImport";
 import { generateStatementPdf } from "@/lib/generateStatementPdf";
 import { isSettledPayment } from "@/lib/paymentStatus";
 import {
@@ -1135,54 +1136,55 @@ const SchoolAdminDashboard = () => {
         return;
       }
 
-      const inserts = normalizedRows
-        .map((row) => {
-          const rawName = row.name || row.fullname || row.studentname || row.student;
-          const rawClass = row.class || row.studentclass || row.level;
-          // Match case/space-insensitively and store the canonical class name,
-          // so "primary 1", "Primary 1" and "PRIMARY 1" all resolve correctly.
-          const normalizedClass = rawClass?.toUpperCase().trim();
-          const className = NIGERIAN_CLASSES.find((c) => c.toUpperCase() === normalizedClass);
-          if (!rawName || !className) return null;
+      // Validate every row and keep the reasons. The old code did
+      // .map(...).filter(Boolean), so a rejected row simply disappeared: a
+      // school uploading 99 children was told "no valid rows found" with no
+      // mention of which class names were the problem, and a partially valid
+      // file reported only the successes.
+      const { accepted, rejected } = parseRosterRows(normalizedRows);
 
-          // Optional. The upload used to ignore parent email entirely, so a
-          // school could not supply one in bulk even when it had them — every
-          // uploaded roster landed with parent_email NULL. Accept the spellings
-          // a school is likely to use; a row without one is still accepted and
-          // falls back to the bouncing address at payment time.
-          const rawEmail =
-            row.parentemail || row.parent_email || row.guardianemail ||
-            row.email || row.parentsemail || row.parentguardianemail;
-          const parentEmail =
-            typeof rawEmail === "string" && /^[^\s@]+@[^\s@]+\.[a-zA-Z]{2,}$/.test(rawEmail.trim())
-              ? rawEmail.trim().toLowerCase()
-              : null;
+      const offerRejectedCsv = () => {
+        const blob = new Blob([rejectedRowsCsv(rejected)], { type: "text/csv;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "rows-we-could-not-add.csv";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      };
 
-          const nameParts = toStudentNameParts(rawName);
-          // A distinct temporary password per row — a shared one would put the
-          // whole uploaded roster behind a single guess.
-          const tempPassword = generateTempPassword();
-          return {
-            school_id: school.id,
-            student_id: generateStudentCode(nameParts.surname, nameParts.firstName, nameParts.middleName),
-            name: nameParts.fullName,
-            class: className,
-            pin: tempPassword,
-            default_pin: tempPassword,
-            must_change_pin: true,
-            status: "active",
-            parent_email: parentEmail,
-          };
-        })
-        .filter(Boolean) as any[];
-
-      if (inserts.length === 0) {
-        toast.error(
-          "No valid rows found. Use columns: name and class (JSS1-SSS3). " +
-            "Parent email is optional."
-        );
+      if (accepted.length === 0) {
+        toast.error(`None of the ${rejected.length} row(s) could be added`, {
+          description: `${describeRejections(rejected)} Classes must be one of: ${NIGERIAN_CLASSES.join(", ")}.`,
+          position: "top-center",
+          duration: Infinity,
+          closeButton: true,
+          action: rejected.length
+            ? { label: "Download details", onClick: (e) => { e.preventDefault(); offerRejectedCsv(); } }
+            : undefined,
+        });
         return;
       }
+
+      const inserts = accepted.map((r) => {
+        const nameParts = toStudentNameParts(r.name);
+        // A distinct temporary password per row — a shared one would put the
+        // whole uploaded roster behind a single guess.
+        const tempPassword = generateTempPassword();
+        return {
+          school_id: school.id,
+          student_id: generateStudentCode(nameParts.surname, nameParts.firstName, nameParts.middleName),
+          name: nameParts.fullName,
+          class: r.className,
+          pin: tempPassword,
+          default_pin: tempPassword,
+          must_change_pin: true,
+          status: "active",
+          parent_email: r.parentEmail,
+        };
+      });
 
       const { error } = await supabase.from("students").insert(inserts);
       if (error) {
@@ -1201,6 +1203,18 @@ const SchoolAdminDashboard = () => {
           [s.student_id, s.name, s.class, s.default_pin].map(csvEscape).join(",")
         ),
       ].join("\n");
+
+      // A partial upload must say so. Reporting only the successes is how 49
+      // missing children go unnoticed.
+      if (rejected.length > 0) {
+        toast.warning(`${rejected.length} row(s) could not be added`, {
+          description: describeRejections(rejected),
+          position: "top-center",
+          duration: Infinity,
+          closeButton: true,
+          action: { label: "Download details", onClick: (e) => { e.preventDefault(); offerRejectedCsv(); } },
+        });
+      }
 
       toast.success(`${inserts.length} student(s) uploaded`, {
         description: "Download their login details — each student has a unique temporary password.",
