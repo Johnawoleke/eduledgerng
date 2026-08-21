@@ -1,0 +1,7 @@
+name,class,parent-email
+Valid One,JSS1,one@example.com
+Bad Class,Basic 1,
+Valid Two,Primary 3,
+No Class Given,,
+,JSS2,orphan@example.com
+Valid Three,SSS1,

@@ -107,3 +107,73 @@ export async function mockSupabase(page: Page, invocations: Invocation[] = []): 
 
   return invocations;
 }
+
+// ---------------------------------------------------------------------------
+// Admin dashboard
+//
+// The roster upload is the primary onboarding path and had no e2e coverage at
+// all, which is how a bug that silently discarded students survived in it. This
+// mocks just enough for the dashboard to render: a signed-in owner, one school,
+// and empty lists for everything else.
+// ---------------------------------------------------------------------------
+export const ADMIN_USER = { id: "user-1", email: "owner@test.school", aud: "authenticated", role: "authenticated" };
+
+export async function mockAdmin(page: Page, invocations: Invocation[] = []): Promise<Invocation[]> {
+  await page.addInitScript(() => {
+    // supabase-js reads its session straight out of localStorage on boot.
+    const token = {
+      access_token: "e2e-fake-access-token",
+      token_type: "bearer",
+      expires_in: 3600,
+      expires_at: Math.floor(Date.now() / 1000) + 3600,
+      refresh_token: "e2e-fake-refresh",
+      user: { id: "user-1", email: "owner@test.school", aud: "authenticated", role: "authenticated" },
+    };
+    // supabase-js namespaces its storage key by project ref, and dev mode
+    // points at staging while production is hardcoded. Write both rather than
+    // guessing which build the test is running against.
+    for (const ref of ["ifonivphhfplntzshtsb", "vmqeqwszeekzkvtxkebv"]) {
+      localStorage.setItem(`sb-${ref}-auth-token`, JSON.stringify(token));
+    }
+  });
+
+  await page.route(/https:\/\/[a-z0-9]+\.supabase\.co\/.*/, async (route: Route) => {
+    const req = route.request();
+    const url = req.url();
+    const json = (body: unknown, status = 200) =>
+      route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
+
+    if (url.includes("/auth/v1/user")) return json(ADMIN_USER);
+    if (url.includes("/auth/v1/token")) {
+      return json({ access_token: "e2e-fake-access-token", token_type: "bearer", expires_in: 3600, refresh_token: "r", user: ADMIN_USER });
+    }
+
+    if (url.includes("/functions/v1/")) {
+      const name = url.split("/functions/v1/")[1].split("?")[0];
+      let body: Record<string, unknown> = {};
+      try { body = req.postDataJSON() as Record<string, unknown>; } catch { /* none */ }
+      invocations.push({ name, body });
+      return json({ success: true });
+    }
+
+    if (url.includes("/rest/v1/profiles")) return json({ must_change_password: false });
+    if (url.includes("/rest/v1/schools")) return json(SCHOOL);
+    if (url.includes("/rest/v1/school_admins")) return json({ role: "owner" });
+    if (url.includes("/rest/v1/sessions")) return json([SESSION]);
+    if (url.includes("/rest/v1/terms")) return json([TERM]);
+
+    // The insert the upload makes. Record it so a test can assert exactly which
+    // students were sent — the thing that silently went wrong before.
+    if (url.includes("/rest/v1/students") && req.method() === "POST") {
+      let body: unknown = [];
+      try { body = req.postDataJSON(); } catch { /* none */ }
+      invocations.push({ name: "students.insert", body: { rows: body } as Record<string, unknown> });
+      return json(Array.isArray(body) ? body : [body]);
+    }
+
+    if (url.includes("/rest/v1/")) return json([]);
+    return json({});
+  });
+
+  return invocations;
+}
