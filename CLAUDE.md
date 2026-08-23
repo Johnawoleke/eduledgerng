@@ -135,7 +135,33 @@ update public.school_settlement
  where school_id in (select id from public.schools where slug in ('...'));
 ```
 
-**Both recording paths refuse an underpaid charge**: `create-paystack-payment` puts `expected_total_kobo` in the transaction metadata, and the webhook and redirect-verify both compare it against `data.amount` before crediting any fee. Charges predating that field have nothing to compare and are trusted as before.
+**A short payment is CREDITED FOR WHAT ARRIVED, never for what was billed.**
+`create-payment` puts `expected_total_kobo` on the payments row (and in the
+metadata), and both recording paths compare it against `data.amount` before
+crediting any fee. `apportionPaidItems` (in `feeItems.ts`, mirrored) then credits
+`paid / expected` of the base fees, filling the selected fees in order until the
+money runs out; the remainder stays owing.
+
+It used to REFUSE the charge outright, which meant the money was collected and
+settled to the school while the student's dashboard still showed the full amount
+owed and nothing anywhere explained the gap. Refunding instead is worse: Paystack
+does not return its transaction fee on a refund, so every occurrence would cost
+the school or the platform real money for a payment the parent meant to make.
+
+Two properties must hold, and both are pinned by tests:
+- **Never credit more than arrived.** The fraction is applied to the BASE fees
+  and floored. It is approximate in the school's favour by well under 1%, because
+  the platform cut and gateway fee are not perfectly proportional.
+- **Never flip a row to success with nothing creditable.** The row keeps its
+  original billed `amount`, so flipping it credits the full fees — the exact
+  over-credit the check exists to prevent.
+
+If the gateway does not report an amount at all, nothing is credited. Charges
+predating `expected_total_kobo` have nothing to compare and are trusted as before.
+
+Only bank transfer can actually underpay — card, USSD and QR all fix the amount
+set at initialize. A `payment_events` row (`<source>.short_paid`) records every
+occurrence.
 
 `paystack-webhook` **redacts** the event body before writing `payment_events` — Paystack echoes back card BIN/last4/expiry, the payer's email and their IP, none of which we need or want to retain.
 
