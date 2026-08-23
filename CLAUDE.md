@@ -22,6 +22,19 @@ npx tsc -b --noEmit  # typecheck (currently fails — see Known Issues)
 
 Tests live in `src/**/*.{test,spec}.{ts,tsx}` (jsdom, globals enabled, setup in `src/test/setup.ts`). Path alias: `@/` → `src/`.
 
+**A third suite, `npm run test:payments` (`e2e-payments/`)**, drives the DEPLOYED
+staging payment functions: it creates a real pending payment through
+`create-payment`, signs a webhook with HMAC-SHA512 the way Paystack does, POSTs
+it to the deployed `paystack-webhook`, and reads the row back. It covers the seam
+pure tests cannot reach — signature verification, event routing, which field the
+reference is read from, and the resulting DB state — every one of which has been
+silently wrong at least once. Needs `STAGING_SERVICE_ROLE_KEY` and
+`PAYSTACK_TEST_SECRET_KEY` in `.env.local`, skips itself by name without them, and
+is NOT in CI. It cleans up every row it writes, or the ledger suite starts failing
+on balances it moved. **The payloads are ours, not Paystack's** — a real
+wrong-amount bank transfer cannot be automated, so `docs/PAYMENT_TEST_RUNBOOK.md`
+covers that half by hand.
+
 **Two e2e suites, and the difference matters.** `npm run test:e2e` (`e2e/`) is
 hermetic: every Supabase call is intercepted, so it is fast, deterministic and
 CI-safe — and structurally blind to anything involving real data.
