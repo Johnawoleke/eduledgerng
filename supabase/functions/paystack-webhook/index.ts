@@ -9,7 +9,9 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { settlePayment, markFailed, FAILURE_REASONS } from "../_shared/recordPayment.ts";
-import { isTransferRejection } from "../_shared/paymentOutcome.ts";
+import {
+  isTransferRejection, referenceFromWebhook, rejectionMessageFrom,
+} from "../_shared/paymentOutcome.ts";
 
 // Paystack echoes the payer's card and network details back on every event. We
 // have no use for them and no obligation to hold them, so they never reach the
@@ -93,7 +95,11 @@ serve(async (req) => {
     const event = payload.event || "";
     const data = (payload.data || {}) as Record<string, unknown>;
     const status = String(data.status || "");
-    const reference = String(data.reference || "");
+    // charge.success puts it at data.reference; bank.transfer.rejected may put
+    // it under data.bank_transfer instead. Reading only the first is silent
+    // failure: no reference matches no row, and the handler does nothing while
+    // looking deployed.
+    const reference = referenceFromWebhook(data);
 
     const supabaseAdmin = createClient(
       Deno.env.get("SUPABASE_URL")!,
@@ -144,8 +150,15 @@ serve(async (req) => {
     // payment on any intermediate event Paystack happens to send. Missing the
     // real name only leaves the row pending, which is today's behaviour.
     if (isTransferRejection(event)) {
-      await markFailed(supabaseAdmin, reference, "webhook", FAILURE_REASONS.wrong_amount);
-      return json({ received: true, marked: "failed", reason: "wrong_amount", reference });
+      // Paystack's own message when it gives one, because "wrong amount" and
+      // "flagged by our fraud system" are both rejections and the payer needs
+      // to know which. Ours stays as the actionable half.
+      const detail = rejectionMessageFrom(data);
+      const reason = detail
+        ? `${FAILURE_REASONS.rejected_transfer} (Paystack: ${detail})`
+        : FAILURE_REASONS.rejected_transfer;
+      await markFailed(supabaseAdmin, reference, "webhook", reason);
+      return json({ received: true, marked: "failed", reason: "rejected_transfer", reference });
     }
 
     if (event !== "charge.success" || status !== "success") {

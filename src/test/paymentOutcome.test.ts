@@ -8,7 +8,7 @@
 // allow-list, and anything unrecognised must read as still running.
 import { describe, it, expect } from "vitest";
 import {
-  isTerminalFailure, isTransferRejection,
+  isTerminalFailure, isTransferRejection, referenceFromWebhook, rejectionMessageFrom,
 } from "../../supabase/functions/_shared/paymentOutcome";
 
 describe("isTerminalFailure", () => {
@@ -62,5 +62,54 @@ describe("isTransferRejection", () => {
     expect(isTransferRejection("transfer.failed")).toBe(false);
     expect(isTransferRejection("charge.failed")).toBe(false);
     expect(isTransferRejection("")).toBe(false);
+  });
+});
+
+describe("referenceFromWebhook", () => {
+  it("reads the top-level reference a charge.success carries", () => {
+    expect(referenceFromWebhook({ reference: "PSK-ABC-123" })).toBe("PSK-ABC-123");
+  });
+
+  it("falls back to the nested one a rejected transfer may carry instead", () => {
+    // The regression this exists for: the first version read only
+    // data.reference, so on bank.transfer.rejected it got "", matched no row,
+    // and did nothing at all while looking perfectly deployed. Published
+    // integrations disagree about the shape and Paystack's docs refuse
+    // automated fetches, so both are read.
+    expect(referenceFromWebhook({ bank_transfer: { transaction_id: "PSK-XYZ-9" } }))
+      .toBe("PSK-XYZ-9");
+    expect(referenceFromWebhook({ bank_transfer: { reference: "PSK-Q-1" } })).toBe("PSK-Q-1");
+  });
+
+  it("prefers the top-level one when both are present", () => {
+    expect(referenceFromWebhook({
+      reference: "TOP", bank_transfer: { transaction_id: "NESTED" },
+    })).toBe("TOP");
+  });
+
+  it("copes with a numeric transaction id", () => {
+    expect(referenceFromWebhook({ bank_transfer: { transaction_id: 12345 } })).toBe("12345");
+  });
+
+  it("returns empty rather than guessing when there is nothing to read", () => {
+    // Empty is safe: markFailed matches no row and returns, and the event is
+    // still in payment_events for someone to look at.
+    expect(referenceFromWebhook({})).toBe("");
+    expect(referenceFromWebhook({ reference: "" })).toBe("");
+    expect(referenceFromWebhook({ bank_transfer: {} })).toBe("");
+  });
+});
+
+describe("rejectionMessageFrom", () => {
+  it("passes through Paystack's own words when given", () => {
+    // A rejection is not always a wrong amount — it also fires for transfers
+    // the fraud system flags — so the specific cause has to come from Paystack.
+    expect(rejectionMessageFrom({ bank_transfer: { message: "Amount mismatch" } }))
+      .toBe("Amount mismatch");
+  });
+
+  it("returns null when there is nothing worth showing", () => {
+    expect(rejectionMessageFrom({})).toBeNull();
+    expect(rejectionMessageFrom({ bank_transfer: { message: "   " } })).toBeNull();
   });
 });

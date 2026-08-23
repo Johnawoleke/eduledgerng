@@ -39,10 +39,20 @@ export interface SettleResult {
  * actively wrong for a declined card, where no money ever left the account.
  */
 export const FAILURE_REASONS = {
+  // We compared the amounts ourselves and it was short, so this can say so.
   wrong_amount:
     "The amount sent did not match the amount requested, so the payment was " +
-    "cancelled. Paystack refunds a wrong amount automatically, usually within " +
-    "24 hours. Please try again and send the exact amount shown at checkout.",
+    "not completed. Paystack returns a wrong amount automatically, usually " +
+    "within 24 hours. Please try again and send the exact amount shown at " +
+    "checkout.",
+  // A rejected transfer is USUALLY the wrong amount, but Paystack also rejects
+  // transfers its fraud system flags. We are not told which, so this must stay
+  // true for both; anything more specific comes from Paystack's own message,
+  // which the caller appends when it is supplied.
+  rejected_transfer:
+    "This transfer was not accepted, so the payment did not go through. " +
+    "Paystack sends a rejected transfer back automatically, usually within 24 " +
+    "hours. Please try again and send the exact amount shown at checkout.",
   declined:
     "The payment did not go through. No money has left your account. Please " +
     "try again, or use a different payment method.",

@@ -56,3 +56,44 @@ export const isTransferRejection = (event: string): boolean => {
   if (!e.startsWith(prefix)) return false;
   return TERMINAL_FAILURES.includes(e.slice(prefix.length));
 };
+
+/**
+ * The reference a webhook payload is about.
+ *
+ * `charge.success` carries it at `data.reference`. `bank.transfer.rejected`
+ * is less certain: one published Paystack SDK types its payload as the same
+ * Transaction schema as charge.success (so a top-level `reference`), while a
+ * working integration reads it from a nested `data.bank_transfer.transaction_id`.
+ * Both can be true at once — Paystack's transaction object carries a
+ * `bank_transfer` block for that channel — and Paystack's own developer docs
+ * refuse automated fetches, so this has not been settled from the source.
+ *
+ * So read both, top level first. Getting this wrong is not loud: an empty
+ * reference matches no row, markFailed returns early, and the fix silently does
+ * nothing while looking deployed. That is exactly what the first version of
+ * this code did.
+ */
+export const referenceFromWebhook = (data: Record<string, unknown>): string => {
+  const top = data?.reference;
+  if (typeof top === "string" && top.length > 0) return top;
+
+  const bt = data?.bank_transfer as Record<string, unknown> | undefined;
+  const nested = bt?.transaction_id ?? bt?.reference;
+  if (typeof nested === "string" && nested.length > 0) return nested;
+  if (typeof nested === "number") return String(nested);
+
+  return "";
+};
+
+/**
+ * Paystack's own words for why a transfer was rejected, when it supplies them.
+ *
+ * A rejection is NOT always a wrong amount — it also fires for transfers the
+ * fraud system flags — so our generic wording has to stay true for both, and
+ * anything more specific has to come from Paystack rather than be assumed.
+ */
+export const rejectionMessageFrom = (data: Record<string, unknown>): string | null => {
+  const bt = data?.bank_transfer as Record<string, unknown> | undefined;
+  const msg = bt?.message;
+  return typeof msg === "string" && msg.trim().length > 0 ? msg.trim() : null;
+};

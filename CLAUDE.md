@@ -150,6 +150,20 @@ message: a wrong amount says Paystack is refunding you, a declined card says no
 money left your account. One generic line cannot do both without lying to one of
 them.
 
+**`bank.transfer.rejected` is the ONE inbound-transfer event Paystack sends**, and
+it fires for a wrong amount OR a fraud flag — you are not told which, so wording
+must stay true for both. Established 2026-08-23 by reading published Paystack
+SDKs and integrations on GitHub, because paystack.com/docs returns 403 to
+automated fetches; the full event list has no `bank.transfer.*` sibling and no
+`charge.failed` at all.
+
+**Its payload shape is NOT settled.** One published SDK types it as the same
+Transaction schema as `charge.success` (top-level `data.reference`); a working
+integration reads `data.bank_transfer.transaction_id`. `referenceFromWebhook`
+reads both, top level first. Reading only one is SILENT failure — no reference
+matches no row, `markFailed` returns early, and the handler does nothing while
+looking deployed. That was the first version of this code.
+
 **Deciding an attempt is over is an ALLOW-LIST, never a deny-list**
 (`_shared/paymentOutcome.ts`, Deno-free so `src/test/paymentOutcome.test.ts` can
 import it directly, same reasoning as `bankNames.ts`). The asymmetry is the point:
