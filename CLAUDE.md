@@ -105,7 +105,35 @@ Secret: `PAYSTACK_SECRET_KEY` (required — used for checkout, verification, web
 
 Recording is idempotent on `payments.reference` (unique index from the reconcile migration) and happens twice-safe via both `paystack-webhook` (HMAC-SHA512 `x-paystack-signature`) and `verify-paystack-payment` (called by the dashboard when Paystack redirects back with `?reference=`).
 
-**The cached subaccount is invalidated in the database, not in the UI.** `create-paystack-payment` only provisions a subaccount when `settings.paystack_subaccount_code` is absent, so a bank-details change *must* clear it — otherwise every later payment silently settles into the school's OLD bank account. The `guard_school_settlement_settings` trigger (migration 20260803120000) strips the cache whenever `bank_name` or `account_number` changes, and blocks clients from writing those keys at all (only the service role may set them). Don't move this back into page code.
+**A school's bank details live in `school_settlement`, NOT on `schools`**
+(migrations 20260823120000 / 20260823130000). `schools` SELECT is `using(true)`
+and must stay that way — the portal shows a school's name before login and
+students hold no JWT — so `bank_name` / `account_number` / `account_name` sitting
+in that row meant every school's bank account was readable with the public anon
+key, no login. Verified against production 2026-08-23: 32 schools, all returned.
+RLS is row-level, so the columns could not be hidden while the row stayed public.
+
+`school_settlement` is scoped like `payments`: member SELECT, owner
+INSERT/UPDATE, no DELETE policy. Reads go through
+`supabase/functions/_shared/settlement.ts` so there is one definition of where
+settlement details live. A school with no bank details has **no row** — "not set
+up" and "set up as blank" must not look the same to `create-payment`.
+**Never put anything sensitive in `schools` or `schools.settings`** (`final_class`
+is fine; it is not sensitive).
+
+**The cached subaccount is invalidated in the database, not in the UI.** `create-paystack-payment` only provisions a subaccount when `settings.paystack_subaccount_code` is absent, so a bank-details change *must* clear it — otherwise every later payment silently settles into the school's OLD bank account. The `guard_school_settlement_settings` trigger stripped the cache whenever `bank_name` or `account_number` changed, and blocked clients from writing those keys at all. That trigger moved with the data: it is now `guard_settlement_row` on `school_settlement` (migration 20260823120000), and it additionally covers INSERT, which the old one never needed because the row could not exist independently. Don't move this back into page code.
+
+**A subaccount cached under a TEST key is invalid under a LIVE key.** Swapping
+`PAYSTACK_SECRET_KEY` from test to live does not clear the cache — the guard only
+fires on a bank-details change — so every school that transacted in test mode
+fails at initialize with *invalid subaccount* until its cached code is cleared.
+This bit production on 2026-08-23. Clearing it re-provisions on the next payment:
+
+```sql
+update public.school_settlement
+   set settings = settings - 'paystack_subaccount_code' - 'paystack_bank_code'
+ where school_id in (select id from public.schools where slug in ('...'));
+```
 
 **Both recording paths refuse an underpaid charge**: `create-paystack-payment` puts `expected_total_kobo` in the transaction metadata, and the webhook and redirect-verify both compare it against `data.amount` before crediting any fee. Charges predating that field have nothing to compare and are trusted as before.
 
