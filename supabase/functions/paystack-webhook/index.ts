@@ -9,6 +9,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { settlePayment, markFailed, FAILURE_REASONS } from "../_shared/recordPayment.ts";
+import { isTransferRejection } from "../_shared/paymentOutcome.ts";
 
 // Paystack echoes the payer's card and network details back on every event. We
 // have no use for them and no obligation to hold them, so they never reach the
@@ -138,7 +139,11 @@ serve(async (req) => {
     // through and ignore the rejection: the attempt sat pending forever, the
     // balance did not move, and the payer, who had just sent money, was told
     // nothing. It is terminal and it has to say why.
-    if (event.startsWith("bank.transfer.") && event !== "bank.transfer.success") {
+    // An ALLOW-LIST of terminal events, never "anything that is not success" —
+    // the exact names are unverified, and a deny-list would write off a live
+    // payment on any intermediate event Paystack happens to send. Missing the
+    // real name only leaves the row pending, which is today's behaviour.
+    if (isTransferRejection(event)) {
       await markFailed(supabaseAdmin, reference, "webhook", FAILURE_REASONS.wrong_amount);
       return json({ received: true, marked: "failed", reason: "wrong_amount", reference });
     }

@@ -2424,6 +2424,13 @@ const SchoolAdminDashboard = () => {
                                 {paidItems.length > 0
                                   ? paidItems.map((i) => i.name).join(", ")
                                   : "—"}
+                                {/* The school fields the parent's phone call, so
+                                    it needs the same explanation the parent got. */}
+                                {!isSettled && (payment as { failure_reason?: string | null }).failure_reason && (
+                                  <p className="mt-1 text-[11px] leading-snug text-destructive">
+                                    {(payment as { failure_reason?: string | null }).failure_reason}
+                                  </p>
+                                )}
                               </TableCell>
                               <TableCell className={`font-semibold ${isSettled ? "text-green-600 dark:text-green-400" : "text-muted-foreground"}`}>
                                 {formatNaira(Number(payment.amount))}

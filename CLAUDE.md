@@ -150,6 +150,17 @@ message: a wrong amount says Paystack is refunding you, a declined card says no
 money left your account. One generic line cannot do both without lying to one of
 them.
 
+**Deciding an attempt is over is an ALLOW-LIST, never a deny-list**
+(`_shared/paymentOutcome.ts`, Deno-free so `src/test/paymentOutcome.test.ts` can
+import it directly, same reasoning as `bankNames.ts`). The asymmetry is the point:
+writing off an attempt still in flight marks a LIVE payment failed, so
+`create-payment` stops counting it and asks the student to pay a second time for
+money already collected; leaving a dead attempt pending costs a stale row. An
+unrecognised status or event therefore reads as still running. `isTransferRejection`
+matches only terminal words after `bank.transfer.`, because the real event names
+are unverified — Paystack's developer docs refuse automated fetches — and a
+deny-list would write off a live payment on any intermediate event.
+
 **`paystack-webhook` settles through `_shared/recordPayment.ts`.** It carried its
 own duplicated copy until 2026-08-23 — the very drift that file's header says was
 fixed — and its copy was the weaker one, reading `expected_total_kobo` from the

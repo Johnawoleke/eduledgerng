@@ -14,6 +14,7 @@
 // lives in _shared/gatewayMoney.ts, which is mirrored to the frontend.
 import type { GatewayId } from "./gatewayMoney.ts";
 import { matchBankCode, type BankRef } from "./bankNames.ts";
+import { isTerminalFailure } from "./paymentOutcome.ts";
 
 export { matchBankCode, normaliseBankName, type BankRef } from "./bankNames.ts";
 
@@ -87,28 +88,6 @@ export interface Gateway {
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
-
-/**
- * Statuses that mean the attempt is over and no money is coming.
- *
- * Everything else — pending, processing, ongoing, queued — is still in flight
- * and must NOT be written off. A bank transfer routinely has not confirmed by
- * the time the payer is redirected back from checkout, and marking that failed
- * both misreports it to the school and, if the webhook is later missed, asks
- * the student to pay a second time for money already collected.
- */
-const TERMINAL_FAILURES = [
-  "failed",
-  "abandoned",
-  "reversed",
-  "cancelled",
-  "canceled",
-  "declined",
-  "expired",
-];
-
-export const isTerminalFailure = (status: string): boolean =>
-  TERMINAL_FAILURES.includes(String(status ?? "").toLowerCase());
 
 const constantTimeEqual = (a: string, b: string): boolean => {
   if (a.length !== b.length) return false;
