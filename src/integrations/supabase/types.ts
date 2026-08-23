@@ -338,12 +338,53 @@ export type Database = {
           },
         ]
       }
-      schools: {
+      school_settlement: {
+        // Where a school's fee income settles. Separate from `schools` because
+        // that table is anon-readable for the pre-login portal, which made
+        // every school's bank account public (migration 20260823120000).
         Row: {
           account_name: string | null
           account_number: string | null
-          address: string | null
           bank_name: string | null
+          created_at: string
+          school_id: string
+          settings: Json
+          updated_at: string
+        }
+        Insert: {
+          account_name?: string | null
+          account_number?: string | null
+          bank_name?: string | null
+          created_at?: string
+          school_id: string
+          // Typed loosely because a client may SEND it and simply have it
+          // ignored: guard_settlement_row strips every cached settlement
+          // account id from any write carrying an auth.uid().
+          settings?: Json
+          updated_at?: string
+        }
+        Update: {
+          account_name?: string | null
+          account_number?: string | null
+          bank_name?: string | null
+          created_at?: string
+          school_id?: string
+          settings?: Json
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "school_settlement_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: true
+            referencedRelation: "schools"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      schools: {
+        Row: {
+          address: string | null
           created_at: string
           email: string | null
           id: string
@@ -358,10 +399,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
-          account_name?: string | null
-          account_number?: string | null
           address?: string | null
-          bank_name?: string | null
           created_at?: string
           email?: string | null
           id?: string
@@ -376,10 +414,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
-          account_name?: string | null
-          account_number?: string | null
           address?: string | null
-          bank_name?: string | null
           created_at?: string
           email?: string | null
           id?: string

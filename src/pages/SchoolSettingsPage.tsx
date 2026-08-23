@@ -66,9 +66,21 @@ const SchoolSettingsPage = () => {
       setSchool(schoolData);
       setAddress(schoolData.address || "");
       setPhone(schoolData.phone || "");
-      setBankName((schoolData as any).bank_name || "");
-      setAccountNumber((schoolData as any).account_number || "");
-      setAccountName((schoolData as any).account_name || "");
+
+      // Bank details live in their own member-scoped table. They used to be
+      // columns on `schools`, whose SELECT policy is using(true) so the portal
+      // can show a school's name before login — which meant every school's
+      // account number was readable with the public anon key
+      // (migration 20260823120000). A school that has never entered them has
+      // no row at all, which is not an error.
+      const { data: settlement } = await supabase
+        .from("school_settlement")
+        .select("bank_name, account_number, account_name")
+        .eq("school_id", schoolData.id)
+        .maybeSingle();
+      setBankName(settlement?.bank_name || "");
+      setAccountNumber(settlement?.account_number || "");
+      setAccountName(settlement?.account_name || "");
       setLoading(false);
     };
     load();
@@ -84,17 +96,34 @@ const SchoolSettingsPage = () => {
 
     const { error } = await supabase
       .from("schools")
-      .update({
-        address: address || null,
-        phone: phone || null,
-        bank_name: bankName && bankName !== "none" ? bankName : null,
-        account_number: accountNumber || null,
-        account_name: accountName || null,
-      } as any)
+      .update({ address: address || null, phone: phone || null })
       .eq("id", school.id);
 
     if (error) {
       toast.error("Failed to save: " + error.message);
+      setSaving(false);
+      return;
+    }
+
+    // Upsert, because a school that has never set bank details has no row yet.
+    // The cached settlement account id is NOT sent and could not be written if
+    // it were — guard_settlement_row strips it from any client write, and
+    // clears it outright when the bank details change so the next payment
+    // re-provisions instead of settling into the old account.
+    const { error: settlementError } = await supabase
+      .from("school_settlement")
+      .upsert(
+        {
+          school_id: school.id,
+          bank_name: bankName && bankName !== "none" ? bankName : null,
+          account_number: accountNumber || null,
+          account_name: accountName || null,
+        },
+        { onConflict: "school_id" }
+      );
+
+    if (settlementError) {
+      toast.error("Failed to save bank details: " + settlementError.message);
     } else {
       toast.success("Settings saved!");
     }

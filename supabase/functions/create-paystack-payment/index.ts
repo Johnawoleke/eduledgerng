@@ -22,6 +22,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { encodeFeeItem, sumPaidForFee } from "../_shared/feeItems.ts";
 import { matchBankCode } from "../_shared/bankNames.ts";
+import { getSettlement, cacheSettlementAccount, cachedAccountId } from "../_shared/settlement.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -89,7 +90,7 @@ serve(async (req) => {
     // --- School + student verification -------------------------------------
     const { data: school } = await supabaseAdmin
       .from("schools")
-      .select("id, name, slug, bank_name, account_number, account_name, settings")
+      .select("id, name, slug, settings")
       .eq("slug", school_slug)
       .maybeSingle();
 
@@ -186,11 +187,14 @@ serve(async (req) => {
     const processingFeeKobo = totalKobo - targetSettledKobo;
 
     // --- Ensure this school (branch) has a Paystack subaccount -------------
-    const settings = (school.settings || {}) as Record<string, unknown>;
-    let subaccountCode = settings.paystack_subaccount_code as string | undefined;
+    //
+    // Bank details moved to school_settlement (migration 20260823120000) —
+    // schools is anon-readable, which made every account number public.
+    const settlement = await getSettlement(supabaseAdmin, school.id);
+    let subaccountCode = cachedAccountId(settlement, "paystack_subaccount_code");
 
     if (!subaccountCode) {
-      if (!school.bank_name || !school.account_number) {
+      if (!settlement.bankName || !settlement.accountNumber) {
         return json(
           { error: "This school has not set up its bank account for receiving payments. Ask the school owner to add bank details in Settings." },
           400
@@ -209,10 +213,10 @@ serve(async (req) => {
       // Shared with create-payment via _shared/bankNames.ts. This used to carry
       // its own copy of the matcher, which resolved "First City Monument Bank"
       // to First Bank of Nigeria's code — see matchBankCode for why.
-      const bankCode = matchBankCode(bankData.data, school.bank_name);
+      const bankCode = matchBankCode(bankData.data, settlement.bankName);
       if (!bankCode) {
         return json(
-          { error: `Could not match the school's bank ("${school.bank_name}") to a Paystack bank. Ask the school owner to re-select their bank in Settings.` },
+          { error: `Could not match the school's bank ("${settlement.bankName}") to a Paystack bank. Ask the school owner to re-select their bank in Settings.` },
           400
         );
       }
@@ -226,7 +230,7 @@ serve(async (req) => {
         body: JSON.stringify({
           business_name: school.name,
           settlement_bank: bankCode,
-          account_number: school.account_number,
+          account_number: settlement.accountNumber,
           percentage_charge: 0,
           description: `EduLedgerNG school ${school.slug || school.id}`,
         }),
@@ -241,16 +245,11 @@ serve(async (req) => {
       }
 
       subaccountCode = subData.data.subaccount_code;
-      await supabaseAdmin
-        .from("schools")
-        .update({
-          settings: {
-            ...settings,
-            paystack_subaccount_code: subaccountCode,
-            paystack_bank_code: bankCode,
-          },
-        })
-        .eq("id", school.id);
+      await cacheSettlementAccount(
+        supabaseAdmin, school.id, settlement,
+        "paystack_subaccount_code", subaccountCode as string,
+        { paystack_bank_code: bankCode }
+      );
     }
 
     // --- Initialize the transaction -----------------------------------------

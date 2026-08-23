@@ -135,9 +135,6 @@ Deno.serve(async (req) => {
         phone: str(body.phone, 40),
         email: str(body.schoolEmail, 160),
         school_code: schoolCode || slug!.substring(0, 4).toUpperCase(),
-        bank_name: str(body.bankName, 120),
-        account_number: accountNumber,
-        account_name: str(body.accountName, 160),
       })
       .select("id")
       .single();
@@ -145,6 +142,32 @@ Deno.serve(async (req) => {
     if (schoolError || !schoolRow) {
       console.error("register-school insert:", schoolError?.message);
       return json({ error: "Failed to create school. Please try again." }, 500);
+    }
+
+    // Bank details go in school_settlement, never on schools: schools is
+    // anon-readable so the portal can show a school's name before login, which
+    // made every account number public (migration 20260823120000).
+    //
+    // A school with no bank details yet gets no row rather than an empty one —
+    // "not set up" and "set up as blank" should not look the same to
+    // create-payment.
+    const bankName = str(body.bankName, 120);
+    const accountName = str(body.accountName, 160);
+    if (bankName || accountNumber || accountName) {
+      const { error: settlementError } = await supabaseAdmin
+        .from("school_settlement")
+        .insert({
+          school_id: schoolRow.id,
+          bank_name: bankName,
+          account_number: accountNumber,
+          account_name: accountName,
+        });
+      // Not fatal. The school exists and is usable; the owner can add bank
+      // details in Settings. Failing registration here would strand an account
+      // that is already half-created.
+      if (settlementError) {
+        console.error("register-school settlement insert:", settlementError.message);
+      }
     }
 
     await supabaseAdmin.from("school_admins").insert({

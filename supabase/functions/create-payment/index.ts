@@ -22,6 +22,7 @@ import {
   PLATFORM_FEE_RATE, selectGateway, quoteCheckout,
 } from "../_shared/gatewayMoney.ts";
 import { gatewayFor, settlementKey, resolveBankCode } from "../_shared/gateways.ts";
+import { getSettlement, cacheSettlementAccount, cachedAccountId } from "../_shared/settlement.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -91,7 +92,7 @@ serve(async (req) => {
     // --- School + student ---------------------------------------------------
     const { data: school } = await supabaseAdmin
       .from("schools")
-      .select("id, name, slug, bank_name, account_number, account_name, settings")
+      .select("id, name, slug, settings")
       .eq("slug", school_slug)
       .maybeSingle();
     if (!school) return json({ error: "School not found" }, 404);
@@ -220,37 +221,40 @@ serve(async (req) => {
     }
 
     // --- Ensure the school has a settlement account at THIS gateway ---------
-    const settings = (school.settings || {}) as Record<string, unknown>;
+    //
+    // Bank details live in school_settlement, not on schools: schools is
+    // anon-readable for the pre-login portal, which made every school's account
+    // number public (migration 20260823120000).
+    const settlement = await getSettlement(supabaseAdmin, school.id);
     const key = settlementKey(gatewayId);
-    let settlementAccountId = settings[key] as string | undefined;
+    let settlementAccountId = cachedAccountId(settlement, key);
 
     if (!settlementAccountId) {
-      if (!school.bank_name || !school.account_number) {
+      if (!settlement.bankName || !settlement.accountNumber) {
         return json(
           { error: "This school has not set up its bank account for receiving payments. Ask the school owner to add bank details in Settings." },
           400
         );
       }
-      const bankCode = await resolveBankCode(gateway, school.bank_name);
+      const bankCode = await resolveBankCode(gateway, settlement.bankName);
       if (!bankCode) {
         return json(
-          { error: `Could not match the school's bank ("${school.bank_name}") to a bank code. Ask the school owner to re-select their bank in Settings.` },
+          { error: `Could not match the school's bank ("${settlement.bankName}") to a bank code. Ask the school owner to re-select their bank in Settings.` },
           400
         );
       }
       try {
         const created = await gateway.createSettlementAccount({
           schoolName: school.name,
-          accountNumber: school.account_number,
-          accountName: school.account_name || school.name,
-          bankName: school.bank_name,
+          accountNumber: settlement.accountNumber,
+          accountName: settlement.accountName || school.name,
+          bankName: settlement.bankName,
           bankCode,
         });
         settlementAccountId = created.id;
-        await supabaseAdmin
-          .from("schools")
-          .update({ settings: { ...settings, [key]: created.id, ...(created.extra ?? {}) } })
-          .eq("id", school.id);
+        await cacheSettlementAccount(
+          supabaseAdmin, school.id, settlement, key, created.id, created.extra ?? {}
+        );
       } catch (err) {
         console.error("settlement account creation failed:", err);
         return json(
