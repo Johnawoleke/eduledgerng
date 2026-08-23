@@ -18,35 +18,6 @@ export const NIGERIAN_CLASSES = [
 
 export type NigerianClass = (typeof NIGERIAN_CLASSES)[number];
 
-/**
- * The ladder in the four bands a Nigerian school actually says out loud:
- * Nursery, Primary, JSS, SSS.
- *
- * Derived from NIGERIAN_CLASSES rather than written out beside it, so a class
- * added to the ladder cannot go missing from the screen — the dashboard renders
- * these groups and nothing else, and a hand-kept second list would eventually
- * disagree with the first. classes.test.ts asserts the groups flatten back to
- * exactly the ladder, in the same order.
- */
-const BANDS = ["Nursery", "Primary", "JSS", "SSS"] as const;
-
-export interface ClassGroup {
-  /** The band name a school uses: "Primary", not "Primary 1". */
-  name: string;
-  classes: string[];
-}
-
-export const CLASS_GROUPS: ClassGroup[] = (() => {
-  const groups: ClassGroup[] = [];
-  for (const c of NIGERIAN_CLASSES) {
-    const band = BANDS.find((b) => c.startsWith(b)) ?? "Other";
-    const last = groups[groups.length - 1];
-    if (last && last.name === band) last.classes.push(c);
-    else groups.push({ name: band, classes: [c] });
-  }
-  return groups;
-})();
-
 /** Position on the ladder, or -1 for a class we do not recognise. */
 export const classRank = (c: string | null | undefined): number =>
   c == null ? -1 : (NIGERIAN_CLASSES as readonly string[]).indexOf(c.trim());

@@ -50,7 +50,7 @@ import { parseRosterRows, describeRejections, rejectedRowsCsv, rosterTemplateCsv
 import { generateStatementPdf } from "@/lib/generateStatementPdf";
 import { isSettledPayment } from "@/lib/paymentStatus";
 import {
-  NIGERIAN_CLASSES, CLASS_GROUPS, OUTCOME_LABEL, nextClass,
+  NIGERIAN_CLASSES, OUTCOME_LABEL, nextClass,
   type PromotionAction,
 } from "@/lib/classes";
 import { createSessionWithTerms, ensureSessionHasTerms } from "@/lib/academicSessions";
@@ -2003,36 +2003,32 @@ const SchoolAdminDashboard = () => {
                       )}
                     </div>
 
-                    {/* The whole ladder, banded the way a school says it out
-                        loud — Nursery, Primary, JSS, SSS. One short row per
-                        band keeps 16 classes readable, which the single wrapping
-                        row of buttons did not. Empty classes stay visible and
-                        clickable: that is the point of showing them. */}
-                    <div className="space-y-1">
-                      {CLASS_GROUPS.map((group) => (
-                        <div key={group.name} className="flex items-center gap-1 flex-wrap">
-                          <span className="w-14 shrink-0 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                            {group.name}
-                          </span>
-                          {group.classes.map((name) => {
-                            const count = classCounts.get(name) || 0;
-                            const selected = studentsClassFilter === name;
-                            return (
-                              <Button
-                                key={name}
-                                variant={selected ? "default" : "ghost"}
-                                size="sm"
-                                className={`h-7 px-2 text-xs ${!selected && count === 0 ? "text-muted-foreground/50" : ""}`}
-                                onClick={() => setStudentsClassFilter(name)}
-                                title={count === 0 ? `No pupils in ${name} yet` : `${count} in ${name}`}
-                              >
-                                {name}
-                                <span className="ml-1.5 opacity-60">{count}</span>
-                              </Button>
-                            );
-                          })}
-                        </div>
-                      ))}
+                    {/* Every class, one wrapping row, in ladder order. This is
+                        the shape the page had before head counts were added, and
+                        it reads as a row of choices rather than a table of data
+                        — banding it by Nursery/Primary/JSS/SSS put four captions
+                        and a column of zeros on screen and made it look like a
+                        report. A class with nobody in it is dimmed rather than
+                        hidden: still there to be clicked, but it does not
+                        compete with the classes that have pupils in them. */}
+                    <div className="flex flex-wrap gap-1 items-center">
+                      {NIGERIAN_CLASSES.map((name) => {
+                        const count = classCounts.get(name) || 0;
+                        const selected = studentsClassFilter === name;
+                        return (
+                          <Button
+                            key={name}
+                            variant={selected ? "default" : "ghost"}
+                            size="sm"
+                            className={!selected && count === 0 ? "text-muted-foreground/50" : ""}
+                            onClick={() => setStudentsClassFilter(name)}
+                            title={count === 0 ? `No pupils in ${name} yet` : `${count} in ${name}`}
+                          >
+                            {name}
+                            <span className="ml-1.5 text-xs opacity-60">{count}</span>
+                          </Button>
+                        );
+                      })}
                     </div>
 
                     {/* Move one class up. The owner's mental model is the class,

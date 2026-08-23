@@ -196,8 +196,9 @@ test.describe("admin dashboard against real data", () => {
     // empty class from one the app does not offer.
     await openAdminDashboard(page);
 
-    for (const band of ["Nursery", "Primary", "JSS", "SSS"]) {
-      await expect(page.getByText(band, { exact: true })).toBeVisible();
+    for (const cls of ["Nursery 1", "Primary 1", "Primary 6", "JSS1", "SSS3"]) {
+      await expect(page.getByRole("button", { name: new RegExp(`^${cls} ?\\d+$`) }))
+        .toBeVisible();
     }
     // A class with nobody in it is still there, still shows its zero, and is
     // still clickable.

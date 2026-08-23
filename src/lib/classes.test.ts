@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
-  NIGERIAN_CLASSES, CLASS_GROUPS, classRank, nextClass, highestClassInUse, promotionFor,
+  NIGERIAN_CLASSES, classRank, nextClass, highestClassInUse, promotionFor,
 } from "./classes";
 
 describe("the class ladder", () => {
@@ -112,23 +112,5 @@ describe("the Deno mirror stays in sync", () => {
     const web = readFileSync(resolve(root, "src/lib/classes.ts"), "utf8");
     const deno = readFileSync(resolve(root, "supabase/functions/_shared/classes.ts"), "utf8");
     expect(stripHeader(deno)).toBe(stripHeader(web));
-  });
-});
-
-describe("class groups", () => {
-  it("flatten back to exactly the ladder, in the same order", () => {
-    // The dashboard renders groups and nothing else. If a class could be in the
-    // ladder but in no group, adding one to NIGERIAN_CLASSES would make it
-    // promotable but invisible — pupils in a class nobody can select.
-    expect(CLASS_GROUPS.flatMap((g) => g.classes)).toEqual([...NIGERIAN_CLASSES]);
-  });
-
-  it("are the four bands a school says out loud", () => {
-    expect(CLASS_GROUPS.map((g) => g.name)).toEqual(["Nursery", "Primary", "JSS", "SSS"]);
-  });
-
-  it("puts no class in two groups", () => {
-    const all = CLASS_GROUPS.flatMap((g) => g.classes);
-    expect(new Set(all).size).toBe(all.length);
   });
 });
