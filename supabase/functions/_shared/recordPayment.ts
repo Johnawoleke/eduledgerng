@@ -31,11 +31,29 @@ export interface SettleResult {
   note: string;
 }
 
+/**
+ * Why an attempt did not complete, in words a parent can act on.
+ *
+ * Per-reason rather than one generic line, because the right advice differs:
+ * "Paystack is refunding you" is true for a transfer of the wrong amount and
+ * actively wrong for a declined card, where no money ever left the account.
+ */
+export const FAILURE_REASONS = {
+  wrong_amount:
+    "The amount sent did not match the amount requested, so the payment was " +
+    "cancelled. Paystack refunds a wrong amount automatically, usually within " +
+    "24 hours. Please try again and send the exact amount shown at checkout.",
+  declined:
+    "The payment did not go through. No money has left your account. Please " +
+    "try again, or use a different payment method.",
+} as const;
+
 /** Mark a previously-pending attempt as failed. Safe to call repeatedly. */
 export const markFailed = async (
   admin: Admin,
   reference: string,
-  source: string
+  source: string,
+  reason: string = FAILURE_REASONS.declined
 ): Promise<void> => {
   const { data: row } = await admin
     .from("payments")
@@ -49,13 +67,16 @@ export const markFailed = async (
   if (!row) return;
 
   if (row.status === "pending") {
-    await admin.from("payments").update({ status: "failed" }).eq("id", row.id);
+    await admin
+      .from("payments")
+      .update({ status: "failed", failure_reason: reason })
+      .eq("id", row.id);
   }
   await admin.from("payment_events").insert({
     event_type: `${source}.failed`,
     payment_id: reference,
     status: "failed",
-    payload: { reference, source },
+    payload: { reference, source, reason },
   });
 };
 
@@ -98,6 +119,10 @@ export const settlePayment = async (
         status: "underpaid",
         payload: { reference, gateway, expected_kobo: expected, paid_kobo: amountPaidKobo },
       });
+      // Terminal, and it has to SAY so. Left pending, the payer sees a stuck
+      // attempt, no movement on their balance and no explanation, having just
+      // sent money — so they send it again.
+      await markFailed(admin, reference, source, FAILURE_REASONS.wrong_amount);
       return { recorded: false, note: "amount_mismatch" };
     }
   }

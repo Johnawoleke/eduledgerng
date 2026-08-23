@@ -35,6 +35,15 @@ interface PaymentRecord {
   items: string[];
   session_id?: string | null;
   term_id?: string | null;
+  /**
+   * A failed or pending attempt is returned alongside successful ones, so the
+   * history has to be able to tell them apart. Rendering a rejected transfer
+   * identically to a settled payment, receipt button and all, showed a parent
+   * a row that read as proof of payment.
+   */
+  status?: string | null;
+  /** Why it did not complete, in words the payer can act on. */
+  failure_reason?: string | null;
 }
 
 // The student session is an opaque bearer token issued by student-auth, with a

@@ -135,6 +135,27 @@ update public.school_settlement
  where school_id in (select id from public.schools where slug in ('...'));
 ```
 
+**Paystack itself rejects and refunds a wrong-amount bank transfer**, automatically,
+within 24 hours ([support article 2128642](https://support.paystack.com/en/articles/2128642)),
+so `charge.success` never fires for one. Only bank transfer can mismatch at all —
+card, USSD, QR and the wallet channels all fix the amount set at initialize. Do
+NOT build refund or part-crediting logic for this: it was tried on 2026-08-23 and
+reverted the same day once Paystack's actual behaviour was confirmed.
+
+What we owe the payer is an EXPLANATION. A rejected transfer used to fall through
+the webhook's event filter, so the attempt sat `pending` forever, the balance did
+not move, and someone who had just sent money was told nothing — so they sent it
+again. `payments.failure_reason` (migration 20260823140000) carries a per-cause
+message: a wrong amount says Paystack is refunding you, a declined card says no
+money left your account. One generic line cannot do both without lying to one of
+them.
+
+**`paystack-webhook` settles through `_shared/recordPayment.ts`.** It carried its
+own duplicated copy until 2026-08-23 — the very drift that file's header says was
+fixed — and its copy was the weaker one, reading `expected_total_kobo` from the
+gateway's echoed metadata instead of preferring our own row. Never reintroduce a
+second settle path.
+
 **Both recording paths refuse an underpaid charge**: `create-paystack-payment` puts `expected_total_kobo` in the transaction metadata, and the webhook and redirect-verify both compare it against `data.amount` before crediting any fee. Charges predating that field have nothing to compare and are trusted as before.
 
 `paystack-webhook` **redacts** the event body before writing `payment_events` — Paystack echoes back card BIN/last4/expiry, the payer's email and their IP, none of which we need or want to retain.

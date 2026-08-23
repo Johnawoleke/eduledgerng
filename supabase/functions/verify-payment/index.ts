@@ -7,7 +7,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { gatewayFor } from "../_shared/gateways.ts";
-import { settlePayment, markFailed } from "../_shared/recordPayment.ts";
+import { settlePayment, markFailed, FAILURE_REASONS } from "../_shared/recordPayment.ts";
 import type { GatewayId } from "../_shared/gatewayMoney.ts";
 
 const corsHeaders = {
@@ -70,7 +70,11 @@ serve(async (req) => {
       if (result.failed) {
         await markFailed(supabaseAdmin, reference, `verify.${gatewayId}`);
       }
-      return json({ success: false, status: result.status || "pending" });
+      return json({
+        success: false,
+        status: result.status || "pending",
+        ...(result.failed ? { reason: FAILURE_REASONS.declined } : {}),
+      });
     }
 
     const settled = await settlePayment(supabaseAdmin, {
@@ -81,8 +85,15 @@ serve(async (req) => {
       source: `verify.${gatewayId}`,
     });
 
+    // The payer sent a different amount than we asked for. Paystack rejects and
+    // refunds that automatically; say so, rather than leaving them looking at a
+    // payment that never resolves after they have just sent money.
     if (settled.note === "amount_mismatch") {
-      return json({ success: false, status: "amount_mismatch" });
+      return json({
+        success: false,
+        status: "amount_mismatch",
+        reason: FAILURE_REASONS.wrong_amount,
+      });
     }
     return json({ success: true, recorded: settled.recorded, note: settled.note });
   } catch (error) {

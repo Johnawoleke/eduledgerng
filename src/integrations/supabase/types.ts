@@ -182,6 +182,7 @@ export type Database = {
           // Which provider processed this row (20260806100000). Always
           // "paystack" now; the column stays so a second gateway can be routed
           // in without a migration.
+          failure_reason: string | null
           gateway: string | null
           id: string
           items: string[] | null
@@ -198,6 +199,7 @@ export type Database = {
           amount_paid?: number | null
           created_at?: string
           date?: string
+          failure_reason?: string | null
           gateway?: string | null
           id?: string
           items?: string[] | null
@@ -214,6 +216,7 @@ export type Database = {
           amount_paid?: number | null
           created_at?: string
           date?: string
+          failure_reason?: string | null
           gateway?: string | null
           id?: string
           items?: string[] | null

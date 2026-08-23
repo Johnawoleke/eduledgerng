@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { readFunctionsError } from "@/lib/utils";
 import { quoteCheckout } from "@/lib/gatewayMoney";
+import { isSettledPayment } from "@/lib/paymentStatus";
 import AcademicPeriodSelector from "@/components/AcademicPeriodSelector";
 import { useAcademicPeriods } from "@/hooks/useAcademicPeriods";
 
@@ -139,8 +140,14 @@ const SchoolStudentDashboard = () => {
         if (!error && data?.success) {
           toast.success("Payment confirmed! Your fee balance has been updated.");
           setPaymentRefreshKey((k) => k + 1);
+        } else if (data?.reason) {
+          // The server says WHY, and the advice differs by cause: a wrong
+          // amount is refunded by Paystack automatically, a declined card
+          // never moved any money. "Payment was not completed" told a parent
+          // who had just sent money nothing at all, so they sent it again.
+          toast.error(data.reason, { duration: 15000 });
         } else if (data?.status === "abandoned" || data?.status === "failed") {
-          toast.error("Payment was not completed.");
+          toast.error("Payment was not completed. Please try again.");
         } else {
           toast.info("Payment is still processing — your balance will update shortly.");
         }
@@ -534,6 +541,7 @@ const SchoolStudentDashboard = () => {
                     <TableHead>Reference</TableHead>
                     <TableHead>Items</TableHead>
                     <TableHead className="text-right">Amount</TableHead>
+                    <TableHead className="text-right">Status</TableHead>
                     <TableHead className="text-right">Receipt</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -545,16 +553,39 @@ const SchoolStudentDashboard = () => {
                       const pipeIdx = item.lastIndexOf("|");
                       return pipeIdx > 0 ? item.substring(0, pipeIdx) : item;
                     }) : [];
+                    // A failed attempt used to render exactly like a successful
+                    // one — an amount, and a "View receipt" button beside it. A
+                    // parent whose transfer was rejected saw a row that read as
+                    // proof of payment. Say what happened, and offer a receipt
+                    // only for money that actually arrived.
+                    const settled = isSettledPayment(p);
+                    const isPending = p.status === "pending";
                     return (
-                      <TableRow key={p.id}>
+                      <TableRow key={p.id} className={settled ? "" : "text-muted-foreground"}>
                         <TableCell>{p.date ? new Date(p.date).toLocaleDateString("en-NG") : "—"}</TableCell>
                         <TableCell className="font-mono text-xs">{p.reference || "—"}</TableCell>
-                        <TableCell className="text-xs">{displayItems.filter(Boolean).join(", ")}</TableCell>
+                        <TableCell className="text-xs">
+                          {displayItems.filter(Boolean).join(", ")}
+                          {!settled && p.failure_reason && (
+                            <p className="mt-1 text-[11px] leading-snug text-destructive">
+                              {p.failure_reason}
+                            </p>
+                          )}
+                        </TableCell>
                         <TableCell className="text-right font-medium">{formatNaira(Number(p.amount || 0))}</TableCell>
                         <TableCell className="text-right">
-                          <Button variant="ghost" size="sm" onClick={() => navigate(`/school/${slug}/receipt/${p.id}`)} className="gap-1 h-7 text-xs">
-                            <Eye className="w-3 h-3" /> View
-                          </Button>
+                          <Badge variant={settled ? "secondary" : "outline"} className="text-[11px]">
+                            {settled ? "Paid" : isPending ? "Processing" : "Not paid"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {settled ? (
+                            <Button variant="ghost" size="sm" onClick={() => navigate(`/school/${slug}/receipt/${p.id}`)} className="gap-1 h-7 text-xs">
+                              <Eye className="w-3 h-3" /> View
+                            </Button>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
                         </TableCell>
                       </TableRow>
                     );
