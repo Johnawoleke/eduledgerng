@@ -171,3 +171,50 @@ export const rejectedRowsCsv = (rejected: RejectedRow[]): string => {
     ),
   ].join("\n");
 };
+
+/**
+ * The example roster a school downloads before filling one in.
+ *
+ * Two rules, both learned the hard way:
+ *
+ *   - It is BUILT from NIGERIAN_CLASSES, not typed out beside it. The template
+ *     lived in SchoolAdminDashboard as three hand-written lines and had already
+ *     drifted once (parent_email was added to the parser and never to the
+ *     template, so no roster built from it could carry one). A hand-written
+ *     list can also name a class the parser rejects, which teaches a school to
+ *     produce a file the app then refuses.
+ *   - It shows EVERY class, with more than one student in each. "Class not
+ *     recognised" is the rejection schools actually hit — they write "Basic 1",
+ *     "Nur 1", "JSS 1" — and the cheapest cure is a file in front of them that
+ *     spells each accepted name exactly, in a row they can copy.
+ *
+ * Kept parseable end to end: no comment lines, no blank rows, nothing
+ * parseRosterRows would report back as a reject. A school that fills the names
+ * in and uploads it unchanged must succeed. rosterImport.test.ts asserts that.
+ */
+const TEMPLATE_STUDENTS: Record<string, [string, string][]> = {
+  "Nursery 1": [["Adeyemi Tobi", "tobi.parent@example.com"], ["Okonkwo Chidera Amara", "chidera.parent@example.com"]],
+  "Nursery 2": [["Ibrahim Zainab", "zainab.parent@example.com"], ["Eze Nnamdi", ""]],
+  "Primary 1": [["Bello Aisha", "aisha.parent@example.com"], ["Adeleke Seun", "seun.parent@example.com"]],
+  "Primary 2": [["Musa Fatima", "fatima.parent@example.com"], ["Obi Somtochukwu", "somto.parent@example.com"]],
+  "Primary 3": [["Lawal Halima", "halima.parent@example.com"], ["Nwosu Ifeanyi", "ifeanyi.parent@example.com"]],
+  "Primary 4": [["Adebayo Kemi", "kemi.parent@example.com"], ["Yusuf Abdulmalik", ""]],
+  "Primary 5": [["Okafor Chinedu", "chinedu.parent@example.com"], ["Balogun Tolulope", "tolu.parent@example.com"]],
+  "Primary 6": [["Danjuma Grace", "grace.parent@example.com"], ["Uche Amaka", "amaka.parent@example.com"]],
+  JSS1: [["Ogunleye Damilola", "damilola.parent@example.com"], ["Sani Maryam Hauwa", "maryam.parent@example.com"]],
+  JSS2: [["Emeka Chukwuemeka", "emeka.parent@example.com"], ["Aliyu Hauwa", ""]],
+  JSS3: [["Oladipo Bukola", "bukola.parent@example.com"], ["Etim Ekaette", "ekaette.parent@example.com"]],
+  SSS1: [["Abubakar Yusuf", "yusuf.parent@example.com"], ["Nwachukwu Ngozi", "ngozi.parent@example.com"]],
+  SSS2: [["Adesina Folake", "folake.parent@example.com"], ["Garba Ismail", "ismail.parent@example.com"]],
+  SSS3: [["Okoro Chibuzo", "chibuzo.parent@example.com"], ["Salami Rukayat", ""]],
+};
+
+export const rosterTemplateCsv = (): string => {
+  const esc = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+  const rows = NIGERIAN_CLASSES.flatMap((className) =>
+    (TEMPLATE_STUDENTS[className] ?? []).map(([name, email]) =>
+      [name, className, email].map(esc).join(",")
+    )
+  );
+  return ["name,class,parent_email", ...rows].join("\n");
+};

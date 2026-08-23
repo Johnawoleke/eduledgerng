@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { parseRosterRows, describeRejections, rejectedRowsCsv, suggestClass } from "./rosterImport";
+import { parseRosterRows, describeRejections, rejectedRowsCsv, suggestClass, rosterTemplateCsv } from "./rosterImport";
+import { NIGERIAN_CLASSES } from "./classes";
 
 const row = (name: string, cls: string, email = "") =>
   ({ name, class: cls, parentemail: email });
@@ -135,5 +136,53 @@ describe("the Lively Kids upload, end to end", () => {
     expect(msg).toContain('"Pre-Nur 2" (9 students)');
     // "Basic" is a genuinely different vocabulary, so no misleading suggestion.
     expect(msg).not.toContain('"Basic 1" (12 students) — did you mean');
+  });
+});
+
+describe("rosterTemplateCsv", () => {
+  // The header is normalised the same way SchoolAdminDashboard normalises an
+  // uploaded file's header, so these rows are what the parser would really see.
+  const parsed = () => {
+    const [header, ...lines] = rosterTemplateCsv().split("\n");
+    const keys = header.split(",").map((h) => h.toLowerCase().replace(/[\s_-]+/g, ""));
+    return lines.map((line) => {
+      const cells = line.split(",");
+      return Object.fromEntries(keys.map((k, i) => [k, (cells[i] ?? "").trim()]));
+    });
+  };
+
+  it("uploads cleanly as-is — a school that only swaps the names is never rejected", () => {
+    // The whole point of a template is that it is a working file. If it can be
+    // downloaded and re-uploaded to a rejection, it is teaching the mistake.
+    const { accepted, rejected } = parseRosterRows(parsed());
+    expect(rejected).toEqual([]);
+    expect(accepted.length).toBeGreaterThan(0);
+  });
+
+  it("demonstrates every class the app accepts", () => {
+    // "Class not recognised" is the rejection schools actually hit. A class
+    // missing from the template is one a school has to guess the spelling of.
+    const { accepted } = parseRosterRows(parsed());
+    const shown = new Set(accepted.map((a) => a.className));
+    expect([...NIGERIAN_CLASSES].filter((c) => !shown.has(c))).toEqual([]);
+  });
+
+  it("shows more than one student per class, so the shape of a filled roster is obvious", () => {
+    const { accepted } = parseRosterRows(parsed());
+    for (const c of NIGERIAN_CLASSES) {
+      expect(accepted.filter((a) => a.className === c).length).toBeGreaterThanOrEqual(2);
+    }
+  });
+
+  it("names every column the parser reads, and shows parent_email is optional", () => {
+    expect(rosterTemplateCsv().split("\n")[0]).toBe("name,class,parent_email");
+    const { accepted } = parseRosterRows(parsed());
+    expect(accepted.some((a) => a.parentEmail)).toBe(true);
+    expect(accepted.some((a) => !a.parentEmail)).toBe(true);
+  });
+
+  it("includes a three-part name, because middle names are supported", () => {
+    const { accepted } = parseRosterRows(parsed());
+    expect(accepted.some((a) => a.name.split(" ").length === 3)).toBe(true);
   });
 });
