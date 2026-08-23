@@ -403,7 +403,16 @@ OwnerLogin "Forgot password?" → `resetPasswordForEmail(redirectTo: /account-re
 
 `eduledgerng-staging` (project ref `vmqeqwszeekzkvtxkebv`, org "Satyam Shivhare") is a full replica of production: schema via `supabase/migrations/` (baseline + reconcile), all edge functions deployed. **The CLI is deliberately linked to staging** (`supabase/.temp/project-ref`) so `db push` / `functions deploy` hit staging by default — production changes should go through the dashboard SQL editor / explicit `--project-ref ifonivphhfplntzshtsb`. Local dev targets staging via `.env.local` (git-ignored); delete that file to point local dev back at production. Production Vercel builds are unaffected (hardcoded values in `client.ts` are the fallback).
 
-Test data on staging: school "Demo High School" (slug `demo`), owner `owner@demo-staging.test` / `Staging123!`, bursar `bursar@demo-staging.test` / `Staging123!`, student `OCD-1234` / password `Staging123!` (was `Password1` until 2026-08-03 — the new password policy in `supabase/functions/_shared/password.ts` rejects it as too common), JSS1 fees seeded for 2026/2027 Term 1. Staging still needs `PAYSTACK_SECRET_KEY` (test key) set as a function secret before payment flows can be exercised.
+Test data on staging: school "Demo High School" (slug `demo`), owner `owner@demo-staging.test` / `Staging123!`, bursar `bursar@demo-staging.test` / `Staging123!`, student `OCD-1234` / password `Staging123!` (was `Password1` until 2026-08-03 — the new password policy in `supabase/functions/_shared/password.ts` rejects it as too common), JSS1 fees seeded for 2026/2027 Term 1. `PAYSTACK_SECRET_KEY` on staging is a **test** key, and `npm run test:payments`
+signs its webhooks with the same value from `.env.local` — if one is rotated
+without the other, every signature is rejected and the whole suite fails at the
+gate.
+
+**The demo school's account number is `0000000000` deliberately.** Paystack test
+mode validates the account against the bank when creating a subaccount, and
+rejects everything else with "Account details are invalid" — `0111222333`,
+`0123456789` and `1234567890` were all refused against Zenith (057). It was
+`0111222333`, which is why no payment flow could be exercised on staging at all.
 
 The canonical migration chain is `20260706120000_baseline_live_schema.sql` (fresh-project baseline — production already has this state; use `supabase migration repair --status applied 20260706120000` before ever pushing to prod) followed by `20260706130000_reconcile_live_schema.sql` (pending on production), then the dated migrations through `20260803120000`. Pre-2026-07 migrations live in `supabase/migrations-archive/` and must never be applied.
 

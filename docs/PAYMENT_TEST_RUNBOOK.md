@@ -26,6 +26,12 @@ secret**, or every signature is rejected and the whole suite fails at the gate:
 npx supabase secrets set PAYSTACK_SECRET_KEY=sk_test_... # staging is the default link
 ```
 
+The school the suite pays as must have a **Paystack test-valid** account number.
+Test mode validates the account against the bank, so `0000000000` works and
+essentially nothing else does — `0111222333`, `0123456789` and `1234567890` are
+all refused with "Account details are invalid". Staging's `demo` school is set to
+`0000000000` for exactly this reason.
+
 The suite skips itself with a named reason when either is absent, so it never
 breaks `npm test` for anyone. It is deliberately **not** in CI: it writes to
 staging and depends on a third-party sandbox.
