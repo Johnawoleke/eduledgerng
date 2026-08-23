@@ -42,15 +42,15 @@ import {
   ArchiveRestore,
   ChevronsUp,
   MoreHorizontal,
-  ArrowUpDown
+  ArrowUpDown, ArrowUp
 } from "lucide-react";
 import { generateReceiptPdf, parsePaymentItems } from "@/lib/generateReceiptPdf";
 import { buildStatement, statementToCsv } from "@/lib/studentStatement";
-import { parseRosterRows, describeRejections, rejectedRowsCsv } from "@/lib/rosterImport";
+import { parseRosterRows, describeRejections, rejectedRowsCsv, rosterTemplateCsv } from "@/lib/rosterImport";
 import { generateStatementPdf } from "@/lib/generateStatementPdf";
 import { isSettledPayment } from "@/lib/paymentStatus";
 import {
-  NIGERIAN_CLASSES, OUTCOME_LABEL, nextClass,
+  NIGERIAN_CLASSES, CLASS_GROUPS, OUTCOME_LABEL, nextClass,
   type PromotionAction,
 } from "@/lib/classes";
 import { createSessionWithTerms, ensureSessionHasTerms } from "@/lib/academicSessions";
@@ -233,6 +233,9 @@ const SchoolAdminDashboard = () => {
   // Year-end rollover. preview is computed server-side and reviewed here before
   // anything is committed — see supabase/functions/promote-session.
   const [promoteOpen, setPromoteOpen] = useState(false);
+  // Which class the move is scoped to, or null for the whole school. A school
+  // owner reaches this from a class, so the class-scoped run is the common one.
+  const [promoteOnlyClass, setPromoteOnlyClass] = useState<string | null>(null);
   const [promoteTarget, setPromoteTarget] = useState<string>("");
   const [promotePreview, setPromotePreview] = useState<PromotionPreview | null>(null);
   const [promoteBusy, setPromoteBusy] = useState(false);
@@ -614,10 +617,19 @@ const SchoolAdminDashboard = () => {
   const activeStudents = students.filter((s) => !isArchived(s));
   const archivedStudents = students.filter((s) => isArchived(s));
 
-  // The classes this school actually runs, in ladder order, with head counts.
-  const classesInUse = NIGERIAN_CLASSES
-    .map((name) => ({ name, count: activeStudents.filter((s) => s.class === name).length }))
-    .filter((c) => c.count > 0);
+  // EVERY class, in ladder order, with head counts — not just the ones with
+  // pupils in them.
+  //
+  // This used to filter to `count > 0` to keep the row short. That saved a line
+  // of screen and cost the school the thing the list is actually for: a new
+  // school sees the classes it has not set up yet and knows to add them, and an
+  // existing one can tell an empty class from a class that is not offered. The
+  // owner's words: "let it be there so once they login they'll see the need to
+  // add the other classes."
+  const headCount = (name: string) => activeStudents.filter((s) => s.class === name).length;
+  const classCounts = new Map(NIGERIAN_CLASSES.map((name) => [name as string, headCount(name)]));
+  const selectedClassCount =
+    studentsClassFilter === "ALL" ? activeStudents.length : (classCounts.get(studentsClassFilter) || 0);
 
 
   // How many active students a fee applies to (a fee targets one class, or ALL).
@@ -719,7 +731,9 @@ const SchoolAdminDashboard = () => {
   // Counts follow the school's DECISIONS, not the computed defaults, so the
   // headline numbers change as rows are edited.
   const decisionCounts = (() => {
-    const c: Record<string, number> = { promote: 0, on_trial: 0, repeat: 0, graduate: 0, unknown: 0 };
+    const c: Record<string, number> = {
+      promote: 0, on_trial: 0, repeat: 0, graduate: 0, archive: 0, unknown: 0,
+    };
     for (const p of promotePreview?.plans || []) {
       const d = promoteDecisions[p.student_id];
       c[(d?.action ?? p.action) as string] = (c[(d?.action ?? p.action) as string] || 0) + 1;
@@ -728,6 +742,15 @@ const SchoolAdminDashboard = () => {
   })();
   const owingCount = (promotePreview?.plans || []).filter((p) => p.outstanding > 0).length;
   const owingTotal = (promotePreview?.plans || []).reduce((a, p) => a + p.outstanding, 0);
+
+  // Open the move dialog for one class. Nothing is read or written until the
+  // school picks the session and asks to see what will happen.
+  const openClassPromotion = (className: string) => {
+    setPromoteOnlyClass(className);
+    setPromotePreview(null);
+    setPromoteDecisions({});
+    setPromoteOpen(true);
+  };
 
   const setDecision = (studentId: string, action: PromotionAction, fromClass: string) => {
     setPromoteDecisions((prev) => ({
@@ -738,7 +761,7 @@ const SchoolAdminDashboard = () => {
         // defaults to the next rung, and stays editable.
         to_class:
           action === "repeat" ? fromClass
-          : action === "graduate" ? null
+          : action === "graduate" || action === "archive" ? null
           : nextClass(fromClass),
       },
     }));
@@ -838,6 +861,7 @@ const SchoolAdminDashboard = () => {
           from_session_id: academicPeriods.selectedSessionId,
           to_session_id: targetId,
           mode,
+          only_class: promoteOnlyClass,
           // commit applies exactly what the school decided. Sending the whole
           // list, defaults included, means the server never has to guess which
           // rows were reviewed.
@@ -871,11 +895,17 @@ const SchoolAdminDashboard = () => {
       } else {
         const a = data.applied;
         toast.success(
-          `${a.promoted} moved up, ${a.on_trial} on trial, ${a.repeated} repeating, ` +
-            `${a.graduated} finishing.` +
+          (data.only_class ? `${data.only_class}: ` : "") +
+            `${a.promoted} moved up` +
+            (a.on_trial ? `, ${a.on_trial} on trial` : "") +
+            (a.repeated ? `, ${a.repeated} staying put` : "") +
+            (a.graduated ? `, ${a.graduated} finishing` : "") +
+            (a.archived ? `, ${a.archived} archived` : "") +
+            "." +
             (a.left_alone_unknown_class
               ? ` ${a.left_alone_unknown_class} left alone (class not recognised).`
-              : "")
+              : ""),
+          { duration: 8000 }
         );
         // Keep the batch so it can be undone without hunting for it.
         setLastRollover({
@@ -885,6 +915,7 @@ const SchoolAdminDashboard = () => {
         });
         setPromoteOpen(false);
         setPromotePreview(null);
+        setPromoteOnlyClass(null);
         await academicPeriods.reload();
         loadData();
       }
@@ -1078,16 +1109,13 @@ const SchoolAdminDashboard = () => {
   };
 
   const downloadStudentTemplate = () => {
-    // Must list every column the upload reads, or schools never learn the
-    // optional ones exist. parent_email was added to the parser without being
-    // added here, so no roster built from this template could ever carry one —
-    // and a student with no parent email gets a receipt that bounces.
-    const csv = [
-      "name,class,parent_email",
-      "Bello Aisha,Primary 3,aisha.parent@example.com",
-      "Okafor Chinedu,JSS1,chinedu.parent@example.com",
-      "Adebayo Kemi,SSS2,",
-    ].join("\n");
+    // Built in rosterImport from the same class list the parser accepts, so the
+    // template can never demonstrate a class the upload would then reject. It
+    // was three hand-written lines here and had already drifted once:
+    // parent_email was added to the parser and not to the template, so no
+    // roster built from it could carry one — and a student with no parent
+    // email gets a receipt that bounces.
+    const csv = rosterTemplateCsv();
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
@@ -1953,40 +1981,82 @@ const SchoolAdminDashboard = () => {
             ) : (
               <Card>
                 <CardContent className="pt-6">
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b">
-                    {/* Only classes this school actually runs, plus All. Showing
-                        the whole national ladder meant 14 buttons wrapping onto
-                        two rows, most of them for classes with nobody in them,
-                        and no way back to seeing everyone. */}
-                    <div className="flex flex-wrap gap-1 items-center">
+                  <div className="space-y-3 pb-4 border-b">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                       <Button
                         variant={studentsClassFilter === "ALL" ? "default" : "ghost"}
                         size="sm"
                         onClick={() => setStudentsClassFilter("ALL")}
                       >
-                        All {activeStudents.length > 0 && `(${activeStudents.length})`}
+                        All classes {activeStudents.length > 0 && `(${activeStudents.length})`}
                       </Button>
-                      {classesInUse.map((c) => (
+                      {userRole === "owner" && (
                         <Button
-                          key={c.name}
-                          variant={studentsClassFilter === c.name ? "default" : "ghost"}
+                          variant={showArchived ? "default" : "outline"}
                           size="sm"
-                          onClick={() => setStudentsClassFilter(c.name)}
+                          className="gap-1.5 shrink-0"
+                          onClick={() => setShowArchived((v) => !v)}
                         >
-                          {c.name} <span className="ml-1 text-xs opacity-60">{c.count}</span>
+                          <Archive className="w-3.5 h-3.5" />
+                          {showArchived ? `Viewing Archived (${archivedStudents.length})` : `Archived (${archivedStudents.length})`}
                         </Button>
+                      )}
+                    </div>
+
+                    {/* The whole ladder, banded the way a school says it out
+                        loud — Nursery, Primary, JSS, SSS. One short row per
+                        band keeps 16 classes readable, which the single wrapping
+                        row of buttons did not. Empty classes stay visible and
+                        clickable: that is the point of showing them. */}
+                    <div className="space-y-1">
+                      {CLASS_GROUPS.map((group) => (
+                        <div key={group.name} className="flex items-center gap-1 flex-wrap">
+                          <span className="w-14 shrink-0 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                            {group.name}
+                          </span>
+                          {group.classes.map((name) => {
+                            const count = classCounts.get(name) || 0;
+                            const selected = studentsClassFilter === name;
+                            return (
+                              <Button
+                                key={name}
+                                variant={selected ? "default" : "ghost"}
+                                size="sm"
+                                className={`h-7 px-2 text-xs ${!selected && count === 0 ? "text-muted-foreground/50" : ""}`}
+                                onClick={() => setStudentsClassFilter(name)}
+                                title={count === 0 ? `No pupils in ${name} yet` : `${count} in ${name}`}
+                              >
+                                {name}
+                                <span className="ml-1.5 opacity-60">{count}</span>
+                              </Button>
+                            );
+                          })}
+                        </div>
                       ))}
                     </div>
-                    {userRole === "owner" && (
-                      <Button
-                        variant={showArchived ? "default" : "outline"}
-                        size="sm"
-                        className="gap-1.5 shrink-0"
-                        onClick={() => setShowArchived((v) => !v)}
-                      >
-                        <Archive className="w-3.5 h-3.5" />
-                        {showArchived ? `Viewing Archived (${archivedStudents.length})` : `Archived (${archivedStudents.length})`}
-                      </Button>
+
+                    {/* Move one class up. The owner's mental model is the class,
+                        not the school: open Primary 3, move Primary 3 up. */}
+                    {studentsClassFilter !== "ALL" && !showArchived && userRole === "owner" && (
+                      <div className="flex flex-wrap items-center gap-2 pt-1">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="gap-1.5"
+                          disabled={academicPeriods.isFutureSession || selectedClassCount === 0}
+                          onClick={() => openClassPromotion(studentsClassFilter)}
+                        >
+                          <ArrowUp className="w-3.5 h-3.5" />
+                          {nextClass(studentsClassFilter)
+                            ? `Move ${studentsClassFilter} up to ${nextClass(studentsClassFilter)}`
+                            : `Finish ${studentsClassFilter}`}
+                        </Button>
+                        {selectedClassCount === 0 && (
+                          <span className="text-xs text-muted-foreground">
+                            Nobody in {studentsClassFilter} yet — add a pupil to this class first.
+                          </span>
+                        )}
+                      </div>
                     )}
                   </div>
                   <div className="overflow-x-auto">
@@ -2423,15 +2493,40 @@ const SchoolAdminDashboard = () => {
           cannot check a roster by eye, so the exceptions are what matters. */}
       <Dialog
         open={promoteOpen}
-        onOpenChange={(o) => { setPromoteOpen(o); if (!o) setPromotePreview(null); }}
+        onOpenChange={(o) => {
+          setPromoteOpen(o);
+          if (!o) { setPromotePreview(null); setPromoteOnlyClass(null); }
+        }}
       >
         <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Move students up a class</DialogTitle>
+            <DialogTitle>
+              {promoteOnlyClass
+                ? nextClass(promoteOnlyClass)
+                  ? `Move ${promoteOnlyClass} up to ${nextClass(promoteOnlyClass)}`
+                  : `Finish ${promoteOnlyClass}`
+                : "Move students up a class"}
+            </DialogTitle>
             <DialogDescription>
-              Everyone in {academicPeriods.selectedSession?.name || "this session"} moves up one
-              class. Students in your highest class finish and are marked as leavers. Nothing
-              changes until you confirm.
+              {promoteOnlyClass ? (
+                <>
+                  {/* Once the preview is back, the count comes from it, not
+                      from the roster. Mid-rollover they differ: a pupil moved
+                      up from the class below already shows in this class, and
+                      is NOT moving again. Quoting the roster number here would
+                      promise to move pupils the move will correctly skip. */}
+                  The {promotePreview ? promotePreview.plans.length : selectedClassCount} pupil(s)
+                  in {promoteOnlyClass} move up together. Anyone who should not move — because of
+                  their result, or because they are leaving — can be changed one by one before you
+                  confirm. Nothing changes until you confirm.
+                </>
+              ) : (
+                <>
+                  Everyone in {academicPeriods.selectedSession?.name || "this session"} moves up one
+                  class. Students in your highest class finish and are marked as leavers. Nothing
+                  changes until you confirm.
+                </>
+              )}
             </DialogDescription>
           </DialogHeader>
 
@@ -2469,6 +2564,11 @@ const SchoolAdminDashboard = () => {
                   roster graduates the wrong people whenever the top class
                   happens to be empty — an ordinary situation in a school still
                   growing upward — so the school states it once. */}
+              {/* On a class-scoped move this only matters when the class being
+                  moved reaches the school's last year — otherwise it is a
+                  school-wide setting asked at the wrong moment, and answering it
+                  wrongly graduates a whole class. */}
+              {!(promoteOnlyClass && promotePreview.final_class_is_declared && decisionCounts.graduate === 0) && (
               <div className="p-3 rounded-lg border space-y-2">
                 <Label className="text-sm">Your highest class (students here finish school)</Label>
                 <div className="flex items-center gap-2">
@@ -2492,13 +2592,15 @@ const SchoolAdminDashboard = () => {
                   </p>
                 )}
               </div>
+              )}
 
-              <div className="grid grid-cols-4 gap-2 text-center">
+              <div className="grid grid-cols-5 gap-2 text-center">
                 {([
                   ["promote", decisionCounts.promote],
                   ["on_trial", decisionCounts.on_trial],
                   ["repeat", decisionCounts.repeat],
                   ["graduate", decisionCounts.graduate],
+                  ["archive", decisionCounts.archive],
                 ] as const).map(([k, n]) => (
                   <div key={k} className="p-2 rounded-lg border">
                     <p className="text-xl font-bold">{n}</p>
@@ -2553,7 +2655,7 @@ const SchoolAdminDashboard = () => {
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            {(["promote", "on_trial", "repeat", "graduate"] as const).map((a) => (
+                            {(["promote", "on_trial", "repeat", "graduate", "archive"] as const).map((a) => (
                               <SelectItem key={a} value={a}>{OUTCOME_LABEL[a]}</SelectItem>
                             ))}
                           </SelectContent>

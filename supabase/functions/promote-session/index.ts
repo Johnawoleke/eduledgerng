@@ -24,12 +24,38 @@
 // Promotion INSERTS enrolments for the next session and stamps the outcome on
 // the one being left. It never edits a class in place, so the ledger's history
 // cannot be rewritten (migration 20260818120000).
+//
+// ONE CLASS AT A TIME. `only_class` narrows preview/commit to a single class,
+// which is how school owners think about it: open Nursery 1, move Nursery 1 up.
+// The whole-school run is the same code with the filter off.
+//
+// WHY MOVING CLASS BY CLASS CANNOT DOUBLE-PROMOTE. The obvious implementation —
+// "set class to the next one for everyone currently in Nursery 1" — is wrong,
+// and wrong in a way that is invisible until it has already happened: move
+// Nursery 1 up, then move Nursery 2 up, and the pupils you just moved get swept
+// along a second time and land in Nursery 3, a year ahead of where they should
+// be. Two properties of this function make that impossible:
+//
+//   1. The set of pupils to move is read from `student_enrolments` in the
+//      session being LEFT — not from `students.class`. `students.class` is
+//      updated by a move (the roster has to show the new class), so filtering
+//      on it is exactly the cascade. The outgoing enrolment keeps the class the
+//      pupil was actually in, and is stamped 'promoted' the moment they move,
+//      so it is no longer 'active' and can never be picked up again.
+//   2. A pupil who already has an enrolment in the target session is never
+//      enrolled again (`alreadyEnrolled`).
+//
+// So a pupil moved from Nursery 1 shows in Nursery 2 immediately, and clicking
+// "move Nursery 2 up" moves only the pupils who spent the year in Nursery 2.
+// The guard below turns the confusing case — a Nursery 2 that is now entirely
+// made of pupils promoted into it — into a plain refusal rather than a no-op.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   classRank, highestClassInUse, promotionFor, nextClass,
   OUTCOME_STATUS, type PromotionAction,
 } from "../_shared/classes.ts";
 import { requireSchoolOwner } from "../_shared/schoolAuth.ts";
+import { movingEnrolmentFilter } from "../_shared/rollover.ts";
 import { feeNamesByIdFor, outstandingByStudent } from "../_shared/ledger.ts";
 
 const corsHeaders = {
@@ -176,6 +202,15 @@ Deno.serve(async (req) => {
     if (!from_session_id || !to_session_id) {
       return json({ error: "Missing required fields" }, 400);
     }
+
+    // Narrow to one class, or null for the whole school.
+    const onlyClass: string | null =
+      typeof body.only_class === "string" && body.only_class.trim()
+        ? body.only_class.trim()
+        : null;
+    if (onlyClass !== null && classRank(onlyClass) < 0) {
+      return json({ error: `"${onlyClass}" is not a class we recognise.` }, 400);
+    }
     if (from_session_id === to_session_id) {
       return json({ error: "Promote into a different session than the one you are promoting from." }, 400);
     }
@@ -203,15 +238,47 @@ Deno.serve(async (req) => {
       );
     }
 
+    // Who moves. Read from the enrolment in the session being LEFT, never from
+    // students.class — see the double-promotion note at the top of this file.
     const { data: enrolments } = await supabaseAdmin
       .from("student_enrolments")
       .select("student_id, class, status")
       .eq("school_id", school_id)
-      .eq("session_id", from_session_id)
-      .eq("status", "active");
+      .match(movingEnrolmentFilter(from_session_id, onlyClass));
 
     if (!enrolments || enrolments.length === 0) {
-      return json({ error: "No active students are enrolled in that session." }, 400);
+      if (!onlyClass) {
+        return json({ error: "No active students are enrolled in that session." }, 400);
+      }
+
+      // An empty class is ambiguous on screen, because the roster shows a
+      // pupil in their NEW class the moment they are moved. So "nobody in
+      // Nursery 2" and "Nursery 2 is full of pupils you already moved up from
+      // Nursery 1" look identical to the owner. Tell them which one it is —
+      // silently doing nothing here is what makes the button look broken.
+      const { count: placedHere } = await supabaseAdmin
+        .from("student_enrolments")
+        .select("id", { count: "exact", head: true })
+        .eq("school_id", school_id)
+        .eq("session_id", to_session_id)
+        .eq("class", onlyClass);
+
+      if ((placedHere || 0) > 0) {
+        return json(
+          {
+            error:
+              `The ${placedHere} pupil(s) showing in ${onlyClass} were moved there for ` +
+              `${toSession.name} — they are already in the new session. Moving them again ` +
+              `would put them a class ahead of where they should be, so there is nothing ` +
+              `left to move here.`,
+          },
+          400
+        );
+      }
+      return json(
+        { error: `Nobody is in ${onlyClass} for ${fromSession.name}, so there is nobody to move up.` },
+        400
+      );
     }
 
     const studentIds = enrolments.map((e: { student_id: string }) => e.student_id);
@@ -291,6 +358,7 @@ Deno.serve(async (req) => {
         mode: "preview",
         from_session: fromSession.name,
         to_session: toSession.name,
+        only_class: onlyClass,
         final_class: finalClass,
         final_class_is_declared: declaredFinal != null,
         suggested_final_class: suggestedFinal,
@@ -319,7 +387,9 @@ Deno.serve(async (req) => {
       if (!enrolledClass.has(d.student_id)) continue;
 
       if (action === "repeat") toClass = enrolledClass.get(d.student_id) ?? null;
-      if (action === "graduate" || action === "unknown") toClass = null;
+      // Archiving and finishing both mean no next-session placement. The
+      // difference is only which status the pupil is left with.
+      if (action === "graduate" || action === "archive" || action === "unknown") toClass = null;
       if ((action === "promote" || action === "on_trial") && !toClass) {
         toClass = nextClass(enrolledClass.get(d.student_id));
       }
@@ -357,7 +427,7 @@ Deno.serve(async (req) => {
 
     // Stamp the outcome on the year being left, one status per outcome.
     const counts: Record<string, number> = {};
-    for (const action of ["promote", "on_trial", "repeat", "graduate"] as const) {
+    for (const action of ["promote", "on_trial", "repeat", "graduate", "archive"] as const) {
       const ids = applied.filter((a) => a.action === action).map((a) => a.student_id);
       counts[action] = ids.length;
       if (ids.length === 0) continue;
@@ -387,6 +457,14 @@ Deno.serve(async (req) => {
       await supabaseAdmin.from("students").update({ status: "graduated" }).in("id", graduatedIds);
     }
 
+    // Archived pupils leave the roster the same way, and stop being billed:
+    // the charge triggers skip students whose status is 'archived', so they are
+    // not charged for a session they are not in. Undo puts them back.
+    const archivedIds = applied.filter((a) => a.action === "archive").map((a) => a.student_id);
+    if (archivedIds.length > 0) {
+      await supabaseAdmin.from("students").update({ status: "archived" }).in("id", archivedIds);
+    }
+
     // is_current moves ONLY if asked. Rolling over in June must not declare a
     // year that has not started to be the school's current one.
     if (body.make_current === true) {
@@ -402,12 +480,14 @@ Deno.serve(async (req) => {
       rollover_batch: batch,
       from_session: fromSession.name,
       to_session: toSession.name,
+      only_class: onlyClass,
       applied: {
         enrolled_next_session: toInsert.length,
         promoted: counts.promote || 0,
         on_trial: counts.on_trial || 0,
         repeated: counts.repeat || 0,
         graduated: counts.graduate || 0,
+        archived: counts.archive || 0,
         left_alone_unknown_class: applied.filter((a) => a.action === "unknown").length,
       },
     });

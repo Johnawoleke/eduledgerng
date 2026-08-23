@@ -14,6 +14,35 @@ export const NIGERIAN_CLASSES = [
 
 export type NigerianClass = (typeof NIGERIAN_CLASSES)[number];
 
+/**
+ * The ladder in the four bands a Nigerian school actually says out loud:
+ * Nursery, Primary, JSS, SSS.
+ *
+ * Derived from NIGERIAN_CLASSES rather than written out beside it, so a class
+ * added to the ladder cannot go missing from the screen — the dashboard renders
+ * these groups and nothing else, and a hand-kept second list would eventually
+ * disagree with the first. classes.test.ts asserts the groups flatten back to
+ * exactly the ladder, in the same order.
+ */
+const BANDS = ["Nursery", "Primary", "JSS", "SSS"] as const;
+
+export interface ClassGroup {
+  /** The band name a school uses: "Primary", not "Primary 1". */
+  name: string;
+  classes: string[];
+}
+
+export const CLASS_GROUPS: ClassGroup[] = (() => {
+  const groups: ClassGroup[] = [];
+  for (const c of NIGERIAN_CLASSES) {
+    const band = BANDS.find((b) => c.startsWith(b)) ?? "Other";
+    const last = groups[groups.length - 1];
+    if (last && last.name === band) last.classes.push(c);
+    else groups.push({ name: band, classes: [c] });
+  }
+  return groups;
+})();
+
 /** Position on the ladder, or -1 for a class we do not recognise. */
 export const classRank = (c: string | null | undefined): number =>
   c == null ? -1 : (NIGERIAN_CLASSES as readonly string[]).indexOf(c.trim());
@@ -50,7 +79,14 @@ export const highestClassInUse = (classes: (string | null | undefined)[]): strin
 // back), below 40% repeats. Schools differ on whether they repeat at all — the
 // mass-promotion argument is live — so all of these are offered and none is
 // imposed.
-export type PromotionAction = "promote" | "on_trial" | "repeat" | "graduate" | "unknown";
+//
+// `archive` is the fifth: a pupil who is not moving up and is not staying to be
+// taught either — they leave the active roster and stop being billed, record
+// kept. It is NOT the same as repeating, and the difference is money: a
+// repeater is still in school and still owes next session's fees, an archived
+// pupil is charged nothing (the charge triggers skip status 'archived').
+export type PromotionAction =
+  | "promote" | "on_trial" | "repeat" | "graduate" | "archive" | "unknown";
 
 /** What the enrolment being LEFT is stamped with for each outcome. */
 export const OUTCOME_STATUS: Record<Exclude<PromotionAction, "unknown">, string> = {
@@ -58,14 +94,23 @@ export const OUTCOME_STATUS: Record<Exclude<PromotionAction, "unknown">, string>
   on_trial: "promoted_on_trial",
   repeat: "repeated",
   graduate: "graduated",
+  archive: "archived",
 };
 
-/** Labels in the words a school owner uses, not ours. */
+/**
+ * Labels in the words a school owner uses, not ours.
+ *
+ * Each one says what HAPPENS, not what it is called. "Repeats the class" was
+ * read as jargon; "Stays in the same class" cannot be. Every outcome that takes
+ * a pupil off the roster says so in the label, because that is the surprising
+ * part.
+ */
 export const OUTCOME_LABEL: Record<PromotionAction, string> = {
   promote: "Moves up",
   on_trial: "Moves up on trial",
-  repeat: "Repeats the class",
-  graduate: "Finishing school",
+  repeat: "Stays in the same class",
+  graduate: "Finishes school (leaves the roster)",
+  archive: "Archived (leaves the roster)",
   unknown: "Class not recognised",
 };
 

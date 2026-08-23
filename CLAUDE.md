@@ -174,15 +174,59 @@ rewritten.
 - `promote-session` has three modes: `preview` proposes a default outcome per
   student and changes nothing; `commit` applies **the decisions it is given**;
   `undo` reverses one committed rollover by its batch id.
+- **`only_class` narrows a run to one class.** School owners think in classes,
+  not sessions: open Primary 3, move Primary 3 up. The whole-school run is the
+  same code with the filter off.
 - **Commit does not recompute.** The school edits the preview and sends back a
   decision per student, matching how mature SIS store a per-student next grade
   that is defaulted then overridden. Computing at commit time is what made
   "everyone moves up" the only expressible outcome.
-- **Four outcomes**, because a Nigerian session has more than one: `promote`,
+- **Five outcomes**, because a Nigerian session has more than one: `promote`,
   `on_trial` (the 40-49% promotion-exam case — advances on probation),
-  `repeat`, `graduate`. The outcome is stamped on the enrolment being LEFT
-  (`promoted` / `promoted_on_trial` / `repeated` / `graduated`); a newly created
-  enrolment is always `active`.
+  `repeat`, `graduate`, `archive`. The outcome is stamped on the enrolment being
+  LEFT (`promoted` / `promoted_on_trial` / `repeated` / `graduated` /
+  `archived`); a newly created enrolment is always `active`.
+- **`archive` is not `repeat`, and the difference is money.** A repeater is
+  still in school and still gets charged next session; an archived pupil leaves
+  the active roster and is charged nothing (the charge triggers skip
+  `students.status = 'archived'`). Both are reversible by undo.
+
+### Moving one class at a time cannot double-promote (`src/lib/rollover.ts`)
+
+Move Nursery 1 up, then move Nursery 2 up. If the pupils to move are chosen by
+their CURRENT class, the ones you just moved get swept along a second time and
+land in Nursery 3 — a year ahead, silently, and only noticed when a parent asks.
+The roster shows them in Nursery 2 the moment they move, so nothing on screen
+warns you.
+
+The rule that makes it impossible: **a move reads the enrolment in the session
+being LEFT, never `students.class`.** `students.class` is updated by a move, so
+filtering on it IS the cascade; the enrolment row keeps the class the pupil
+actually spent the session in, and stops being `active` the moment they move, so
+a moved pupil fails the filter twice over.
+
+`movingEnrolmentFilter` is the single definition of that filter, mirrored for
+Deno at `supabase/functions/_shared/rollover.ts` (identical below the headers,
+asserted by `rollover.test.ts`). `promote-session` builds its query from it via
+`.match()`, and the test drives the same filter through a two-step Nursery 1 → 2
+→ 3 sequence. **Never add a key to that filter that is not a column of
+`student_enrolments`.**
+
+The confusing case — a class now made entirely of pupils promoted into it — is a
+refusal with an explanation, not a silent no-op: doing nothing quietly is what
+makes the button look broken.
+- **The ladder is `NIGERIAN_CLASSES` and its ORDER is the promotion path.** It
+  runs `Nursery 1, Nursery 2` → `Primary 1-6` → `JSS1-3` → `SSS1-3`.
+  `CLASS_GROUPS` bands the same list into the four names a school says out loud,
+  derived from the ladder so a class cannot be promotable but invisible. A KG
+  band was added and removed on 2026-08-23 — the launch schools do not run a KG
+  year, and an unused rung is one more class a roster upload can be rejected
+  against. Adding a rung is a real decision, not a cosmetic one: it changes
+  where every pupil below it is promoted to.
+- **The roster lists EVERY class, including empty ones.** It filtered to classes
+  with a head count to keep the row short; that cost a new school the ability to
+  see the classes it has not set up yet, which is what the list is for on first
+  login. Empty classes are muted but present and clickable.
 - **The final class is DECLARED by the school** (`schools.settings.final_class`),
   never inferred. Inferring it from the roster graduates the wrong people
   whenever the top class is empty — a through school with no SSS3 students this

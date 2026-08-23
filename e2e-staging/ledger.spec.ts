@@ -184,9 +184,37 @@ test.describe("admin dashboard against real data", () => {
     await openAdminDashboard(page);
     await expect(page.getByText(/Something went wrong/i)).toHaveCount(0);
 
-    const all = page.getByRole("button", { name: /^All \(\d+\)$/ });
+    const all = page.getByRole("button", { name: /^All classes \(\d+\)$/ });
     await expect(all).toBeVisible();
     await expect(page.locator("table tbody tr")).not.toHaveCount(0);
+  });
+
+  test("every class on the ladder is listed, not only the ones with pupils in them", async ({ page }) => {
+    // The roster listed only classes with a head count, to keep the row short.
+    // A school then had no way to see the classes it had not set up yet, which
+    // is exactly what a new school needs on first login — and no way to tell an
+    // empty class from one the app does not offer.
+    await openAdminDashboard(page);
+
+    for (const band of ["Nursery", "Primary", "JSS", "SSS"]) {
+      await expect(page.getByText(band, { exact: true })).toBeVisible();
+    }
+    // A class with nobody in it is still there, still shows its zero, and is
+    // still clickable.
+    const sss3 = page.getByRole("button", { name: /^SSS3 ?\d+$/ });
+    await expect(sss3).toBeVisible();
+    await expect(sss3).toBeEnabled();
+  });
+
+  test("a class offers to move up to the class above it", async ({ page }) => {
+    // The owner's path: open a class, move that class up. The button has to
+    // name where they are going, because "Promote" alone does not say whether
+    // it means this class or the whole school.
+    await openAdminDashboard(page);
+    await page.getByRole("button", { name: /^JSS1 ?\d+$/ }).click();
+    await expect(
+      page.getByRole("button", { name: /Move JSS1 up to JSS2/i })
+    ).toBeVisible();
   });
 
   test("a student's class can be changed from the roster row", async ({ page }) => {
