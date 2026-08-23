@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { encodeFeeItem, parseFeeItem, parseFeeItems, sumPaidForFee, apportionPaidItems } from "./feeItems";
+import { encodeFeeItem, parseFeeItem, parseFeeItems, sumPaidForFee } from "./feeItems";
 
 const TUITION = "11111111-1111-4111-8111-111111111111";
 const TRANSPORT_JSS1 = "22222222-2222-4222-8222-222222222222";
@@ -119,73 +119,5 @@ describe("the Deno mirror stays in sync", () => {
     const deno = readFileSync(resolve(root, "supabase/functions/_shared/feeItems.ts"), "utf8");
 
     expect(stripHeader(deno)).toBe(stripHeader(web));
-  });
-});
-
-describe("apportionPaidItems — crediting what actually arrived", () => {
-  const items = [
-    { fee_item_id: "fee-a", name: "Tuition", amount: 10000 },
-    { fee_item_id: "fee-b", name: "Books", amount: 5000 },
-  ];
-
-  it("credits everything when the full amount arrives", () => {
-    expect(apportionPaidItems(items, 1_500_000, 1_500_000)).toEqual(items);
-  });
-
-  it("credits everything when MORE than asked arrives", () => {
-    // The surplus settles to the school; the fees are covered either way.
-    expect(apportionPaidItems(items, 1_600_000, 1_500_000)).toEqual(items);
-  });
-
-  it("credits the fraction that arrived, filling fees in order", () => {
-    // Half the bill: 15,000 of base becomes 7,500, which fills Tuition to
-    // 7,500 and leaves Books untouched.
-    const out = apportionPaidItems(items, 500_000, 1_000_000);
-    expect(out).toEqual([{ fee_item_id: "fee-a", name: "Tuition", amount: 7500 }]);
-  });
-
-  it("settles the first fee fully before starting the next", () => {
-    // A school chasing one specific fee is better served by one fee settled
-    // than by every fee left part-paid.
-    const out = apportionPaidItems(items, 800_000, 1_000_000);
-    expect(out).toEqual([
-      { fee_item_id: "fee-a", name: "Tuition", amount: 10000 },
-      { fee_item_id: "fee-b", name: "Books", amount: 2000 },
-    ]);
-  });
-
-  it("NEVER credits more than arrived", () => {
-    // The property that matters. Anything else is the school losing money.
-    for (const paid of [1, 999, 250_000, 749_999, 999_999]) {
-      const out = apportionPaidItems(items, paid, 1_000_000);
-      const credited = out.reduce((s, i) => s + i.amount, 0);
-      expect(credited).toBeLessThanOrEqual((15000 * paid) / 1_000_000);
-    }
-  });
-
-  it("credits nothing when nothing arrived", () => {
-    expect(apportionPaidItems(items, 0, 1_000_000)).toEqual([]);
-    expect(apportionPaidItems(items, -500, 1_000_000)).toEqual([]);
-  });
-
-  it("falls back to crediting in full when there is no expected amount", () => {
-    // Rows predating expected_total_kobo have nothing to compare against and
-    // are trusted exactly as they were before.
-    expect(apportionPaidItems(items, NaN, NaN)).toEqual(items);
-    expect(apportionPaidItems(items, 500_000, 0)).toEqual(items);
-  });
-
-  it("drops zero and negative line items rather than encoding them", () => {
-    const out = apportionPaidItems(
-      [{ name: "Real", amount: 100 }, { name: "Zero", amount: 0 }, { name: "Bad", amount: -5 }],
-      1000, 1000
-    );
-    expect(out).toEqual([{ name: "Real", amount: 100 }]);
-  });
-
-  it("handles an empty or missing item list", () => {
-    expect(apportionPaidItems([], 500, 1000)).toEqual([]);
-    expect(apportionPaidItems(null, 500, 1000)).toEqual([]);
-    expect(apportionPaidItems(undefined, 500, 1000)).toEqual([]);
   });
 });

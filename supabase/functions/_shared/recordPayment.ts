@@ -8,7 +8,7 @@
 //
 // Recording is idempotent on payments.reference (unique index), so any two of
 // these racing is harmless.
-import { encodeFeeItem, apportionPaidItems } from "./feeItems.ts";
+import { encodeFeeItem } from "./feeItems.ts";
 import { notifyPaymentReceived } from "./notify.ts";
 
 // deno-lint-ignore no-explicit-any
@@ -75,85 +75,44 @@ export const settlePayment = async (
     return { recorded: true, note: "already_processed" };
   }
 
-  // Never credit more fees than the money that actually arrived.
+  // Never credit fees for a charge that collected less than we asked for.
   //
   // Prefer the figure OUR row recorded at checkout over the one the gateway
   // echoes back. Relying on the echo means that if a provider returns metadata
-  // under a key we did not anticipate, Number(undefined) is NaN, the check is
+  // under a key we did not anticipate, Number(undefined) is NaN, this guard is
   // skipped, and the pending row is flipped to success crediting the full fees
-  // unchecked. Paystack's shape is well documented and stable, but this must
-  // not depend on that — a provider changing its echo must never be able to
-  // silently disable an amount check.
+  // unchecked. Paystack's shape is well documented and stable, but the guard
+  // should not depend on that — a provider changing its echo must not be able
+  // to silently disable an amount check.
   //
   // A row with no stored value predates the column and is trusted as before.
   const expected = Number(existing?.expected_total_kobo ?? metadata.expected_total_kobo);
-  const paid = Number(amountPaidKobo);
-  let shortfall = false;
-
   if (Number.isFinite(expected) && expected > 0) {
-    // If the gateway will not say how much it collected, we cannot credit
-    // anything safely. Crediting the billed amount here is precisely the
-    // over-credit this check exists to prevent.
-    if (!Number.isFinite(paid)) {
-      console.error(`${reference}: settled with no amount reported; not crediting`);
+    if (!Number.isFinite(Number(amountPaidKobo)) || Number(amountPaidKobo) < expected) {
+      console.error(
+        `Underpaid charge rejected: ${reference} paid ${amountPaidKobo} of ${expected} kobo`
+      );
       await admin.from("payment_events").insert({
-        event_type: `${source}.amount_unknown`,
+        event_type: `${source}.underpaid`,
         payment_id: reference,
-        status: "amount_unknown",
-        payload: { reference, gateway, expected_kobo: expected },
+        status: "underpaid",
+        payload: { reference, gateway, expected_kobo: expected, paid_kobo: amountPaidKobo },
       });
-      return { recorded: false, note: "amount_unknown" };
+      return { recorded: false, note: "amount_mismatch" };
     }
-    shortfall = paid < expected;
   }
 
-  // A short payment used to be REFUSED outright: the money was collected and
-  // settled to the school, while the student's dashboard still showed the full
-  // amount owed and nothing anywhere explained the gap. Money held, no credit
-  // given. Now the amount that arrived is credited across the fees it was meant
-  // for, and only the remainder stays owing. Nobody is charged anything and
-  // nothing is held unaccounted for.
   const items = metadata.items as
     | { fee_item_id?: string; name: string; amount: number }[]
     | undefined;
 
-  const credited = apportionPaidItems(items, paid, expected);
-
   let totalBase = 0;
   const encoded: string[] = [];
-  for (const item of credited) {
-    totalBase += item.amount;
-    encoded.push(encodeFeeItem(item.fee_item_id, item.name, item.amount));
-  }
-
-  // Flipping the row to success while totalBase is 0 leaves its ORIGINAL billed
-  // amount in place — crediting the full fees for a part payment, which is the
-  // exact over-credit this whole path exists to prevent.
-  if (shortfall && totalBase <= 0) {
-    console.error(`${reference}: short payment with nothing creditable; leaving pending`);
-    await admin.from("payment_events").insert({
-      event_type: `${source}.nothing_creditable`,
-      payment_id: reference,
-      status: "short_paid",
-      payload: { reference, gateway, expected_kobo: expected, paid_kobo: paid },
-    });
-    return { recorded: false, note: "nothing_creditable" };
-  }
-
-  if (shortfall) {
-    console.warn(
-      `Short payment credited: ${reference} paid ${paid} of ${expected} kobo -> credited ${totalBase}`
-    );
-    await admin.from("payment_events").insert({
-      event_type: `${source}.short_paid`,
-      payment_id: reference,
-      status: "short_paid",
-      payload: {
-        reference, gateway,
-        expected_kobo: expected, paid_kobo: paid,
-        credited_base: totalBase,
-      },
-    });
+  for (const item of items || []) {
+    const amt = Math.max(Number(item.amount), 0);
+    if (amt <= 0) continue;
+    totalBase += amt;
+    encoded.push(encodeFeeItem(item.fee_item_id, item.name, amt));
   }
 
   // Flip the pending row we wrote at checkout.
