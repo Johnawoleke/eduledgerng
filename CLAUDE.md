@@ -303,7 +303,14 @@ The confusing case — a class now made entirely of pupils promoted into it — 
 refusal with an explanation, not a silent no-op: doing nothing quietly is what
 makes the button look broken.
 - **The ladder is `NIGERIAN_CLASSES` and its ORDER is the promotion path.** It
-  runs `Nursery 1, Nursery 2` → `Primary 1-6` → `JSS1-3` → `SSS1-3`.
+  runs `Creche, KG 1, KG 2` → `Nursery 1-3` → `Primary 1-6` → `JSS1-3` →
+  `SSS1-3`. The pre-primary rungs and their order are the founder's, confirmed
+  2026-08-25, because Nigerian schools genuinely differ — some run KG INSTEAD of
+  Nursery rather than before it.
+- **Adding a rung between two existing ones changes where pupils below it go.**
+  Nursery 2 used to promote into Primary 1 and now promotes into Nursery 3, so a
+  school that runs no Nursery 3 must override at rollover (the per-pupil "Into"
+  picker allows it). Adding a class is never cosmetic.
   `CLASS_GROUPS` bands the same list into the four names a school says out loud,
   derived from the ladder so a class cannot be promotable but invisible. A KG
   band was added and removed on 2026-08-23 — the launch schools do not run a KG

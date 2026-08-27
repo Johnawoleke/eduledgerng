@@ -55,7 +55,11 @@ describe("suggestClass", () => {
   });
 
   it("does not suggest a different year", () => {
-    expect(suggestClass("Nur 3")).toBeNull();   // there is no Nursery 3
+    // The guard is that a number never maps to a DIFFERENT number. "Nur 3" now
+    // resolves because Nursery 3 exists on the ladder; "Nur 5" still must not
+    // become Nursery 1, 2 or 3.
+    expect(suggestClass("Nur 3")).toBe("Nursery 3");
+    expect(suggestClass("Nur 5")).toBeNull();
     expect(suggestClass("Basic 9")).toBeNull();
   });
 

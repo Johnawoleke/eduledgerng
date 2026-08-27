@@ -99,8 +99,10 @@ describe("moving one class at a time, in ladder order", () => {
 
     expect(pupils.find((p) => p.id === "n1-a")!.class).toBe("Nursery 2");
     expect(pupils.find((p) => p.id === "n1-b")!.class).toBe("Nursery 2");
-    expect(pupils.find((p) => p.id === "n2-a")!.class).toBe("Primary 1");
-    expect(pupils.some((p) => p.class === "Primary 2")).toBe(false);
+    expect(pupils.find((p) => p.id === "n2-a")!.class).toBe("Nursery 3");
+    // Primary 1 is two rungs up from Nursery 1. Nobody reaching it is the
+    // whole point: that is what a double promotion would look like.
+    expect(pupils.some((p) => p.class === "Primary 1")).toBe(false);
   });
 
   it("gives each pupil exactly one enrolment in the new session", () => {

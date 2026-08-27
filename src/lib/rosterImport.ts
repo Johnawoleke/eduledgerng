@@ -193,8 +193,12 @@ export const rejectedRowsCsv = (rejected: RejectedRow[]): string => {
  * in and uploads it unchanged must succeed. rosterImport.test.ts asserts that.
  */
 const TEMPLATE_STUDENTS: Record<string, [string, string][]> = {
+  Creche: [["Bassey Ubong", "ubong.parent@example.com"], ["Adeniyi Simi", ""]],
+  "KG 1": [["Afolabi Tomiwa", "tomiwa.parent@example.com"], ["Nnadi Chiamaka", "chiamaka.parent@example.com"]],
+  "KG 2": [["Suleiman Aminu", "aminu.parent@example.com"], ["Igwe Adaeze", ""]],
   "Nursery 1": [["Adeyemi Tobi", "tobi.parent@example.com"], ["Okonkwo Chidera Amara", "chidera.parent@example.com"]],
   "Nursery 2": [["Ibrahim Zainab", "zainab.parent@example.com"], ["Eze Nnamdi", ""]],
+  "Nursery 3": [["Okeke Zara", "zara.parent@example.com"], ["Lawal Idris", "idris.parent@example.com"]],
   "Primary 1": [["Bello Aisha", "aisha.parent@example.com"], ["Adeleke Seun", "seun.parent@example.com"]],
   "Primary 2": [["Musa Fatima", "fatima.parent@example.com"], ["Obi Somtochukwu", "somto.parent@example.com"]],
   "Primary 3": [["Lawal Halima", "halima.parent@example.com"], ["Nwosu Ifeanyi", "ifeanyi.parent@example.com"]],

@@ -7,7 +7,7 @@ import {
 
 describe("the class ladder", () => {
   it("is ordered lowest to highest — the order IS the promotion path", () => {
-    expect(NIGERIAN_CLASSES[0]).toBe("Nursery 1");
+    expect(NIGERIAN_CLASSES[0]).toBe("Creche");
     expect(NIGERIAN_CLASSES[NIGERIAN_CLASSES.length - 1]).toBe("SSS3");
     for (let i = 1; i < NIGERIAN_CLASSES.length; i++) {
       expect(classRank(NIGERIAN_CLASSES[i])).toBeGreaterThan(classRank(NIGERIAN_CLASSES[i - 1]));
@@ -20,12 +20,24 @@ describe("the class ladder", () => {
     expect(nextClass("SSS3")).toBeNull();
   });
 
-  it("runs Nursery straight into Primary 1", () => {
-    // The ladder starts at Nursery 1. KG was added on 2026-08-23 and removed
-    // the same day: the schools we are launching with do not run a KG year, and
-    // a rung nobody uses is a rung a roster upload can be rejected against.
+  it("runs the pre-primary rungs in the order the school gave", () => {
+    // Creche, KG, then Nursery, then Primary. Nigerian schools genuinely differ
+    // here — some run KG INSTEAD of Nursery rather than before it — so this is
+    // the founder's stated order, pinned rather than inferred.
+    expect(nextClass("Creche")).toBe("KG 1");
+    expect(nextClass("KG 1")).toBe("KG 2");
+    expect(nextClass("KG 2")).toBe("Nursery 1");
     expect(nextClass("Nursery 1")).toBe("Nursery 2");
-    expect(nextClass("Nursery 2")).toBe("Primary 1");
+    expect(nextClass("Nursery 2")).toBe("Nursery 3");
+    expect(nextClass("Nursery 3")).toBe("Primary 1");
+  });
+
+  it("still ends where it did, so nothing above Primary 1 moved", () => {
+    // Rungs were added at the BOTTOM. Any pupil already in Primary or above
+    // promotes exactly as before; only Nursery 2 changed, and deliberately.
+    expect(nextClass("Primary 6")).toBe("JSS1");
+    expect(nextClass("JSS3")).toBe("SSS1");
+    expect(NIGERIAN_CLASSES[NIGERIAN_CLASSES.length - 1]).toBe("SSS3");
   });
 
   it("returns null rather than guessing at an unrecognised class", () => {

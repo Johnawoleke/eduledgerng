@@ -8,9 +8,24 @@
 // Mirrored for Deno at supabase/functions/_shared/classes.ts; the two must stay
 // identical below their headers (asserted by src/lib/classes.test.ts).
 
-/** Ordered lowest to highest. The order IS the promotion path. */
+/**
+ * Ordered lowest to highest. The order IS the promotion path.
+ *
+ * The pre-primary rungs are the school's, not ours: Creche, KG 1, KG 2,
+ * Nursery 1, Nursery 2, Nursery 3, then Primary 1. Confirmed by the founder
+ * 2026-08-25 after a school asked for them, which matters because Nigerian
+ * schools genuinely differ here — some run KG instead of Nursery rather than
+ * before it.
+ *
+ * NOTE what adding Nursery 3 changed: Nursery 2 used to promote into Primary 1
+ * and now promotes into Nursery 3. A school that does not run a Nursery 3 has
+ * to override that at rollover, which the per-pupil "Into" picker allows. Every
+ * rung added between two existing ones does this, which is why adding one is a
+ * real decision and not a cosmetic one.
+ */
 export const NIGERIAN_CLASSES = [
-  "Nursery 1", "Nursery 2",
+  "Creche", "KG 1", "KG 2",
+  "Nursery 1", "Nursery 2", "Nursery 3",
   "Primary 1", "Primary 2", "Primary 3", "Primary 4", "Primary 5", "Primary 6",
   "JSS1", "JSS2", "JSS3",
   "SSS1", "SSS2", "SSS3",
