@@ -14,7 +14,8 @@
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:staging": "playwright test --config=playwright.staging.config.ts",
-    "test:payments": "vitest run --config=vitest.payments.config.ts"
+    "test:payments": "vitest run --config=vitest.payments.config.ts",
+    "paystack:unverified": "node scripts/paystack-unverified.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

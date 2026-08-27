@@ -86,6 +86,31 @@ const SchoolSettingsPage = () => {
     load();
   }, [slug]);
 
+  // Whether Paystack has released this school for payouts.
+  //
+  // A school can take fees for a week and receive NOTHING, because Paystack
+  // holds the first payout to a new subaccount until someone clicks Verify in
+  // its dashboard. There is no API for that, so the least we can do is stop the
+  // school finding out from an angry parent.
+  const [payoutHold, setPayoutHold] = useState<null | {
+    provisioned: boolean; verified: boolean | null;
+  }>(null);
+
+  useEffect(() => {
+    if (!school?.id) return;
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase.functions.invoke("settlement-status", {
+        body: { school_id: school.id },
+      });
+      // Silent on failure. A banner shown because a lookup failed sends a
+      // school chasing Paystack support over nothing.
+      if (cancelled || error || !data || data.error) return;
+      setPayoutHold({ provisioned: !!data.provisioned, verified: data.verified });
+    })();
+    return () => { cancelled = true; };
+  }, [school?.id]);
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (accountNumber && !/^\d{10}$/.test(accountNumber)) {
@@ -188,6 +213,26 @@ const SchoolSettingsPage = () => {
               <CardDescription>Add your school's bank details for payment settlement</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              {/* Only when we KNOW it is false. null means we could not ask. */}
+              {payoutHold?.provisioned && payoutHold.verified === false && (
+                <div className="p-3 rounded-lg border border-amber-500/40 bg-amber-500/10 text-sm">
+                  <p className="font-medium">Your payouts are on hold</p>
+                  <p className="text-muted-foreground mt-1 leading-snug">
+                    Paystack holds the first payout to a new bank account until it has been
+                    checked once. Fees are still being collected and nothing is lost, but the
+                    money will not reach your account until the check is done. We have been
+                    told and are clearing it. It only happens once.
+                  </p>
+                </div>
+              )}
+              {payoutHold?.provisioned && payoutHold.verified === true && (
+                <div className="p-3 rounded-lg border text-sm">
+                  <p className="font-medium">Your account is set up for payouts</p>
+                  <p className="text-muted-foreground mt-1">
+                    Fees you collect settle to the account below.
+                  </p>
+                </div>
+              )}
               <div className="space-y-2">
                 <Label>Bank Name</Label>
                 <Select value={bankName} onValueChange={setBankName}>

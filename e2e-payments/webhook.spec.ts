@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import {
   secretsPresent, loginStudent, createPending, readPayment, cleanup,
   signedWebhook, callFunction, chargeSuccessBody,
-  type StudentSession, type Pending,
+  type StudentSession, type Pending, type Json,
 } from "./helpers";
 
 // Every case here maps to something that has ALREADY been wrong in this
@@ -109,7 +109,7 @@ suite("the payment webhook, against the deployed staging function", () => {
     it("credits nothing when the gateway reports no amount at all", async () => {
       // Number(undefined) is NaN and must never read as "paid in full".
       const p = await fresh();
-      const body: any = chargeSuccessBody(p, 0);
+      const body: Json = chargeSuccessBody(p, 0);
       delete body.data.amount;
       await signedWebhook(body);
       expect((await readPayment(p.reference))?.status).not.toBe("success");

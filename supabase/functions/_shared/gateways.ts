@@ -196,6 +196,22 @@ export const paystack: Gateway = {
     if (!key) throw new Error("PAYSTACK_SECRET_KEY not set");
     if (!args.bankCode) throw new Error("A bank code is required to create a Paystack subaccount");
 
+    // Reuse a subaccount that already points at this bank account.
+    //
+    // Every NEW subaccount starts unverified, and Paystack holds its first
+    // payout INDEFINITELY until someone clicks Verify in the dashboard — there
+    // is no API for it, deliberately, because an automatable fraud check
+    // protects nobody. So a duplicate is not merely untidy: it is another
+    // manual step before that school can be paid, and settlement follows
+    // whichever subaccount the transaction actually used.
+    //
+    // God's Pillar College already has two identical live subaccounts from the
+    // cached code being cleared and re-provisioned twice.
+    const existing = await findSubaccount(key, args.accountNumber, args.bankCode);
+    if (existing) {
+      return { id: existing, extra: { paystack_bank_code: args.bankCode } };
+    }
+
     const res = await fetch(`${PAYSTACK_API}/subaccount`, {
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
@@ -259,6 +275,61 @@ const fetchNigerianBanks = async (key: string): Promise<BankRef[]> => {
     if (!next) break;
   }
   return banks;
+};
+
+/**
+ * An existing subaccount for this exact bank account, or null.
+ *
+ * Paystack has no filter for this, so the list is paged through and matched
+ * locally. It runs only when a school has no cached settlement code — first
+ * payment, or straight after a bank-details change — never on the hot path.
+ */
+const findSubaccount = async (
+  key: string,
+  accountNumber: string,
+  bankCode: string
+): Promise<string | null> => {
+  const wanted = String(accountNumber).replace(/\D/g, "");
+  if (!wanted) return null;
+
+  for (let page = 1; page <= 20; page++) {
+    const url = new URL(`${PAYSTACK_API}/subaccount`);
+    url.searchParams.set("perPage", "100");
+    url.searchParams.set("page", String(page));
+
+    const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${key}` } });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const rows = data?.data;
+    if (!Array.isArray(rows) || rows.length === 0) return null;
+
+    for (const row of rows) {
+      const acct = String(row?.account_number ?? "").replace(/\D/g, "");
+      // settlement_bank comes back as a NAME here but is sent as a CODE, so the
+      // account number is the reliable half. Two schools sharing an account
+      // number would already be the same settlement destination.
+      if (acct && acct === wanted && row?.subaccount_code) {
+        return String(row.subaccount_code);
+      }
+    }
+    if (rows.length < 100) return null;
+  }
+  return null;
+};
+
+/** Whether Paystack has released this subaccount for payouts yet. */
+export const subaccountVerified = async (
+  subaccountCode: string
+): Promise<boolean | null> => {
+  const key = Deno.env.get("PAYSTACK_SECRET_KEY");
+  if (!key || !subaccountCode) return null;
+  const res = await fetch(`${PAYSTACK_API}/subaccount/${encodeURIComponent(subaccountCode)}`, {
+    headers: { Authorization: `Bearer ${key}` },
+  });
+  if (!res.ok) return null;
+  const data = await res.json();
+  const v = data?.data?.is_verified;
+  return typeof v === "boolean" ? v : null;
 };
 
 /** Resolve a Nigerian bank name to the code a gateway expects. */

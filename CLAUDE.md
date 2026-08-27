@@ -136,6 +136,27 @@ is fine; it is not sensitive).
 
 **The cached subaccount is invalidated in the database, not in the UI.** `create-paystack-payment` only provisions a subaccount when `settings.paystack_subaccount_code` is absent, so a bank-details change *must* clear it — otherwise every later payment silently settles into the school's OLD bank account. The `guard_school_settlement_settings` trigger stripped the cache whenever `bank_name` or `account_number` changed, and blocked clients from writing those keys at all. That trigger moved with the data: it is now `guard_settlement_row` on `school_settlement` (migration 20260823120000), and it additionally covers INSERT, which the old one never needed because the row could not exist independently. Don't move this back into page code.
 
+**Paystack holds a new subaccount's FIRST payout indefinitely** until someone
+clicks "Verify Subaccounts" in its dashboard. There is no API for it — probed
+2026-08-26, `/subaccount/{code}/verify` and `/subaccount/verify` are both 404 —
+and that is deliberate: an automatable fraud check protects nobody. It happens
+once per subaccount, and again if the subaccount is UPDATED.
+
+The consequence is that a school can collect fees for a week and receive
+nothing, with no signal anywhere. So:
+- `settlement-status` reports `is_verified` per school, read live from Paystack
+  (never cached — it flips in a dashboard we do not control, with no callback),
+  and the Settings page shows the school it is on hold.
+- `npm run paystack:unverified` lists every blocked school across the platform,
+  plus duplicate subaccounts sharing one bank account.
+- `createSettlementAccount` REUSES a subaccount already pointing at the same
+  account number. Each duplicate is another manual verification click, and
+  settlement follows whichever one the transaction used. God's Pillar College
+  ended up with two from re-provisioning after cache clears.
+
+**Verification is a step in school onboarding, not an edge case.** Every school
+needs it once before its first payout, and changing bank details restarts it.
+
 **A subaccount cached under a TEST key is invalid under a LIVE key.** Swapping
 `PAYSTACK_SECRET_KEY` from test to live does not clear the cache — the guard only
 fires on a bank-details change — so every school that transacted in test mode

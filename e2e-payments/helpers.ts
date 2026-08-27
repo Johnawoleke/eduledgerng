@@ -24,6 +24,18 @@
 import { createClient } from "@supabase/supabase-js";
 import { createHmac } from "node:crypto";
 
+/**
+ * A parsed JSON response. Deliberately loose: these tests assert against real
+ * gateway and edge-function payloads, and pinning a shape here would only
+ * duplicate the very contracts the suite exists to check.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type Json = any;
+
+const parseJson = (text: string): Json => {
+  try { return JSON.parse(text); } catch { return text; }
+};
+
 const need = (name: string): string => {
   const v = process.env[name];
   if (!v) {
@@ -60,16 +72,14 @@ export const callFunction = async (
   name: string,
   body: unknown,
   headers: Record<string, string> = {}
-): Promise<{ status: number; body: any }> => {
+): Promise<{ status: number; body: Json }> => {
   const res = await fetch(`${STAGING_URL}/functions/v1/${name}`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...headers },
     body: JSON.stringify(body),
   });
   const text = await res.text();
-  let parsed: any = null;
-  try { parsed = JSON.parse(text); } catch { parsed = text; }
-  return { status: res.status, body: parsed };
+  return { status: res.status, body: parseJson(text) };
 };
 
 /**
@@ -92,9 +102,7 @@ export const signedWebhook = async (payload: unknown) => {
     body: raw,
   });
   const text = await res.text();
-  let parsed: any = null;
-  try { parsed = JSON.parse(text); } catch { parsed = text; }
-  return { status: res.status, body: parsed };
+  return { status: res.status, body: parseJson(text) };
 };
 
 export interface StudentSession {
@@ -119,8 +127,8 @@ export const loginStudent = async (): Promise<StudentSession> => {
   const raw = [...(body.feeItems || []), ...(body.owing || []), ...(body.arrears || [])];
   const seen = new Set<string>();
   const fees = raw
-    .filter((f: any) => f?.id && !seen.has(f.id) && seen.add(f.id))
-    .map((f: any) => ({
+    .filter((f: Json) => f?.id && !seen.has(f.id) && seen.add(f.id))
+    .map((f: Json) => ({
       id: f.id, name: f.name, amount: Number(f.amount), paid: Number(f.paid || 0),
     }));
   return { token: body.session_token, studentDbId: body.student?.id, fees };
