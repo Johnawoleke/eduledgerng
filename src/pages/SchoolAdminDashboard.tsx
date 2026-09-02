@@ -54,6 +54,8 @@ import {
   type PromotionAction,
 } from "@/lib/classes";
 import { createSessionWithTerms, ensureSessionHasTerms } from "@/lib/academicSessions";
+import { schoolPrefix, nextStudentIds } from "@/lib/studentIds";
+import { generateCredentialSlips, slipPageCount } from "@/lib/generateCredentialSlips";
 import { sumPaidForFee, countStudentsInClass as countInClass } from "@/lib/fees";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -156,14 +158,14 @@ interface StudentCharge {
   term_id: string | null;
 }
 
-const generateStudentCode = (surname: string, firstName: string, middleName: string) => {
-  const initials = [surname, firstName, middleName]
-    .filter(Boolean)
-    .map((n) => n.charAt(0).toUpperCase())
-    .join("");
-  const num = String(Math.floor(1000 + Math.random() * 9000));
-  return `${initials}-${num}`;
-};
+// Student ids are assigned in one pass by @/lib/studentIds: a school prefix
+// plus a sequential number, unique by construction.
+//
+// They used to be initials plus four random digits, with no uniqueness check.
+// `students` has `unique (school_id, student_id)` and the roster is inserted in
+// ONE statement, so a single collision failed the entire upload — 300 pupils,
+// zero created, and a raw Postgres error naming no row. Nigerian rosters share
+// initials constantly, so this was a matter of when.
 
 const normalizeHeader = (value: string) => value.toLowerCase().replace(/[\s_-]+/g, "");
 
@@ -973,7 +975,12 @@ const SchoolAdminDashboard = () => {
     setAddingStudent(true);
 
     const fullName = [newSurname.trim(), newFirstName.trim(), newMiddleName.trim()].filter(Boolean).join(" ");
-    const studentId = generateStudentCode(newSurname.trim(), newFirstName.trim(), newMiddleName.trim());
+    const [studentId] = await claimStudentIds(1);
+    if (!studentId) {
+      toast.error("Could not allocate a student ID. Please try again.");
+      setAddingStudent(false);
+      return;
+    }
     // `pin` is hashed by the hash_student_pin DB trigger on write; `default_pin`
     // keeps the plaintext so the owner can read it back to hand over, and is
     // cleared the moment the student sets their own.
@@ -1097,6 +1104,91 @@ const SchoolAdminDashboard = () => {
     loadData();
   };
 
+  /**
+   * `count` fresh student ids for this school.
+   *
+   * Reads every id the school already holds so the whole batch is assigned in
+   * one pass — no per-row round trip, and nothing in the batch can collide with
+   * itself or with an existing pupil. Archived and graduated pupils count: their
+   * ids must never be handed to a new child, whose payment history would then
+   * read as theirs.
+   */
+  const claimStudentIds = async (count: number): Promise<string[]> => {
+    if (!school) return [];
+    const { data, error } = await supabase
+      .from("students").select("student_id").eq("school_id", school.id);
+    if (error) throw new Error(error.message);
+    return nextStudentIds(
+      schoolPrefix(school as { school_code?: string | null; slug?: string | null; name?: string | null }),
+      (data || []).map((r: { student_id: string }) => r.student_id),
+      count
+    );
+  };
+
+  // The link a parent types in. Computed rather than stored so it follows the
+  // domain the school is actually using — see the custom-domain note in
+  // CLAUDE.md.
+  const studentPortalUrl = () => `${window.location.origin}/school/${school?.slug || slug || ""}`;
+
+  // --- Getting logins to parents -------------------------------------------
+  //
+  // After an upload the credentials exist in exactly ONE place. A school with
+  // 300 pupils then has to get 300 rows to 300 parents by hand, and that is
+  // where onboarding actually stalls. Two ways out, because neither covers
+  // everyone: email reaches the parents who gave an address, and printed slips
+  // reach the rest, which for a Nigerian primary school is most of them.
+  const downloadSlips = (
+    rows: { student_id: string; name: string; class: string; default_pin: string | null }[]
+  ) => {
+    const printable = rows.filter((r) => r.default_pin);
+    if (printable.length === 0) {
+      toast.info("Nothing to print", {
+        description:
+          "Every one of these students has already set their own password, so " +
+          "there is no temporary one left to hand out.",
+      });
+      return;
+    }
+    const doc = generateCredentialSlips(
+      printable.map((r) => ({
+        studentId: r.student_id, name: r.name,
+        className: r.class, tempPassword: r.default_pin as string,
+      })),
+      { schoolName: school?.name || "School", portalUrl: studentPortalUrl() }
+    );
+    doc.save(`${school?.slug || "school"}-login-slips.pdf`);
+  };
+
+  const [emailingCreds, setEmailingCreds] = useState(false);
+
+  const emailCredentials = async (studentDbIds?: string[]) => {
+    if (!school) return;
+    setEmailingCreds(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("send-credentials", {
+        body: { school_id: school.id, student_ids: studentDbIds, portal_url: studentPortalUrl() },
+      });
+      const message = error || data?.error
+        ? data?.error || (await readFunctionsError(error, "Could not send the emails"))
+        : null;
+      if (message) { toast.error(message, { duration: 10000 }); return; }
+
+      // The school MUST be told who was not reached, or it assumes every parent
+      // has their login and stops chasing the ones who never got it.
+      const unreached = (data.no_email || 0) + (data.failed || 0);
+      toast.success(`Sent to ${data.sent} parent(s)`, {
+        description: unreached > 0
+          ? `${unreached} could not be emailed (${data.no_email} have no email on file, ` +
+            `${data.failed} were rejected). Print slips for those.`
+          : "Every student with a parent email has been sent their login.",
+        duration: Infinity,
+        closeButton: true,
+      });
+    } finally {
+      setEmailingCreds(false);
+    }
+  };
+
   const toStudentNameParts = (fullName: string) => {
     const cleaned = fullName.trim().replace(/\s+/g, " ");
     const parts = cleaned.split(" ").filter(Boolean);
@@ -1196,14 +1288,15 @@ const SchoolAdminDashboard = () => {
         return;
       }
 
-      const inserts = accepted.map((r) => {
+      const ids = await claimStudentIds(accepted.length);
+      const inserts = accepted.map((r, i) => {
         const nameParts = toStudentNameParts(r.name);
         // A distinct temporary password per row — a shared one would put the
         // whole uploaded roster behind a single guess.
         const tempPassword = generateTempPassword();
         return {
           school_id: school.id,
-          student_id: generateStudentCode(nameParts.surname, nameParts.firstName, nameParts.middleName),
+          student_id: ids[i],
           name: nameParts.fullName,
           class: r.className,
           pin: tempPassword,
@@ -1214,9 +1307,23 @@ const SchoolAdminDashboard = () => {
         };
       });
 
-      const { error } = await supabase.from("students").insert(inserts);
+      // Ids are collision-free within this batch and against what the school
+      // already holds, but two admins uploading at the same moment both read
+      // the same highest number. That race is rare and cheap to survive: read
+      // the ids again and retry once, rather than losing a 300-pupil upload to
+      // a unique-violation the owner cannot act on.
+      let { error } = await supabase.from("students").insert(inserts);
+      if (error && String(error.code) === "23505") {
+        const retryIds = await claimStudentIds(inserts.length);
+        inserts.forEach((row, i) => { row.student_id = retryIds[i]; });
+        ({ error } = await supabase.from("students").insert(inserts));
+      }
       if (error) {
-        toast.error(error.message);
+        toast.error(
+          String(error.code) === "23505"
+            ? "Two uploads ran at the same time. Nothing was added — please try again."
+            : error.message
+        );
         return;
       }
 
@@ -1250,9 +1357,18 @@ const SchoolAdminDashboard = () => {
         duration: Infinity,
         closeButton: true,
         action: {
-          label: "Download",
+          label: `Print ${slipPageCount(inserts.length)} page(s) of slips`,
           onClick: (e) => {
             e.preventDefault();
+            downloadSlips(inserts.map((i) => ({
+              student_id: i.student_id, name: i.name,
+              class: i.class, default_pin: i.default_pin,
+            })));
+          },
+        },
+        cancel: {
+          label: "Download CSV",
+          onClick: () => {
             const blob = new Blob([credentialsCsv], { type: "text/csv;charset=utf-8" });
             const url = URL.createObjectURL(blob);
             const a = document.createElement("a");
@@ -1263,6 +1379,20 @@ const SchoolAdminDashboard = () => {
           },
         },
       });
+
+      // Email is offered separately rather than as a third button on one toast,
+      // because it SENDS something the moment it is clicked and the other two
+      // only download a file.
+      const withEmail = accepted.filter((r) => r.parentEmail).length;
+      if (withEmail > 0) {
+        toast.info(`${withEmail} of them have a parent email on file`, {
+          description: "Send those parents their login details directly?",
+          position: "top-center",
+          duration: Infinity,
+          closeButton: true,
+          action: { label: "Send emails", onClick: (e) => { e.preventDefault(); emailCredentials(); } },
+        });
+      }
       loadData();
     } catch (error: any) {
       if (String(error?.message || "").includes("Failed to resolve module specifier")) {
@@ -1852,6 +1982,33 @@ const SchoolAdminDashboard = () => {
               <DropdownMenuItem onClick={downloadStudentTemplate}>
                 <Download className="w-4 h-4 mr-2" /> Download roster template
               </DropdownMenuItem>
+
+              {/* Reachable long after the upload toast has gone. A school does
+                  not hand out 300 logins in the ten seconds it is on screen,
+                  and new pupils join all year. Both act on everyone who has not
+                  yet set their own password, so re-running them is safe. */}
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel>Student logins</DropdownMenuLabel>
+              <DropdownMenuItem
+                onClick={() => downloadSlips(
+                  activeStudents.map((st) => ({
+                    student_id: st.student_id, name: st.name,
+                    class: st.class,
+                    default_pin: (st as { default_pin?: string | null }).default_pin ?? null,
+                  }))
+                )}
+              >
+                <Download className="w-4 h-4 mr-2" /> Print login slips
+              </DropdownMenuItem>
+              {userRole === "owner" && (
+                <DropdownMenuItem
+                  disabled={emailingCreds}
+                  onClick={() => emailCredentials()}
+                >
+                  <Mail className="w-4 h-4 mr-2" />
+                  {emailingCreds ? "Sending..." : "Email logins to parents"}
+                </DropdownMenuItem>
+              )}
 
               <DropdownMenuSeparator />
               <DropdownMenuLabel>Money</DropdownMenuLabel>

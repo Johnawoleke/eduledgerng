@@ -57,6 +57,26 @@ payment, so the dataset stays reusable.
 
 2. **Students** do NOT use Supabase auth. They log in with `student_id` + a password, validated server-side by the `student-auth` edge function against the `verify_student_pin` RPC.
 
+   **Student ids are `PREFIX-NNNN`, assigned sequentially** by
+   `src/lib/studentIds.ts` (`GPC-0001`). They were initials plus four random
+   digits with NO uniqueness check, while `students` has
+   `unique (school_id, student_id)` and the roster inserts in ONE statement — so
+   a single collision failed a 300-pupil upload entirely, zero created, with a
+   raw Postgres error naming no row. Nigerian rosters share initials constantly.
+   Ids are claimed in one pass from every id the school already holds
+   (**including archived and graduated pupils** — reusing a number hands a
+   departed pupil's login and payment history to a new child), with one retry on
+   23505 for the two-admins-at-once race.
+
+   **Getting logins to parents is the step onboarding stalls at.** After an
+   upload the credentials exist in one place only, and a 300-pupil school then
+   has 300 manual acts. Three routes, none sufficient alone: printable A4 slips
+   (`generateCredentialSlips.ts`, six to a page — the reliable one, since
+   `parent_email` is optional and often absent), `send-credentials` emailing the
+   parents who did give an address, and the original CSV. All three act only on
+   pupils who still have a `default_pin`, so a pupil who has set their own
+   password is never re-sent a dead one.
+
    `students.pin` is a **bcrypt digest**, hashed on write by the `hash_student_pin` trigger (migration 20260803110000) — so callers still assign a plaintext value and the database stores the hash, and nothing outside `verify_student_pin` can check a password. `students.default_pin` holds the plaintext one-time temporary password the school issued (so an owner can read it back and hand it over) and is set to NULL the moment the student sets their own.
 
    On success `student-auth` mints an **opaque session token** (32 random bytes; only its SHA-256 digest is stored, in `student_sessions`, which has RLS on and no policies). `src/lib/schoolContext.tsx` keeps it under `pity_session` with its expiry. Every later privileged call — dashboard refresh, checkout — carries the token, NOT the password. Do not reintroduce password re-sending: the old scheme kept the student's password in localStorage forever with nothing to revoke.
