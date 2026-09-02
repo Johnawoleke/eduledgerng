@@ -47,27 +47,49 @@ Verified against staging with real data (2 schools, 17 students, 8 payments, 118
 charges) via `scripts/verify-reset.mjs`, which runs it inside a transaction and
 rolls back.
 
-## Step 3 — login accounts (a separate decision)
+## Step 3 — login accounts
 
-Step 2 does NOT touch logins. Owners and bursars can still sign in; they will
-just see no schools. `profiles` cascades from `auth.users`, so deleting the user
-removes the profile.
+Step 2 does NOT touch logins. Owners and bursars can still sign in; they would
+just see no schools. `profiles` cascades from `auth.users`, so removing the user
+removes the profile with it.
 
-**Keep your own and John's, delete the rest** — usually what you want:
+For a complete wipe — a database indistinguishable from a brand-new project:
+
+```sql
+delete from auth.users;
+```
+
+**This signs you out too.** Do it last, and re-register at `/register`
+immediately afterwards. That is the point: you create the first school the same
+way a real school will, so the path gets walked before a customer walks it.
+
+To keep your own access instead, exclude the accounts you want:
 
 ```sql
 delete from auth.users
  where email not in ('john@example.com', 'satyam@example.com');
 ```
 
-**Or clear everything and re-register from scratch:**
+## Step 4 — confirm it is actually empty
 
 ```sql
-delete from auth.users;
+select 'schools' t, count(*) from public.schools
+union all select 'students',           count(*) from public.students
+union all select 'payments',           count(*) from public.payments
+union all select 'payment_events',     count(*) from public.payment_events
+union all select 'class_fees',         count(*) from public.class_fees
+union all select 'student_charges',    count(*) from public.student_charges
+union all select 'student_enrolments', count(*) from public.student_enrolments
+union all select 'sessions',           count(*) from public.sessions
+union all select 'terms',              count(*) from public.terms
+union all select 'school_admins',      count(*) from public.school_admins
+union all select 'school_settlement',  count(*) from public.school_settlement
+union all select 'profiles',           count(*) from public.profiles
+union all select 'auth.users',         count(*) from auth.users;
 ```
 
-Either way both of you should re-register your schools afterwards, so the data
-is created the way a real school creates it.
+Every row must read 0. Anything that does not is a table this script missed —
+stop and say so rather than onboarding onto it.
 
 ## What this does NOT clean
 
