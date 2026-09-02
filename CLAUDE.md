@@ -99,6 +99,15 @@ Secrets (`SUPABASE_SERVICE_ROLE_KEY`, `PAYSTACK_SECRET_KEY`, `RESEND_API_KEY`) a
 
 **`verify_jwt = false` is a deliberate, audited list** (`supabase/config.toml`): only the student functions (students hold no Supabase JWT) and `paystack-webhook` (server-to-server). Every one does its own authorization — password, session token, or HMAC signature. Note the anon key is itself a valid JWT, so `verify_jwt = true` proves nothing about *who* is calling; functions that need an identity (`register-school`, `add-bursar`, `remove-bursar`, `handle-school-request`) must also call `auth.getUser()` and check it. Do not add a function to the `verify_jwt = false` list without that reasoning.
 
+`create-paystack-payment` and `verify-paystack-payment` were **retired
+2026-09-02** — superseded by `create-payment`/`verify-payment`, no callers, yet
+still deployed and `verify_jwt = false`, carrying a THIRD copy of the settle
+logic whose amount check read `expected_total_kobo` from gateway metadata only.
+Deleted from both projects, source removed, and the drift guard in
+`paystackFees.test.ts` that existed solely to compare against that copy went
+with them. `src/lib/paystackFees.ts` stays: `Calculator.tsx` uses it and
+`gatewayMoney.test.ts` cross-checks the live maths against it.
+
 The legacy Zendfi flow (`create-zendfi-payment`, `zendfi-webhook`), `student-payment`, and `check-user-exists` were **deleted** in the 2026-08-03 security pass. `student-payment` could write `payments` rows that defaulted to `status = 'success'` with no gateway involved; `check-user-exists` was an unauthenticated email-enumeration oracle with no callers. If they still exist in the hosted project, delete them there too (`supabase functions delete <name>`).
 
 ### Payment gateway: Paystack

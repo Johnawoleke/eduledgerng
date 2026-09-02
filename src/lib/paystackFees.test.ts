@@ -1,6 +1,4 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import {
   PLATFORM_FEE_RATE,
   paystackFeeKobo,
@@ -134,41 +132,9 @@ describe("computeCheckoutKobo — full checkout breakdown", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// DRIFT GUARD: create-paystack-payment (Deno) keeps its own copy of
-// paystackFeeKobo/grossUpKobo. Evaluate that copy from source and assert it
-// produces identical output to this lib, so the two can never silently diverge.
-// ---------------------------------------------------------------------------
-describe("edge function money math stays in sync with the lib", () => {
-  const edgeSrc = readFileSync(
-    path.join(process.cwd(), "supabase/functions/create-paystack-payment/index.ts"),
-    "utf8"
-  );
-
-  const extract = (name: string): string => {
-    const re = new RegExp(`const ${name}\\s*=\\s*\\([^)]*\\)[^=]*=>\\s*\\{[\\s\\S]*?\\n\\};`, "m");
-    const m = re.exec(edgeSrc);
-    if (!m) throw new Error(`Could not extract ${name} from create-paystack-payment/index.ts`);
-    return m[0].replace(/:\s*number/g, "");
-  };
-
-  const edge = new Function(
-    `${extract("paystackFeeKobo")}\n${extract("grossUpKobo")}\nreturn { paystackFeeKobo, grossUpKobo };`
-  )() as { paystackFeeKobo: (k: number) => number; grossUpKobo: (k: number) => number };
-
-  it("edge paystackFeeKobo === lib paystackFeeKobo across the sweep", () => {
-    expect(firstViolation((k) => edge.paystackFeeKobo(k) === paystackFeeKobo(k))).toBeNull();
-  });
-
-  it("edge grossUpKobo === lib grossUpKobo across the sweep", () => {
-    expect(firstViolation((base) => edge.grossUpKobo(base) === grossUpKobo(base))).toBeNull();
-  });
-
-  it("edge function still composes the checkout the same way (1% on top, grossed up)", () => {
-    expect(edgeSrc).toContain("const PLATFORM_FEE_RATE = 0.01");
-    expect(edgeSrc).toContain("Math.round(baseKobo * PLATFORM_FEE_RATE)");
-    expect(edgeSrc).toContain("const targetSettledKobo = baseKobo + platformFeeKobo");
-    expect(edgeSrc).toContain("const totalKobo = grossUpKobo(targetSettledKobo)");
-    expect(edgeSrc).toContain('bearer: "subaccount"');
-  });
-});
+// The DRIFT GUARD that lived here compared this lib against
+// create-paystack-payment's own copy of the money maths. That function was
+// retired on 2026-09-02 — superseded by create-payment, no callers, and still
+// publicly invocable with a weaker amount check — so there is no second copy
+// left to drift from. gatewayMoney.test.ts still cross-checks this lib against
+// _shared/gatewayMoney.ts, which is the comparison that now matters.

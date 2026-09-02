@@ -63,8 +63,3 @@ verify_jwt = false
 
 # Superseded by create-payment / verify-payment. Kept deployed only until the
 # frontend rollout completes, then delete from the hosted project.
-[functions.create-paystack-payment]
-verify_jwt = false
-
-[functions.verify-paystack-payment]
-verify_jwt = false
